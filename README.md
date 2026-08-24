@@ -94,7 +94,9 @@ Copy `custom_components/ar_hdl_buspro` into your `config/custom_components/` fol
 
 ## 📸 Setup Walkthrough (with Screenshots)
 
-Six screens from nothing to a working system — add the hub, pick the gateway, open settings, scan the bus, and import.
+Seven screens from nothing to a working system — add the hub, pick the gateway, open settings, scan the bus, watch it work, and import.
+
+> These are recreated at the current version (4.2.2) so the branding, text and behaviour you see below match what you'll actually get — they're not raw screen grabs off a live install (this repo doesn't ship with one), but every string is pulled straight from the integration's own `strings.json` and `config_flow.py`, so what's on screen is exactly what you'll see.
 
 ### Step 1 — Add the hub
 
@@ -157,7 +159,17 @@ The scan works by broadcasting read requests every few seconds and listening to 
 
 Longer is never wrong, it just costs you the wait. Submit when you're happy.
 
-### Step 6 — Select what you want to control
+### Step 6 — Watch it work
+
+<p align="center">
+  <img src="images/demo5b.png" alt="AR HDL BUSPRO bus scan in progress, showing a live countdown of seconds remaining" width="480">
+  &nbsp;&nbsp;
+  <img src="images/demo5c.png" alt="AR HDL BUSPRO bus scan confirming channel counts after the listen window ends" width="480">
+</p>
+
+While the listen window is open you get a live countdown instead of a blank spinner. When it hits `0s`, the dialog doesn't close right away — it switches to **confirming channel counts**: most relay and dimmer modules ignore a broadcast channel-status read and only answer one sent directly to their own address, so the integration follows up with every device it just found. That's normally a few extra seconds and is capped well beyond that on a very large bus, but it's what fills in the channel counts you see on the next screen — so let it finish.
+
+### Step 7 — Select what you want to control
 
 <p align="center">
   <img src="images/demo6.png" alt="AR HDL BUSPRO scan results — discovered devices with inferred type, HDL type code and channel count" width="700">
@@ -171,7 +183,6 @@ Before you import, two options are worth a look:
 - **Dimmer type codes** — if a dimmer landed in the list as a switch, copy its type code from the line (e.g. `0x0269`) into this box before importing. The code is remembered for good, so every future scan on this site gets it right automatically.
 
 Tick, submit, and your HDL system is in Home Assistant. Nothing is overwritten and nothing is deleted, so you can re-scan any time.
-
 
 ## 🌐 Finding Your Gateway on the Network
 
@@ -198,14 +209,18 @@ This is the headline feature. Instead of walking the site with the HDL Buspro Se
 |---|---|
 | **Listen duration** | How long to listen on the bus, in seconds (default 15, range 3–60). Longer scans catch more passive traffic — 30–60 s is worth it on a large or quiet site. |
 
-> 📸 The scan screens are shown in [Step 4](#step-4--run-a-bus-scan), [Step 5](#step-5--choose-how-long-to-sniff-the-bus) and [Step 6](#step-6--select-what-you-want-to-control).
+> 📸 The scan screens are shown in [Step 4](#step-4--run-a-bus-scan), [Step 5](#step-5--choose-how-long-to-sniff-the-bus), [Step 6](#step-6--watch-it-work) and [Step 7](#step-7--select-what-you-want-to-control).
 
 ### ⚙️ How the Scan Works
 
-During the listen window the scanner does two things at once:
+The scan runs in two phases, and the progress dialog (see [Step 6](#step-6--watch-it-work)) tells you which one you're in:
+
+**Phase 1 — broadcast discovery**, for however long you set as the listen duration. During this window the scanner does two things at once:
 
 1. **Provokes replies.** Every 2.5 s it broadcasts a round of read requests covering each device class — channel status, sensor status, sensors-in-one, floor heating, dry contacts, universal switches, curtain status (curtains 1 and 2), and the canonical HDL "device info" poke (`0x000E`). Anything alive on the bus answers at least one of these.
 2. **Eavesdrops.** All other traffic during the window — keypad presses, dimmer broadcasts, sensor auto-reports — is also harvested. This is how keypads get identified (they *send* commands but never answer channel reads) and how dimmers betray themselves (any channel reporting an in-between level of 1–99 can only be a dimmer).
+
+**Phase 2 — directed follow-up**, always runs after, and isn't part of the listen duration you set. Most relay and dimmer modules ignore a *broadcast* channel-status read and only answer one sent *directly* to their own address, so the scanner goes back to every device Phase 1 found and asks each one for its channel count, in two rounds a couple of seconds apart. This is normally a few seconds and is hard-capped at 20 seconds regardless of how many devices are on the bus, so a large site can't make the scan run away.
 
 Each device that speaks is classified from **what it said**, which is far more reliable than the raw type code alone:
 
@@ -355,7 +370,6 @@ Legacy `buspro` entries (`host` / `port`) are migrated automatically to the new 
 
 · Issues and type-code contributions welcome on [GitHub](https://github.com/marsh4200/ar_hdl_buspro/issues)
 
-
 ---
 
 ## ❤️ Support the Project
@@ -366,5 +380,4 @@ If you find **AR HDL BUSPRO** useful:
 - 🐛 Report bugs
 - 💡 Suggest features
 - 🤝 Contribute improvements
-
 
