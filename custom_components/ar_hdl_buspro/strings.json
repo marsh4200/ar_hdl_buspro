@@ -1,0 +1,303 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AR HDL BUSPRO gateway",
+        "description": "Found {count} HDL Buspro gateway(s) on your network by probing UDP port 6000. Pick one, or enter an address manually.",
+        "data": {
+          "gateway_choice": "Gateway"
+        }
+      },
+      "manual": {
+        "title": "Gateway details",
+        "description": "Enter or confirm the IP address and port of your HDL Buspro gateway (default port 6000). The local IP is optional and only needed to bind the receive socket to a specific interface.",
+        "data": {
+          "gateway_host": "Gateway host",
+          "gateway_port": "Gateway port",
+          "local_ip": "Local IP (optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the gateway at the supplied address.",
+      "invalid_host": "Host could not be resolved. Use the gateway's IP or DNS name.",
+      "invalid_port": "Port must be between 1 and 65535.",
+      "unknown": "Unexpected error. See logs for details."
+    },
+    "abort": {
+      "already_configured": "This gateway is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AR HDL BUSPRO configuration",
+        "description": "Manage your HDL Buspro setup.",
+        "menu_options": {
+          "gateway": "Gateway settings",
+          "add_device": "Add a device",
+          "edit_device": "Edit a device",
+          "remove_device": "Remove a device",
+          "scan_bus": "Scan bus for devices",
+          "detect_gateway": "Detect gateway on the network"
+        }
+      },
+      "gateway": {
+        "title": "Gateway settings",
+        "description": "Change connection settings for the HDL Buspro gateway.",
+        "data": {
+          "gateway_host": "Gateway host",
+          "gateway_port": "Gateway port",
+          "local_ip": "Local IP (optional)"
+        }
+      },
+      "scan_bus": {
+        "title": "Scan bus for devices",
+        "description": "Listen on the HDL bus and discover devices automatically. A few read requests are broadcast to make quiet devices respond. Pick how long to listen, then choose what to import on the next screen.",
+        "data": {
+          "scan_duration": "Listen duration"
+        }
+      },
+      "scan_results": {
+        "title": "Discovered devices",
+        "description": "Found {found} device(s) on the bus ({new} new). Tick the ones to import. The label shows the inferred type, raw HDL type code and channel count. With “split channels” on, a multi-channel device is imported as one entity per channel; turn it off to import a single entity you can configure by hand. Everything gets sensible defaults you can refine via Edit a device. If a dimmer module was imported as a switch, find its raw type code in the label (or the scan log) and add it to the dimmer type codes box - those codes are remembered and always import as dimmable lights.",
+        "data": {
+          "discovered": "Devices to import",
+          "split_channels": "Split multi-channel devices into one entity per channel",
+          "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
+        }
+      },
+      "add_device": {
+        "title": "Add a device",
+        "description": "Choose what kind of device to add.",
+        "data": {
+          "device_type": "Device type"
+        }
+      },
+      "add_device_form": {
+        "title": "Add {device_type}",
+        "description": "Configure the new device's address and options.",
+        "data": {
+          "name": "Friendly name",
+          "subnet_id": "Subnet ID",
+          "device_id": "Device ID",
+          "channel": "Channel",
+          "dimmable": "Dimmable",
+          "running_time": "Running time (seconds)",
+          "sensor_kind": "Sensor kind",
+          "binary_kind": "Binary sensor kind",
+          "sub_number": "Universal-switch / sub number",
+          "scan_interval": "Scan interval (seconds, 0 = push only)",
+          "temperature_offset": "Temperature offset",
+          "device_hw_kind": "Hardware variant",
+          "preset_modes": "Climate preset modes",
+          "relay_subnet": "Relay subnet ID (optional)",
+          "relay_device": "Relay device ID (optional)",
+          "relay_channel": "Relay channel (optional)",
+          "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
+          "cover_mode": "Curtain hardware",
+          "curtain_number": "Curtain number (curtain module mode)",
+          "open_channel": "Open relay channel (relay pair mode)",
+          "close_channel": "Close relay channel (relay pair mode)",
+          "travel_time": "Full travel time in seconds (relay pair mode)"
+        }
+      },
+      "edit_device": {
+        "title": "Edit a device",
+        "description": "Pick a device to edit.",
+        "data": {
+          "device_id_choice": "Device"
+        }
+      },
+      "edit_device_form": {
+        "title": "Edit {device_name}",
+        "description": "Update the selected {device_type}.",
+        "data": {
+          "name": "Friendly name",
+          "subnet_id": "Subnet ID",
+          "device_id": "Device ID",
+          "channel": "Channel",
+          "dimmable": "Dimmable",
+          "running_time": "Running time (seconds)",
+          "sensor_kind": "Sensor kind",
+          "binary_kind": "Binary sensor kind",
+          "sub_number": "Universal-switch / sub number",
+          "scan_interval": "Scan interval (seconds, 0 = push only)",
+          "temperature_offset": "Temperature offset",
+          "device_hw_kind": "Hardware variant",
+          "preset_modes": "Climate preset modes",
+          "relay_subnet": "Relay subnet ID (optional)",
+          "relay_device": "Relay device ID (optional)",
+          "relay_channel": "Relay channel (optional)",
+          "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
+          "cover_mode": "Curtain hardware",
+          "curtain_number": "Curtain number (curtain module mode)",
+          "open_channel": "Open relay channel (relay pair mode)",
+          "close_channel": "Close relay channel (relay pair mode)",
+          "travel_time": "Full travel time in seconds (relay pair mode)"
+        }
+      },
+      "remove_device": {
+        "title": "Remove a device",
+        "description": "Pick a device to remove.",
+        "data": {
+          "device_id_choice": "Device"
+        }
+      },
+      "detect_gateway": {
+        "title": "Detect gateway",
+        "description": "Found {count} HDL Buspro gateway(s) on your network. Selecting one updates this entry and reloads the integration.",
+        "data": {
+          "gateway_choice": "Gateway"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the gateway at the supplied address.",
+      "invalid_host": "Host could not be resolved. Use the gateway's IP or DNS name.",
+      "invalid_port": "Port must be between 1 and 65535.",
+      "unknown": "Unexpected error. See logs for details.",
+      "scan_failed": "The bus scan failed. See the logs for details."
+    },
+    "abort": {
+      "no_devices": "No devices are configured yet.",
+      "device_not_found": "The selected device could not be found.",
+      "gateway_unavailable": "The gateway is not connected, so the bus cannot be scanned. Check the connection and try again.",
+      "no_devices_found": "No devices responded during the scan. Make sure the gateway IP and local IP are correct and try a longer listen duration.",
+      "no_gateways_found": "No HDL gateways answered the broadcast probe on UDP/6000. Home Assistant may be on a different network segment, or broadcasts are blocked; enter the address via Gateway settings instead."
+    }
+  },
+  "selector": {
+    "device_type": {
+      "options": {
+        "light": "Light",
+        "switch": "Switch",
+        "sensor": "Sensor",
+        "binary_sensor": "Binary sensor",
+        "climate": "Climate",
+        "cover": "Cover / Curtain"
+      }
+    },
+    "sensor_kind": {
+      "options": {
+        "temperature": "Temperature",
+        "illuminance": "Illuminance"
+      }
+    },
+    "binary_kind": {
+      "options": {
+        "motion": "Motion",
+        "dry_contact_1": "Dry contact 1",
+        "dry_contact_2": "Dry contact 2",
+        "universal_switch": "Universal switch",
+        "single_channel": "Single channel",
+        "dry_contact": "Dry contact (dedicated module)"
+      }
+    },
+    "device_hw_kind": {
+      "options": {
+        "generic": "Generic",
+        "dlp": "DLP panel",
+        "12in1": "12-in-1 sensor",
+        "sensors_in_one": "Sensors-in-one (MSP07M)",
+        "dry_contact": "Dry-contact module"
+      }
+    },
+    "climate_preset": {
+      "options": {
+        "none": "Normal",
+        "away": "Away",
+        "home": "Home (day)",
+        "sleep": "Sleep (night)"
+      }
+    },
+    "cover_mode": {
+      "options": {
+        "curtain_module": "HDL curtain module",
+        "relay_pair": "Two relay channels (open/close pair)"
+      }
+    }
+  },
+  "services": {
+    "activate_scene": {
+      "name": "Activate scene",
+      "description": "Activate an HDL Buspro scene.",
+      "fields": {
+        "address": {
+          "name": "Subnet/device address",
+          "description": "Target subnet and device id, e.g. [1, 74]."
+        },
+        "scene_address": {
+          "name": "Scene address",
+          "description": "Scene area and number, e.g. [3, 5]."
+        }
+      }
+    },
+    "send_message": {
+      "name": "Send raw message",
+      "description": "Send an arbitrary HDL Buspro telegram.",
+      "fields": {
+        "address": {
+          "name": "Subnet/device address",
+          "description": "Target subnet and device id."
+        },
+        "operate_code": {
+          "name": "Operate code",
+          "description": "Two-byte operate code as a list."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "Payload bytes as a list of integers."
+        }
+      }
+    },
+    "set_universal_switch": {
+      "name": "Set universal switch",
+      "description": "Turn a universal switch on or off.",
+      "fields": {
+        "address": {
+          "name": "Subnet/device address",
+          "description": "Target subnet and device id."
+        },
+        "switch_number": {
+          "name": "Switch number",
+          "description": "Universal switch number."
+        },
+        "status": {
+          "name": "Status",
+          "description": "1 to turn on, 0 to turn off."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "illuminance": {
+        "name": "Illuminance"
+      }
+    },
+    "binary_sensor": {
+      "motion": {
+        "name": "Motion"
+      },
+      "dry_contact_1": {
+        "name": "Dry contact 1"
+      },
+      "dry_contact_2": {
+        "name": "Dry contact 2"
+      },
+      "universal_switch": {
+        "name": "Universal switch"
+      },
+      "single_channel": {
+        "name": "Channel status"
+      },
+      "dry_contact": {
+        "name": "Dry contact"
+      }
+    }
+  }
+}

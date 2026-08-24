@@ -1,0 +1,303 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AR HDL BUSPRO-gateway",
+        "description": "Fant {count} HDL Buspro-gateway(er) på nettverket ved å søke på UDP-port 6000. Velg en, eller skriv inn adressen manuelt.",
+        "data": {
+          "gateway_choice": "Gateway"
+        }
+      },
+      "manual": {
+        "title": "Gateway-detaljer",
+        "description": "Skriv inn eller bekreft IP-adressen og porten til HDL Buspro-gatewayen (standard port 6000). Lokal IP er valgfritt og trengs bare for å binde mottakersocketen til et bestemt grensesnitt.",
+        "data": {
+          "gateway_host": "Gateway-vert",
+          "gateway_port": "Gateway-port",
+          "local_ip": "Lokal IP (valgfritt)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kunne ikke nå gatewayen på den oppgitte adressen.",
+      "invalid_host": "Verten kunne ikke slås opp. Bruk gatewayens IP eller DNS-navn.",
+      "invalid_port": "Porten må være mellom 1 og 65535.",
+      "unknown": "Uventet feil. Se logg for detaljer."
+    },
+    "abort": {
+      "already_configured": "Denne gatewayen er allerede konfigurert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AR HDL BUSPRO-konfigurasjon",
+        "description": "Administrer HDL Buspro-oppsettet ditt.",
+        "menu_options": {
+          "gateway": "Gateway-innstillinger",
+          "add_device": "Legg til enhet",
+          "edit_device": "Rediger enhet",
+          "remove_device": "Fjern enhet",
+          "scan_bus": "Skann buss for enheter",
+          "detect_gateway": "Finn gateway på nettverket"
+        }
+      },
+      "gateway": {
+        "title": "Gateway-innstillinger",
+        "description": "Endre tilkoblingsinnstillinger for HDL Buspro-gatewayen.",
+        "data": {
+          "gateway_host": "Gateway-vert",
+          "gateway_port": "Gateway-port",
+          "local_ip": "Lokal IP (valgfri)"
+        }
+      },
+      "scan_bus": {
+        "title": "Skann buss for enheter",
+        "description": "Lytt på HDL-bussen og oppdag enheter automatisk. Noen leseforespørsler kringkastes for å få stille enheter til å svare. Velg hvor lenge det skal lyttes, og velg deretter hva som skal importeres på neste skjerm.",
+        "data": {
+          "scan_duration": "Lyttevarighet"
+        }
+      },
+      "scan_results": {
+        "title": "Oppdagede enheter",
+        "description": "Fant {found} enhet(er) på bussen ({new} nye). Kryss av de du vil importere. Etiketten viser antatt type, rå HDL-typekode og antall kanaler. Med «del opp kanaler» på importeres en flerkanalsenhet som én enhet per kanal; slå det av for å importere én enhet du konfigurerer manuelt. Alt får fornuftige standardverdier som du kan justere via Rediger enhet.",
+        "data": {
+          "discovered": "Enheter som skal importeres",
+          "split_channels": "Del flerkanalsenheter opp i én enhet per kanal",
+          "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
+        }
+      },
+      "add_device": {
+        "title": "Legg til enhet",
+        "description": "Velg hvilken type enhet som skal legges til.",
+        "data": {
+          "device_type": "Enhetstype"
+        }
+      },
+      "add_device_form": {
+        "title": "Legg til {device_type}",
+        "description": "Sett opp adresse og alternativer for den nye enheten.",
+        "data": {
+          "name": "Visningsnavn",
+          "subnet_id": "Subnet-ID",
+          "device_id": "Enhets-ID",
+          "channel": "Kanal",
+          "dimmable": "Dimbar",
+          "running_time": "Kjøretid (sekunder)",
+          "sensor_kind": "Sensortype",
+          "binary_kind": "Binær sensortype",
+          "sub_number": "Universal switch / sub-nummer",
+          "scan_interval": "Skanneintervall (sekunder, 0 = kun push)",
+          "temperature_offset": "Temperatur-offset",
+          "device_hw_kind": "Maskinvarevariant",
+          "preset_modes": "Forhåndsinnstillinger",
+          "relay_subnet": "Relé subnet-ID (valgfri)",
+          "relay_device": "Relé enhets-ID (valgfri)",
+          "relay_channel": "Relé-kanal (valgfri)",
+          "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
+          "cover_mode": "Curtain hardware",
+          "curtain_number": "Curtain number (curtain module mode)",
+          "open_channel": "Open relay channel (relay pair mode)",
+          "close_channel": "Close relay channel (relay pair mode)",
+          "travel_time": "Full travel time in seconds (relay pair mode)"
+        }
+      },
+      "edit_device": {
+        "title": "Rediger enhet",
+        "description": "Velg en enhet å redigere.",
+        "data": {
+          "device_id_choice": "Enhet"
+        }
+      },
+      "edit_device_form": {
+        "title": "Rediger {device_name}",
+        "description": "Oppdater den valgte {device_type}.",
+        "data": {
+          "name": "Visningsnavn",
+          "subnet_id": "Subnet-ID",
+          "device_id": "Enhets-ID",
+          "channel": "Kanal",
+          "dimmable": "Dimbar",
+          "running_time": "Kjøretid (sekunder)",
+          "sensor_kind": "Sensortype",
+          "binary_kind": "Binær sensortype",
+          "sub_number": "Universal switch / sub-nummer",
+          "scan_interval": "Skanneintervall (sekunder, 0 = kun push)",
+          "temperature_offset": "Temperatur-offset",
+          "device_hw_kind": "Maskinvarevariant",
+          "preset_modes": "Forhåndsinnstillinger",
+          "relay_subnet": "Relé subnet-ID (valgfri)",
+          "relay_device": "Relé enhets-ID (valgfri)",
+          "relay_channel": "Relé-kanal (valgfri)",
+          "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
+          "cover_mode": "Curtain hardware",
+          "curtain_number": "Curtain number (curtain module mode)",
+          "open_channel": "Open relay channel (relay pair mode)",
+          "close_channel": "Close relay channel (relay pair mode)",
+          "travel_time": "Full travel time in seconds (relay pair mode)"
+        }
+      },
+      "remove_device": {
+        "title": "Fjern enhet",
+        "description": "Velg en enhet å fjerne.",
+        "data": {
+          "device_id_choice": "Enhet"
+        }
+      },
+      "detect_gateway": {
+        "title": "Finn gateway",
+        "description": "Fant {count} HDL Buspro-gateway(er) på nettverket. Velger du en, oppdateres oppføringen og integrasjonen lastes på nytt.",
+        "data": {
+          "gateway_choice": "Gateway"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kunne ikke nå gatewayen på den oppgitte adressen.",
+      "invalid_host": "Verten kunne ikke slås opp. Bruk gatewayens IP eller DNS-navn.",
+      "invalid_port": "Porten må være mellom 1 og 65535.",
+      "unknown": "Uventet feil. Se logg for detaljer.",
+      "scan_failed": "Bussskanningen mislyktes. Se loggene for detaljer."
+    },
+    "abort": {
+      "no_devices": "Ingen enheter er konfigurert ennå.",
+      "device_not_found": "Den valgte enheten ble ikke funnet.",
+      "gateway_unavailable": "Gatewayen er ikke tilkoblet, så bussen kan ikke skannes. Sjekk tilkoblingen og prøv igjen.",
+      "no_devices_found": "Ingen enheter svarte under skanningen. Kontroller at gateway-IP og lokal IP er riktige, og prøv en lengre lyttevarighet.",
+      "no_gateways_found": "Ingen HDL-gatewayer svarte på broadcast-søket på UDP/6000. Home Assistant kan være på et annet nettverkssegment, eller broadcast er blokkert; skriv inn adressen under Gateway-innstillinger i stedet."
+    }
+  },
+  "selector": {
+    "device_type": {
+      "options": {
+        "light": "Lys",
+        "switch": "Bryter",
+        "sensor": "Sensor",
+        "binary_sensor": "Binær sensor",
+        "climate": "Klima",
+        "cover": "Cover / Curtain"
+      }
+    },
+    "sensor_kind": {
+      "options": {
+        "temperature": "Temperatur",
+        "illuminance": "Lysstyrke"
+      }
+    },
+    "binary_kind": {
+      "options": {
+        "motion": "Bevegelse",
+        "dry_contact_1": "Tørrkontakt 1",
+        "dry_contact_2": "Tørrkontakt 2",
+        "universal_switch": "Universal switch",
+        "single_channel": "Enkeltkanal",
+        "dry_contact": "Tørrkontakt (dedikert modul)"
+      }
+    },
+    "device_hw_kind": {
+      "options": {
+        "generic": "Generisk",
+        "dlp": "DLP-panel",
+        "12in1": "12-i-1 sensor",
+        "sensors_in_one": "Sensors-in-one (MSP07M)",
+        "dry_contact": "Tørrkontaktmodul"
+      }
+    },
+    "climate_preset": {
+      "options": {
+        "none": "Normal",
+        "away": "Borte",
+        "home": "Hjemme (dag)",
+        "sleep": "Sove (natt)"
+      }
+    },
+    "cover_mode": {
+      "options": {
+        "curtain_module": "HDL curtain module",
+        "relay_pair": "Two relay channels (open/close pair)"
+      }
+    }
+  },
+  "services": {
+    "activate_scene": {
+      "name": "Aktiver scene",
+      "description": "Aktiver en HDL Buspro-scene.",
+      "fields": {
+        "address": {
+          "name": "Subnet/enhetsadresse",
+          "description": "Mål-subnet og enhets-ID, f.eks. [1, 74]."
+        },
+        "scene_address": {
+          "name": "Sceneadresse",
+          "description": "Område og scenenummer, f.eks. [3, 5]."
+        }
+      }
+    },
+    "send_message": {
+      "name": "Send rå melding",
+      "description": "Send et vilkårlig HDL Buspro-telegram.",
+      "fields": {
+        "address": {
+          "name": "Subnet/enhetsadresse",
+          "description": "Mål-subnet og enhets-ID."
+        },
+        "operate_code": {
+          "name": "Operate-kode",
+          "description": "To-byte operate-kode som liste."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "Payload-byter som liste av heltall."
+        }
+      }
+    },
+    "set_universal_switch": {
+      "name": "Sett universal switch",
+      "description": "Slå en universal switch av eller på.",
+      "fields": {
+        "address": {
+          "name": "Subnet/enhetsadresse",
+          "description": "Mål-subnet og enhets-ID."
+        },
+        "switch_number": {
+          "name": "Switch-nummer",
+          "description": "Nummeret på universal switchen."
+        },
+        "status": {
+          "name": "Status",
+          "description": "1 for på, 0 for av."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Temperatur"
+      },
+      "illuminance": {
+        "name": "Belysningsstyrke"
+      }
+    },
+    "binary_sensor": {
+      "motion": {
+        "name": "Bevegelse"
+      },
+      "dry_contact_1": {
+        "name": "Tørrkontakt 1"
+      },
+      "dry_contact_2": {
+        "name": "Tørrkontakt 2"
+      },
+      "universal_switch": {
+        "name": "Universalbryter"
+      },
+      "single_channel": {
+        "name": "Kanalstatus"
+      },
+      "dry_contact": {
+        "name": "Tørrkontakt"
+      }
+    }
+  }
+}

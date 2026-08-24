@@ -1,0 +1,21 @@
+{
+  "domain": "ar_hdl_buspro",
+  "name": "AR HDL BUSPRO",
+  "codeowners": [
+    "@marsh4200"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "network"
+  ],
+  "documentation": "https://github.com/marsh4200/ar_hdl_buspro",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/marsh4200/ar_hdl_buspro/issues",
+  "loggers": [
+    "ar_hdl_buspro.buspro",
+    "ar_hdl_buspro.telegram"
+  ],
+  "requirements": [],
+  "version": "2.11.3"
+}
