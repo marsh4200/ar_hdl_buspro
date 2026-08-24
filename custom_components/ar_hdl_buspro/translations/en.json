@@ -153,7 +153,8 @@
       }
     },
     "progress": {
-      "bus_scan": "Listening on the bus… {seconds_left}s remaining."
+      "bus_scan": "Listening on the bus… {seconds_left}s remaining.",
+      "bus_scan_confirming": "Listen window is done — confirming channel counts on the devices found so far…"
     },
     "error": {
       "cannot_connect": "Could not reach the gateway at the supplied address.",

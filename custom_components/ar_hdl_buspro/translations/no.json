@@ -153,7 +153,8 @@
       }
     },
     "progress": {
-      "bus_scan": "Lytter på bussen … {seconds_left} sekunder igjen."
+      "bus_scan": "Lytter på bussen … {seconds_left} sekunder igjen.",
+      "bus_scan_confirming": "Lyttevinduet er ferdig – bekrefter kanalantall på enhetene som er funnet så langt …"
     },
     "error": {
       "cannot_connect": "Kunne ikke nå gatewayen på den oppgitte adressen.",

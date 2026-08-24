@@ -75,11 +75,20 @@ _FRAME_GAP = 0.05
 _DIRECTED_ROUNDS = 2
 _DIRECTED_LISTEN = 2.0
 # Hard ceiling for the whole directed phase, regardless of device count, so a
-# large bus can't make the scan run away.
-_DIRECTED_MAX_SECONDS = 20.0
+# large bus can't make the scan run away. Public so callers (e.g. the config
+# flow's progress display) can size their own timeouts/estimates around it
+# instead of hardcoding a second copy of this number.
+DIRECTED_PHASE_MAX_SECONDS = 20.0
+_DIRECTED_MAX_SECONDS = DIRECTED_PHASE_MAX_SECONDS
+# Typical directed-phase duration on a normal-sized bus: two rounds, each
+# followed by a fixed listen pause, regardless of how many devices answered.
+# It only grows past this if there are enough devices that dispatching reads
+# to all of them eats into the round's listen pause (capped by the ceiling
+# above). Public for the same reason as DIRECTED_PHASE_MAX_SECONDS.
+DIRECTED_PHASE_TYPICAL_SECONDS = _DIRECTED_ROUNDS * _DIRECTED_LISTEN
 # Extra time (beyond the user's listen duration) that scan() may need for the
 # directed phase. The config flow's watchdog timeout must allow for this.
-SCAN_TIMEOUT_MARGIN = _DIRECTED_MAX_SECONDS + 5.0
+SCAN_TIMEOUT_MARGIN = DIRECTED_PHASE_MAX_SECONDS + 5.0
 
 
 # Operate codes a keypad/panel *originates* when a button is pressed or when

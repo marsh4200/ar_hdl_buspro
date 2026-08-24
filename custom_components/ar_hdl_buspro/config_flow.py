@@ -770,15 +770,32 @@ class ARHDLOptionsFlow(OptionsFlow):
         if self._scan_task is not None:
             if not self._scan_task.done():
                 elapsed = self.hass.loop.time() - self._scan_started
-                seconds_left = max(0, round(self._scan_duration - elapsed))
-                # A throwaway 1s task just paces the countdown tick - it's not
-                # the scan itself, so a slow render doesn't delay the scan and
-                # the scan finishing early doesn't wait on this tick.
+                # A throwaway 1s task just paces the tick - it's not the scan
+                # itself, so a slow render doesn't delay the scan and the scan
+                # finishing early doesn't wait on this tick.
+                tick = self.hass.async_create_task(asyncio.sleep(1))
+                if elapsed < self._scan_duration:
+                    # Phase 1: broadcasting and listening for the duration the
+                    # user picked - this is what the countdown counts down.
+                    seconds_left = max(0, round(self._scan_duration - elapsed))
+                    return self.async_show_progress(
+                        step_id="scan_bus",
+                        progress_action="bus_scan",
+                        description_placeholders={"seconds_left": str(seconds_left)},
+                        progress_task=tick,
+                    )
+                # Phase 2: the listen window is over, but the scanner still
+                # follows up directly with every device it found so far to
+                # confirm channel counts (most relay/dimmer modules ignore a
+                # broadcast channel-status read and only answer one addressed
+                # to them). This isn't covered by "listen duration" - it's
+                # normally a few seconds, hard-capped well beyond that on a
+                # very large bus - so show a distinct message instead of
+                # freezing the countdown at 0.
                 return self.async_show_progress(
                     step_id="scan_bus",
-                    progress_action="bus_scan",
-                    description_placeholders={"seconds_left": str(seconds_left)},
-                    progress_task=self.hass.async_create_task(asyncio.sleep(1)),
+                    progress_action="bus_scan_confirming",
+                    progress_task=tick,
                 )
 
             task, self._scan_task = self._scan_task, None
