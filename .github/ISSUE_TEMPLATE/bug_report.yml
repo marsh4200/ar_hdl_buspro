@@ -1,0 +1,69 @@
+name: Bug report
+description: Something isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more detail you give, the faster it gets fixed.
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: AR HDL BUSPRO version
+      description: Settings → Devices & Services → AR HDL BUSPRO card (or `manifest.json` if you're on a manual install).
+      placeholder: "4.2.2"
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: "2026.8.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installed via
+      options:
+        - HACS
+        - Manual (copied into custom_components)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Settings → System → Logs, filtered to `ar_hdl_buspro` (or enable debug logging first — see the README's Troubleshooting section). Paste as-is, this field renders as a code block.
+      render: shell
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional but very helpful)
+      description: Download from the integration's ⋮ menu → Download diagnostics, then drag the file in here. Host/IP fields are already redacted.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and didn't find this one already reported
+          required: true
+        - label: I'm running the latest release of AR HDL BUSPRO
+          required: true

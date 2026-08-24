@@ -1,0 +1,64 @@
+name: Unrecognised device / type code
+description: A device scanned but landed as the wrong entity type, or its HDL type code isn't in the table yet
+title: "[Device]: "
+labels: ["device-support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the bus scan found a device but misclassified it (e.g. a dimmer imported as a switch and adding its type code to the *Dimmer type codes* box didn't fix it), or when you just want a new type code pinned to the [recognised type codes table](../../README.md#-recognised-hdl-type-codes).
+
+  - type: input
+    id: type-code
+    attributes:
+      label: Raw HDL type code
+      description: From the scan results line or the scan log, e.g. `0x0269`.
+      placeholder: "0x0269"
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware model
+      description: The actual HDL module, as printed on the device or in the HDL Buspro Setup Tool.
+      placeholder: "e.g. HDL MPRL08.4C 4-channel relay"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: expected-type
+    attributes:
+      label: What should it be classified as?
+      options:
+        - Light (dimmer)
+        - Switch (relay, on/off)
+        - Cover (curtain)
+        - Climate
+        - Sensor
+        - Binary sensor
+        - Keypad (no entities)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: What it currently imports as
+      description: What the scan results screen showed for this device.
+
+  - type: textarea
+    id: scan-log
+    attributes:
+      label: Scan log line (optional)
+      description: Settings → System → Logs, the INFO-level bus scan summary line for this device, if you have it.
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I re-scanned on the latest release before opening this
+          required: true

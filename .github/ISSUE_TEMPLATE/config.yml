@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/marsh4200/ar_hdl_buspro#-troubleshooting
+    about: Check here before filing an issue — covers the most common setup and connectivity problems.
