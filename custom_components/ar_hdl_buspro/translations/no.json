@@ -152,6 +152,9 @@
         }
       }
     },
+    "progress": {
+      "bus_scan": "Lytter på bussen … {seconds_left} sekunder igjen."
+    },
     "error": {
       "cannot_connect": "Kunne ikke nå gatewayen på den oppgitte adressen.",
       "invalid_host": "Verten kunne ikke slås opp. Bruk gatewayens IP eller DNS-navn.",

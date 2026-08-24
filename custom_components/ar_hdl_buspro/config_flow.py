@@ -593,6 +593,10 @@ class ARHDLOptionsFlow(OptionsFlow):
         self._editing_device_id: str | None = None
         self._adding_device_type: str | None = None
         self._scan_results: list[Any] = []
+        self._scan_task: asyncio.Task | None = None
+        self._scan_started: float = 0.0
+        self._scan_duration: int = DEFAULT_SCAN_DURATION
+        self._scan_error: str | None = None
 
     # ----- helpers ---------------------------------------------------------
     @property
@@ -732,33 +736,64 @@ class ARHDLOptionsFlow(OptionsFlow):
     async def async_step_scan_bus(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Scan the bus for devices and present the results."""
+        """Scan the bus for devices, with a live countdown while it runs."""
         errors: dict[str, str] = {}
+        if self._scan_error:
+            errors["base"] = self._scan_error
+            self._scan_error = None
 
-        if user_input is not None:
+        if self._scan_task is None and user_input is not None:
             buspro = self._live_buspro()
             if buspro is None:
                 return self.async_abort(reason="gateway_unavailable")
 
-            duration = int(user_input.get(CONF_SCAN_DURATION, DEFAULT_SCAN_DURATION))
+            self._scan_duration = int(
+                user_input.get(CONF_SCAN_DURATION, DEFAULT_SCAN_DURATION)
+            )
 
             # Import lazily so a missing/edited library can't break the import
             # of the whole config flow module.
             from .discovery import SCAN_TIMEOUT_MARGIN, BusScanner
 
             scanner = BusScanner(buspro)
-            try:
-                self._scan_results = await asyncio.wait_for(
-                    scanner.scan(duration),
-                    timeout=duration + SCAN_TIMEOUT_MARGIN,
+            self._scan_started = self.hass.loop.time()
+            # The real scan runs independently in the background; the flow
+            # only needs to know when it's done to move on.
+            self._scan_task = self.hass.async_create_task(
+                asyncio.wait_for(
+                    scanner.scan(self._scan_duration),
+                    timeout=self._scan_duration + SCAN_TIMEOUT_MARGIN,
+                ),
+                name=f"{DOMAIN} bus scan",
+            )
+
+        if self._scan_task is not None:
+            if not self._scan_task.done():
+                elapsed = self.hass.loop.time() - self._scan_started
+                seconds_left = max(0, round(self._scan_duration - elapsed))
+                # A throwaway 1s task just paces the countdown tick - it's not
+                # the scan itself, so a slow render doesn't delay the scan and
+                # the scan finishing early doesn't wait on this tick.
+                return self.async_show_progress(
+                    step_id="scan_bus",
+                    progress_action="bus_scan",
+                    description_placeholders={"seconds_left": str(seconds_left)},
+                    progress_task=self.hass.async_create_task(asyncio.sleep(1)),
                 )
+
+            task, self._scan_task = self._scan_task, None
+            try:
+                self._scan_results = task.result()
             except (asyncio.TimeoutError, RuntimeError, OSError) as err:
                 _LOGGER.warning("AR HDL BUSPRO bus scan failed: %s", err)
-                errors["base"] = "scan_failed"
-            else:
-                if not self._scan_results:
-                    return self.async_abort(reason="no_devices_found")
-                return await self.async_step_scan_results()
+                self._scan_error = "scan_failed"
+                return self.async_show_progress_done(next_step_id="scan_bus_retry")
+
+            if not self._scan_results:
+                return self.async_show_progress_done(
+                    next_step_id="scan_bus_no_devices"
+                )
+            return self.async_show_progress_done(next_step_id="scan_results")
 
         return self.async_show_form(
             step_id="scan_bus",
@@ -779,6 +814,18 @@ class ARHDLOptionsFlow(OptionsFlow):
             ),
             errors=errors,
         )
+
+    async def async_step_scan_bus_retry(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Re-show the scan form after a failed scan attempt."""
+        return await self.async_step_scan_bus(user_input)
+
+    async def async_step_scan_bus_no_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Abort after a scan that found nothing."""
+        return self.async_abort(reason="no_devices_found")
 
     @staticmethod
     def _parse_dimmer_codes(text: str | None) -> set[str]:

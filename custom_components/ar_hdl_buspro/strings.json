@@ -152,6 +152,9 @@
         }
       }
     },
+    "progress": {
+      "bus_scan": "Listening on the bus… {seconds_left}s remaining."
+    },
     "error": {
       "cannot_connect": "Could not reach the gateway at the supplied address.",
       "invalid_host": "Host could not be resolved. Use the gateway's IP or DNS name.",
