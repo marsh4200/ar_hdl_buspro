@@ -4,15 +4,7 @@ Two hardware styles are supported:
 
 - curtain_module: a real HDL curtain module (MW02 / MWM70B family) driven via
   CurtainSwitchControl (0xE3E0) with actions stop=0 / open=1 / close=2, status
-  read via ReadStatusOfCurtainSwitch (0xE3E2). CurtainSwitchControl carries no
-  percentage on the wire, so SET_POSITION is estimated from the configured
-  travel time: a full open/close still just fires the command and lets the
-  module's own limit switches decide when to stop (unchanged from before),
-  while a partial position drives in the right direction and sends an
-  explicit stop after a proportionally-scaled delay. This is a client-side
-  estimate, not a real position readback -- it can drift if the curtain is
-  moved by something this integration doesn't see (a wall switch, a remote,
-  another controller).
+  read via ReadStatusOfCurtainSwitch (0xE3E2).
 - relay_pair: the very common install style where a curtain motor hangs off
   two interlocked relay channels (one drives open, one drives close). We pulse
   the direction channel for the configured travel time, then release it, and
@@ -126,21 +118,11 @@ class _ARHDLCoverBase(ARHDLBaseEntity, CoverEntity):
 
 
 class ARHDLCurtainModuleCover(_ARHDLCoverBase):
-    """Cover backed by an HDL curtain module (CurtainSwitchControl).
-
-    Position is estimated from the configured travel time -- see the module
-    docstring. `is_closed` still reflects a real bus report when we have one;
-    everything position-related (`current_cover_position`, `is_opening`,
-    `is_closing`) is a local estimate, hence `_attr_assumed_state`.
-    """
+    """Cover backed by an HDL curtain module (CurtainSwitchControl)."""
 
     _attr_supported_features = (
-        CoverEntityFeature.OPEN
-        | CoverEntityFeature.CLOSE
-        | CoverEntityFeature.STOP
-        | CoverEntityFeature.SET_POSITION
+        CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
     )
-    _attr_assumed_state = True
 
     def __init__(self, entry, gateway, device_cfg) -> None:
         """Initialize the curtain-module cover."""
@@ -149,16 +131,8 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         self._attr_unique_id = build_unique_id(
             entry.entry_id, device_cfg, suffix="cover"
         )
-        self._travel_time = max(
-            1, int(device_cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME))
-        )
         # None -> unknown until the module tells us something.
         self._status: int | None = None
-        # Optimistic position: 0 = closed, 100 = open. Assume closed at boot,
-        # refined for real the first time we see an open/close status report.
-        self._position = 0
-        self._move_task: asyncio.Task | None = None
-        self._moving_dir = 0  # +1 opening, -1 closing, 0 idle
 
     async def async_added_to_hass(self) -> None:
         """Register bus callback and request initial status."""
@@ -177,19 +151,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         ):
             if len(payload) >= 2 and payload[0] == self._curtain_number:
                 self._status = payload[1]
-                # A bus report of fully open/closed is ground truth -- resync
-                # our estimate to it. A STOP report is ambiguous (could be
-                # mid-travel) so we leave the estimated position alone.
-                if self._status == _ACTION_OPEN:
-                    self._position = 100
-                elif self._status == _ACTION_CLOSE:
-                    self._position = 0
                 self.schedule_update_ha_state()
-
-    def _cancel_move(self) -> None:
-        if self._move_task and not self._move_task.done():
-            self._move_task.cancel()
-        self._move_task = None
 
     @property
     def is_closed(self) -> bool | None:
@@ -200,94 +162,37 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
 
     @property
     def is_opening(self) -> bool:
-        """Return True while an estimated open move is in progress."""
-        return self._moving_dir > 0
+        """HDL modules don't report transit; expose static states only."""
+        return False
 
     @property
     def is_closing(self) -> bool:
-        """Return True while an estimated close move is in progress."""
-        return self._moving_dir < 0
-
-    @property
-    def current_cover_position(self) -> int:
-        """Return the estimated position (0 closed, 100 open)."""
-        return self._position
-
-    async def _start_move(self, action: int, target: int) -> None:
-        """Fire `action` on the wire, then track/estimate position toward `target`."""
-        self._cancel_move()
-        await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, action]
-        )
-        self._status = action
-        self._moving_dir = 1 if action == _ACTION_OPEN else -1
-        self.async_write_ha_state()
-        self._move_task = self.hass.async_create_task(self._track_move(target))
-
-    async def _track_move(self, target: int) -> None:
-        """Interpolate position while travelling; stop the module at a partial target."""
-        direction = self._moving_dir
-        start_pos = self._position
-        distance = abs(target - start_pos)
-        duration = self._travel_time * distance / 100
-        start = time.monotonic()
-        try:
-            while duration > 0:
-                await asyncio.sleep(0.25)
-                elapsed = time.monotonic() - start
-                progress = min(1.0, elapsed / duration)
-                self._position = round(
-                    start_pos + direction * distance * progress
-                )
-                self.async_write_ha_state()
-                if progress >= 1.0:
-                    break
-            self._position = target
-            if target not in (0, 100):
-                # Partial position -- the module has no idea it should stop
-                # here on its own, so tell it explicitly. Full open/close is
-                # left to the module's own limit switches, same as before.
-                await self._send(
-                    OperateCode.CurtainSwitchControl,
-                    [self._curtain_number, _ACTION_STOP],
-                )
-                self._status = _ACTION_STOP
-        except asyncio.CancelledError:
-            # Stopped mid-travel; keep the interpolated position.
-            raise
-        finally:
-            self._moving_dir = 0
-            self.async_write_ha_state()
+        """HDL modules don't report transit; expose static states only."""
+        return False
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the curtain."""
-        await self._start_move(_ACTION_OPEN, 100)
+        await self._send(
+            OperateCode.CurtainSwitchControl, [self._curtain_number, _ACTION_OPEN]
+        )
+        self._status = _ACTION_OPEN
+        self.async_write_ha_state()
 
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the curtain."""
-        await self._start_move(_ACTION_CLOSE, 0)
-
-    async def async_set_cover_position(self, **kwargs: Any) -> None:
-        """Travel to a specific estimated position."""
-        target = max(0, min(100, int(kwargs.get("position", 0))))
-        if target == self._position:
-            return
-        action = _ACTION_OPEN if target > self._position else _ACTION_CLOSE
-        await self._start_move(action, target)
+        await self._send(
+            OperateCode.CurtainSwitchControl, [self._curtain_number, _ACTION_CLOSE]
+        )
+        self._status = _ACTION_CLOSE
+        self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the curtain."""
-        self._cancel_move()
         await self._send(
             OperateCode.CurtainSwitchControl, [self._curtain_number, _ACTION_STOP]
         )
         self._status = _ACTION_STOP
-        self._moving_dir = 0
         self.async_write_ha_state()
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Cancel any in-flight travel task."""
-        self._cancel_move()
 
 
 class ARHDLRelayPairCover(_ARHDLCoverBase):
