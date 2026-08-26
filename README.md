@@ -1,7 +1,7 @@
 # 🏠 AR HDL BUSPRO — HDL Buspro for Home Assistant
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=marsh4200&repository=ar_hdl_buspro&category=integration)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub release](https://img.shields.io/github/v/release/marsh4200/ar_hdl_buspro)](https://github.com/marsh4200/ar_hdl_buspro/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
