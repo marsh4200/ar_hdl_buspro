@@ -1,7 +1,7 @@
 <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/custom_components/ar_hdl_buspro/brand/logo.png" width="88" alt="AR HDL BUSPRO logo" />
 
 
-# 🏠 AR HDL BUSPRO — HDL Buspro for Home Assistant
+#  HDL Buspro for Home Assistant
 
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=marsh4200&repository=ar_hdl_buspro&category=integration)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
