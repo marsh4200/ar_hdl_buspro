@@ -5,7 +5,7 @@ from typing import Final
 
 DOMAIN: Final = "ar_hdl_buspro"
 INTEGRATION_NAME: Final = "AR HDL BUSPRO"
-MANUFACTURER: Final = "HDL"
+MANUFACTURER: Final = "AR SMART HOME AUTOMATION"
 
 # Legacy domain (used for migration from the old `buspro` integration)
 LEGACY_DOMAIN: Final = "buspro"
