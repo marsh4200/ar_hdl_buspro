@@ -176,6 +176,7 @@
       "options": {
         "light": "Light",
         "switch": "Switch",
+        "universal_switch": "Universal switch",
         "sensor": "Sensor",
         "binary_sensor": "Binary sensor",
         "climate": "Climate",

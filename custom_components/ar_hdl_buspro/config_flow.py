@@ -73,6 +73,7 @@ from .const import (
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_SWITCH,
+    DEVICE_TYPE_UNIVERSAL_SWITCH,
     DEVICE_TYPES,
     DOMAIN,
     HDL_DIMMER_TYPE_CODES,
@@ -177,6 +178,21 @@ def _switch_schema(defaults: dict[str, Any]) -> vol.Schema:
             **_common_address_fields(defaults),
             vol.Required(
                 CONF_CHANNEL, default=defaults.get(CONF_CHANNEL, 1)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+        }
+    )
+
+
+def _universal_switch_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            **_common_address_fields(defaults),
+            vol.Required(
+                CONF_SUB_NUMBER, default=defaults.get(CONF_SUB_NUMBER, 1)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=255, mode=selector.NumberSelectorMode.BOX
@@ -360,6 +376,7 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
 DEVICE_SCHEMA_BUILDERS = {
     DEVICE_TYPE_LIGHT: _light_schema,
     DEVICE_TYPE_SWITCH: _switch_schema,
+    DEVICE_TYPE_UNIVERSAL_SWITCH: _universal_switch_schema,
     DEVICE_TYPE_SENSOR: _sensor_schema,
     DEVICE_TYPE_BINARY_SENSOR: _binary_sensor_schema,
     DEVICE_TYPE_COVER: _cover_schema,
@@ -408,6 +425,8 @@ def _device_summary(device: dict[str, Any]) -> str:
     sub = device.get(CONF_SUBNET_ID, "?")
     dev = device.get(CONF_DEVICE_ID, "?")
     ch = device.get(CONF_CHANNEL)
+    if ch is None and dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+        ch = device.get(CONF_SUB_NUMBER)
     addr = f"{sub}.{dev}" + (f".{ch}" if ch is not None else "")
     return f"{name} [{dtype} @ {addr}]"
 

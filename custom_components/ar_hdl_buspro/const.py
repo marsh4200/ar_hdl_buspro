@@ -59,10 +59,18 @@ DEVICE_TYPE_SENSOR: Final = "sensor"
 DEVICE_TYPE_BINARY_SENSOR: Final = "binary_sensor"
 DEVICE_TYPE_CLIMATE: Final = "climate"
 DEVICE_TYPE_COVER: Final = "cover"
+# A controllable HDL "universal switch" - a virtual on/off flag used to
+# trigger scenes/logic on the bus (as opposed to DEVICE_TYPE_SWITCH, which is
+# a physical relay channel). The pybuspro library has always supported this
+# (see pybuspro/devices/universal_switch.py and the set_universal_switch
+# service); this device type is what surfaces it as a normal toggleable
+# switch entity, addable from the UI like any other device.
+DEVICE_TYPE_UNIVERSAL_SWITCH: Final = "universal_switch"
 
 DEVICE_TYPES: Final = [
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SWITCH,
+    DEVICE_TYPE_UNIVERSAL_SWITCH,
     DEVICE_TYPE_COVER,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_BINARY_SENSOR,
