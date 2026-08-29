@@ -176,6 +176,7 @@
       "options": {
         "light": "Lys",
         "switch": "Bryter",
+        "universal_switch": "Universalbryter",
         "sensor": "Sensor",
         "binary_sensor": "Binær sensor",
         "climate": "Klima",
