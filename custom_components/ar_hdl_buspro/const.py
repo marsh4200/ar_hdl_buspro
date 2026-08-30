@@ -182,6 +182,8 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0269": DEVICE_TYPE_LIGHT,          # 6ch dimmer module
     "0x25E5": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
     "0x25E8": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
+    "0x02C9": DEVICE_TYPE_COVER,             # HDL-MW02.431 2ch curtain controller
+    "0x0517": DEVICE_TYPE_UNIVERSAL_SWITCH,  # HDL-MIRC04.40 IR module (4x universal switch)
 }
 
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
@@ -204,6 +206,8 @@ HDL_TYPE_NAMES: Final = {
     "0x00AF": "Wall keypad",
     "0x08DB": "Wall keypad",
     "0x080D": "Wall keypad",
+    "0x02C9": "Curtain module (2ch, HDL-MW02.431)",
+    "0x0517": "IR emitter/receiver module (HDL-MIRC04.40)",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are

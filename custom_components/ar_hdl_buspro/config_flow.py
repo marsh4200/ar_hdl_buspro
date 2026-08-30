@@ -1209,6 +1209,13 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
         elif dtype == DEVICE_TYPE_SWITCH:
             base[CONF_CHANNEL] = channel or 1
+        elif dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+            # Universal-switch numbers aren't split per-channel on import (the
+            # broadcast probe only ever reads switch number 1, so the scan has
+            # no way to learn how many the module actually exposes) - import
+            # one entity pointed at switch 1 and let the user add the rest by
+            # hand with the correct sub_number, same as sensor/binary_sensor.
+            base[CONF_SUB_NUMBER] = channel or 1
         elif dtype == DEVICE_TYPE_COVER:
             # Discovered curtain hardware is always a real curtain module
             # (CurtainSwitchControl open/close/stop), never a relay pair -
