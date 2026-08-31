@@ -99,7 +99,8 @@
           "curtain_number": "Curtain number (curtain module mode)",
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
-          "travel_time": "Full travel time in seconds (relay pair mode)"
+          "travel_time": "Full travel time in seconds (relay pair mode)",
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
         }
       },
       "edit_device": {
@@ -134,7 +135,8 @@
           "curtain_number": "Curtain number (curtain module mode)",
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
-          "travel_time": "Full travel time in seconds (relay pair mode)"
+          "travel_time": "Full travel time in seconds (relay pair mode)",
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
         }
       },
       "remove_device": {

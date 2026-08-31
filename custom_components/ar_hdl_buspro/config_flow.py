@@ -42,6 +42,7 @@ from .const import (
     CONF_NAME,
     CONF_OPEN_CHANNEL,
     CONF_PRESET_MODES,
+    CONF_RECALIBRATE_BEFORE_REPOSITION,
     CONF_RELAY_CHANNEL,
     CONF_RELAY_DEVICE,
     CONF_RELAY_SUBNET,
@@ -330,6 +331,10 @@ def _cover_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=600, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            vol.Optional(
+                CONF_RECALIBRATE_BEFORE_REPOSITION,
+                default=defaults.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False),
+            ): selector.BooleanSelector(),
         }
     )
 

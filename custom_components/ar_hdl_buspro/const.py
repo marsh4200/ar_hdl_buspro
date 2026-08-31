@@ -48,6 +48,15 @@ CONF_CURTAIN_NUMBER: Final = "curtain_number"  # curtain no. on an HDL curtain m
 CONF_OPEN_CHANNEL: Final = "open_channel"      # relay channel driving "open"
 CONF_CLOSE_CHANNEL: Final = "close_channel"    # relay channel driving "close"
 CONF_TRAVEL_TIME: Final = "travel_time"        # full open<->close travel, seconds
+# Recalibration workaround for hardware that mis-lands a partial reposition
+# when starting from an already-uncertain (not fully open/closed) estimated
+# position: run to whichever endpoint (fully open or fully closed) is a
+# shorter trip from the current estimate -- a real reference point via the
+# module/motor's own limit switch -- then travel to the requested target from
+# there. Off by default -- it adds travel time and makes the shutter swing
+# through part of its range on every adjustment, so it's opt-in per device.
+# See GitHub issue #15.
+CONF_RECALIBRATE_BEFORE_REPOSITION: Final = "recalibrate_before_reposition"
 CONF_RELAY_SUBNET: Final = "relay_subnet"
 CONF_RELAY_DEVICE: Final = "relay_device"
 CONF_RELAY_CHANNEL: Final = "relay_channel"
