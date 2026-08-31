@@ -151,10 +151,16 @@ MIN_SCAN_DURATION: Final = 3
 MAX_SCAN_DURATION: Final = 60
 
 # Maps a raw HDL device-type code (hex string, as surfaced by the scanner) to
-# the ar_hdl_buspro device_type used when importing a discovered device. Anything not
-# listed here falls back to a switch on channel 1, which the user can edit.
-# Codes mirror the DeviceType enum in pybuspro/helpers/enums.py; extend this
-# table as new modules are identified on real installations.
+# the ar_hdl_buspro device_type used when importing a discovered device. A code
+# listed here is a confirmed identification and always wins over the discovery
+# heuristics that guess a type from live bus chatter (see _infer_device_type in
+# config_flow.py) - those heuristics can be fooled by multi-function hardware
+# that also answers an unrelated probe (e.g. a relay/dimmer combo unit that
+# also replies to a curtain-status read). Anything not listed here, and not
+# resolved by a heuristic either, falls back to a switch on channel 1, which
+# the user can edit. Codes mirror the DeviceType enum in
+# pybuspro/helpers/enums.py; extend this table as new modules are identified
+# on real installations.
 HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0011": DEVICE_TYPE_CLIMATE,        # SB_DN_6B0_10v heating relay
     "0x0086": DEVICE_TYPE_CLIMATE,        # SB_DLP2 panel
@@ -183,7 +189,12 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x25E5": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
     "0x25E8": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
     "0x02C9": DEVICE_TYPE_COVER,             # HDL-MW02.431 2ch curtain controller
+    "0x0516": DEVICE_TYPE_UNIVERSAL_SWITCH,  # HDL-MIRC04.40 IR module, other half of the pair (issue #9)
     "0x0517": DEVICE_TYPE_UNIVERSAL_SWITCH,  # HDL-MIRC04.40 IR module (4x universal switch)
+    "0x0166": DEVICE_TYPE_BINARY_SENSOR,     # HDL-MS24.232 (SB-DN-DRY-24Z) 24-zone dry contact module (issue #11)
+    "0x0DCE": DEVICE_TYPE_SWITCH,            # HDL-MRCU home control unit, 18 relay + 4 dimmer ch (issue #10) -
+                                              # imports as switch channels; re-tag the 4 dimmer channels to
+                                              # "light" afterwards via the edit-device screen.
 }
 
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
@@ -207,7 +218,10 @@ HDL_TYPE_NAMES: Final = {
     "0x08DB": "Wall keypad",
     "0x080D": "Wall keypad",
     "0x02C9": "Curtain module (2ch, HDL-MW02.431)",
+    "0x0516": "IR emitter/receiver module (HDL-MIRC04.40)",
     "0x0517": "IR emitter/receiver module (HDL-MIRC04.40)",
+    "0x0166": "Dry contact module (24 zone, HDL-MS24.232)",
+    "0x0DCE": "Home control unit (HDL-MRCU, 18 relay + 4 dimmer ch)",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
