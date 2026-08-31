@@ -306,6 +306,7 @@ Codes already pinned in the classification table. Anything not listed still gets
 |---|---|---|
 | `0x0011` | Climate | SB_DN_6B0-10v heating relay |
 | `0x0086` / `0x0095` / `0x009C` | Climate | DLP / DLP2 panels |
+| `0x0890` | Climate | HDL-MPTL4C.48 Granite Display touch panel |
 | `0x0260` / `0x026D` / `0x0269` | Light (dimmer) | DT0601 / MDT0601 6-ch dimmers |
 | `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0141`, `0x0457`, `0x084D`, `0x1209`, `0x120B`, `0x238C`, `0x239C`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit, 18 relay + 4 dimmer ch) imports as 22 switch channels — re-tag the 4 dimmer channels to light by hand afterward |
 | `0x25E5` / `0x25E8` / `0x02C9` | **Cover** | Curtain modules (`0x02C9` = HDL-MW02.431 2-ch) |
