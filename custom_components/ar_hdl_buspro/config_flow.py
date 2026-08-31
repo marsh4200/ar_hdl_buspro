@@ -898,12 +898,28 @@ class ARHDLOptionsFlow(OptionsFlow):
     ) -> str:
         """Decide an ar_hdl_buspro device_type from what the device replied with.
 
-        Reply operate codes are the most reliable signal (they work even when
-        the raw type code isn't in our table). Fall back to the type-code map,
-        then to a plain switch.
+        A confirmed identification - a user-pinned dimmer code or a code in
+        our built-in table - always wins first. Those heuristics further down
+        infer the type from live bus chatter, which is usually right but can
+        be fooled by multi-function hardware that also answers an unrelated
+        probe: e.g. a relay+dimmer combo unit (HDL-MRCU) that also replies to
+        a curtain-status read used to get imported entirely as a cover,
+        discarding all of its relay/dimmer channels (see
+        https://github.com/marsh4200/ar_hdl_buspro/issues/9, /10 and /11).
+        Only once both of those come up empty do we fall back to the reply
+        operate codes, and finally to a plain switch.
         """
         if dimmer_codes is None:
             dimmer_codes = self._saved_dimmer_codes()
+        if (
+            disc.type_code in HDL_DIMMER_TYPE_CODES
+            or disc.type_code in dimmer_codes
+        ):
+            return DEVICE_TYPE_LIGHT
+        known = HDL_TYPE_TO_DEVICE_TYPE.get(disc.type_code)
+        if known is not None:
+            return known
+
         ops = disc.op_codes
         if (
             "ReadSensorStatusResponse" in ops
@@ -934,17 +950,13 @@ class ARHDLOptionsFlow(OptionsFlow):
             "ReadStatusOfChannelsResponse" in ops
             or "SingleChannelControlResponse" in ops
         ):
-            # Channel device. Dimmer if the type code is known (built-in table
-            # or user-pinned codes), or if the scan saw an intermediate
-            # brightness level; otherwise a switch (user can flip it later).
-            if (
-                disc.type_code in HDL_DIMMER_TYPE_CODES
-                or disc.type_code in dimmer_codes
-                or getattr(disc, "dimmer_evidence", False)
-            ):
+            # Channel device with an unknown type code. Dimmer if the scan saw
+            # an intermediate brightness level; otherwise a switch (the user
+            # can flip it later).
+            if getattr(disc, "dimmer_evidence", False):
                 return DEVICE_TYPE_LIGHT
-            return HDL_TYPE_TO_DEVICE_TYPE.get(disc.type_code, DEVICE_TYPE_SWITCH)
-        return HDL_TYPE_TO_DEVICE_TYPE.get(disc.type_code, DEVICE_TYPE_SWITCH)
+            return DEVICE_TYPE_SWITCH
+        return DEVICE_TYPE_SWITCH
 
     def _discovery_label(self, disc, role: str, already: bool) -> str:
         """Build the checklist label for a discovered device."""
