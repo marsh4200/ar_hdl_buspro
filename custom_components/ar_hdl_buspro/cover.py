@@ -44,6 +44,7 @@ from .const import (
     CONF_DEVICES,
     CONF_NAME,
     CONF_OPEN_CHANNEL,
+    CONF_RECALIBRATE_BEFORE_REPOSITION,
     CONF_SUBNET_ID,
     CONF_TRAVEL_TIME,
     COVER_MODE_CURTAIN_MODULE,
@@ -151,6 +152,10 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         )
         self._travel_time = max(
             1, int(device_cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME))
+        )
+        # See CONF_RECALIBRATE_BEFORE_REPOSITION in const.py -- off by default.
+        self._recalibrate = bool(
+            device_cfg.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False)
         )
         # None -> unknown until the module tells us something.
         self._status: int | None = None
@@ -272,8 +277,37 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         target = max(0, min(100, int(kwargs.get("position", 0))))
         if target == self._position:
             return
+        if self._recalibrate and self._position not in (0, 100):
+            await self._recalibrating_move_to(target)
+            return
         action = _ACTION_OPEN if target > self._position else _ACTION_CLOSE
         await self._start_move(action, target)
+
+    async def _recalibrating_move_to(self, target: int) -> None:
+        """Recalibrate against whichever endpoint is closer -- fully open or
+        fully closed, whichever is a shorter run from the current estimate --
+        then travel to `target` from there. Only the two endpoints are a real
+        reference (the module's own limit switch, or a bus-confirmed status
+        report); anything in between is our estimate. Used only when
+        CONF_RECALIBRATE_BEFORE_REPOSITION is enabled -- see const.py and
+        GitHub issue #15.
+        """
+        if self._position <= 50:
+            anchor_action, anchor = _ACTION_CLOSE, 0
+        else:
+            anchor_action, anchor = _ACTION_OPEN, 100
+        await self._start_move(anchor_action, anchor)
+        move_task = self._move_task
+        if move_task is not None:
+            try:
+                await move_task
+            except asyncio.CancelledError:
+                # Superseded by a newer command (stop / another set_position)
+                # while recalibrating -- let that command own the result.
+                return
+        if target != anchor:
+            action = _ACTION_OPEN if target > anchor else _ACTION_CLOSE
+            await self._start_move(action, target)
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the curtain."""
@@ -313,6 +347,13 @@ class ARHDLRelayPairCover(_ARHDLCoverBase):
         self._close_channel = int(device_cfg.get(CONF_CLOSE_CHANNEL, 2))
         self._travel_time = max(
             1, int(device_cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME))
+        )
+        # See CONF_RECALIBRATE_BEFORE_REPOSITION in const.py -- off by default.
+        # This style never gets bus confirmation of position at all (unlike
+        # the curtain module, which resyncs on a full-open/closed report), so
+        # it's the more exposed of the two to drift.
+        self._recalibrate = bool(
+            device_cfg.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False)
         )
         self._attr_unique_id = build_unique_id(
             entry.entry_id, device_cfg, suffix="cover"
@@ -411,7 +452,36 @@ class ARHDLRelayPairCover(_ARHDLCoverBase):
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Travel to a specific position."""
-        await self._start_move(int(kwargs.get("position", 0)))
+        target = max(0, min(100, int(kwargs.get("position", 0))))
+        if (
+            self._recalibrate
+            and self._position not in (0, 100)
+            and target != self._position
+        ):
+            await self._recalibrating_move_to(target)
+            return
+        await self._start_move(target)
+
+    async def _recalibrating_move_to(self, target: int) -> None:
+        """Recalibrate against whichever endpoint is closer -- fully open or
+        fully closed, whichever is a shorter run from the current estimate --
+        relying on the motor's own end-stop as a real reference point, then
+        travel to `target` from there. Used only when
+        CONF_RECALIBRATE_BEFORE_REPOSITION is enabled -- see const.py and
+        GitHub issue #15.
+        """
+        anchor = 0 if self._position <= 50 else 100
+        await self._start_move(anchor)
+        move_task = self._move_task
+        if move_task is not None:
+            try:
+                await move_task
+            except asyncio.CancelledError:
+                # Superseded by a newer command (stop / another set_position)
+                # while recalibrating -- let that command own the result.
+                return
+        if target != anchor:
+            await self._start_move(target)
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop immediately and release both relays."""
