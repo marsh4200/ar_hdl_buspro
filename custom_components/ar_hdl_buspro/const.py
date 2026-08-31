@@ -195,6 +195,10 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0DCE": DEVICE_TYPE_SWITCH,            # HDL-MRCU home control unit, 18 relay + 4 dimmer ch (issue #10) -
                                               # imports as switch channels; re-tag the 4 dimmer channels to
                                               # "light" afterwards via the edit-device screen.
+    "0x0890": DEVICE_TYPE_CLIMATE,            # HDL-MPTL4C.48 Granite Display touch panel (issue #13) - has a
+                                               # built-in temperature/humidity sensor and drives HVAC/floor
+                                               # heating, like the DLP panels above; was falling through to
+                                               # switch since it had no entry here.
 }
 
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
@@ -222,6 +226,7 @@ HDL_TYPE_NAMES: Final = {
     "0x0517": "IR emitter/receiver module (HDL-MIRC04.40)",
     "0x0166": "Dry contact module (24 zone, HDL-MS24.232)",
     "0x0DCE": "Home control unit (HDL-MRCU, 18 relay + 4 dimmer ch)",
+    "0x0890": "Granite Display panel (HDL-MPTL4C.48)",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
