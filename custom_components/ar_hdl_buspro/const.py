@@ -208,6 +208,9 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
                                                # built-in temperature/humidity sensor and drives HVAC/floor
                                                # heating, like the DLP panels above; was falling through to
                                                # switch since it had no entry here.
+    "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
+    "0x158A": DEVICE_TYPE_SWITCH,             # relay module
+    "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
 }
 
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
@@ -236,6 +239,9 @@ HDL_TYPE_NAMES: Final = {
     "0x0166": "Dry contact module (24 zone, HDL-MS24.232)",
     "0x0DCE": "Home control unit (HDL-MRCU, 18 relay + 4 dimmer ch)",
     "0x0890": "Granite Display panel (HDL-MPTL4C.48)",
+    "0x164B": "Dimmer module",
+    "0x158A": "Relay module",
+    "0x027E": "Dimmer module",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
@@ -263,6 +269,8 @@ HDL_DIMMER_TYPE_CODES: Final = {
     "0x0260",  # SB_DN_DT0601 6ch dimmer
     "0x026D",  # HDL_MDT0601 6ch dimmer (newer)
     "0x0269",  # 6ch dimmer module (ARSmartHome site, MDT0601 family)
+    "0x164B",  # dimmer module
+    "0x027E",  # dimmer module
 }
 
 # Dispatcher signals
