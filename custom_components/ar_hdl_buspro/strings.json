@@ -90,6 +90,8 @@
           "scan_interval": "Scan interval (seconds, 0 = push only)",
           "temperature_offset": "Temperature offset",
           "device_hw_kind": "Hardware variant",
+          "climate_kind": "Climate protocol",
+          "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
@@ -125,6 +127,8 @@
           "scan_interval": "Scan interval (seconds, 0 = push only)",
           "temperature_offset": "Temperature offset",
           "device_hw_kind": "Hardware variant",
+          "climate_kind": "Climate protocol",
+          "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
@@ -220,6 +224,12 @@
       "options": {
         "curtain_module": "HDL curtain module",
         "relay_pair": "Two relay channels (open/close pair)"
+      }
+    },
+    "climate_kind": {
+      "options": {
+        "dlp": "DLP panel (floor heating / thermostat)",
+        "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)"
       }
     }
   },

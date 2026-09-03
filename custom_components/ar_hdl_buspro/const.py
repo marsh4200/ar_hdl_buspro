@@ -61,6 +61,20 @@ CONF_RELAY_SUBNET: Final = "relay_subnet"
 CONF_RELAY_DEVICE: Final = "relay_device"
 CONF_RELAY_CHANNEL: Final = "relay_channel"
 
+# Which climate protocol a "climate" device uses. DLP is the original
+# floor-heating/thermostat-panel protocol (ReadFloorHeatingStatus /
+# ControlFloorHeatingStatus). AC_IR is an air conditioner controlled through
+# an IR emitter module's live AC panel channels (e.g. HDL-MIRC04.40, see
+# GitHub issue #17) -- a different device address (the IR module) shared by
+# up to 4 AC units, distinguished by CONF_HVAC_NUMBER.
+CONF_CLIMATE_KIND: Final = "climate_kind"
+CLIMATE_KIND_DLP: Final = "dlp"
+CLIMATE_KIND_AC_IR: Final = "ac_ir"
+CLIMATE_KINDS: Final = [CLIMATE_KIND_DLP, CLIMATE_KIND_AC_IR]
+# "HVAC No." (1-4): which of the IR module's live AC channels this entity
+# targets. Only meaningful when CONF_CLIMATE_KIND is CLIMATE_KIND_AC_IR.
+CONF_HVAC_NUMBER: Final = "hvac_number"
+
 # Device types (used to discriminate entries in the device list)
 DEVICE_TYPE_LIGHT: Final = "light"
 DEVICE_TYPE_SWITCH: Final = "switch"
@@ -211,6 +225,8 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
+    "0x0148": DEVICE_TYPE_SENSOR,             # sensor
+    "0x0187": DEVICE_TYPE_SENSOR,             # sensor
 }
 
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
@@ -242,6 +258,8 @@ HDL_TYPE_NAMES: Final = {
     "0x164B": "Dimmer module",
     "0x158A": "Relay module",
     "0x027E": "Dimmer module",
+    "0x0148": "Sensor module",
+    "0x0187": "Sensor module",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
