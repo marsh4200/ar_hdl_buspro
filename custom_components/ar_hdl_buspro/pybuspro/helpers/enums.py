@@ -107,6 +107,20 @@ class OperateCode(Enum):
     ControlFloorHeatingStatus = b"\x19\x46"
     ControlFloorHeatingStatusResponse = b"\x19\x47"
 
+    # Air conditioner control via an IR emitter module's live AC panel
+    # channels (e.g. HDL-MIRC04.40, GitHub issue #17). ControlACStatus and
+    # ControlACStatusResponse were confirmed from a real bus capture on that
+    # issue. ReadACStatus/ReadACStatusResponse were never observed directly
+    # (nothing in the capture issued a read) -- they're inferred from the
+    # same read=control-2/control-1 numbering this file already uses for
+    # floor heating (0x1944-0x1947 above), and are parsed defensively: a
+    # wrong guess here just means no response arrives, not a bad command
+    # sent to the bus.
+    ReadACStatus = b"\x19\x38"
+    ReadACStatusResponse = b"\x19\x39"
+    ControlACStatus = b"\x19\x3A"
+    ControlACStatusResponse = b"\x19\x3B"
+
     ReadDryContactStatus = b"\x15\xCE"
     ReadDryContactStatusResponse = b"\x15\xCF"
 

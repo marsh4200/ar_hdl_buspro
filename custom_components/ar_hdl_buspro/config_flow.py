@@ -23,9 +23,13 @@ from .const import (
     BINARY_KIND_SINGLE_CHANNEL,
     BINARY_KIND_UNIVERSAL_SWITCH,
     BINARY_KINDS,
+    CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_DLP,
+    CLIMATE_KINDS,
     CLIMATE_PRESETS,
     CONF_BINARY_KIND,
     CONF_CHANNEL,
+    CONF_CLIMATE_KIND,
     CONF_CLOSE_CHANNEL,
     CONF_COVER_MODE,
     CONF_CURTAIN_NUMBER,
@@ -38,6 +42,7 @@ from .const import (
     CONF_DISCOVERED,
     CONF_GATEWAY_HOST,
     CONF_GATEWAY_PORT,
+    CONF_HVAC_NUMBER,
     CONF_LOCAL_IP,
     CONF_NAME,
     CONF_OPEN_CHANNEL,
@@ -342,6 +347,30 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             **_common_address_fields(defaults),
+            vol.Required(
+                CONF_CLIMATE_KIND,
+                default=defaults.get(CONF_CLIMATE_KIND, CLIMATE_KIND_DLP),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=CLIMATE_KINDS,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_CLIMATE_KIND,
+                )
+            ),
+            # AC via IR module only (climate_kind = ac_ir): which of the IR
+            # module's 4 live AC channels this entity targets. Subnet/Device
+            # above are the IR module's own address, not the AC unit's.
+            # Ignored for a DLP panel.
+            vol.Optional(
+                CONF_HVAC_NUMBER, default=defaults.get(CONF_HVAC_NUMBER, 1)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=4, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            # DLP panel only (climate_kind = dlp). Ignored for an AC via an
+            # IR module -- mode/preset selection there isn't supported yet
+            # (see AirConditioner's docstring in pybuspro/devices/climate.py).
             vol.Optional(
                 CONF_PRESET_MODES,
                 default=defaults.get(CONF_PRESET_MODES, [PRESET_NONE]),
@@ -413,6 +442,7 @@ def _normalize_device_input(
         CONF_RELAY_SUBNET,
         CONF_RELAY_DEVICE,
         CONF_RELAY_CHANNEL,
+        CONF_HVAC_NUMBER,
     )
     for field in int_fields:
         if field in out and out[field] is not None and out[field] != "":
@@ -432,6 +462,15 @@ def _device_summary(device: dict[str, Any]) -> str:
     ch = device.get(CONF_CHANNEL)
     if ch is None and dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
         ch = device.get(CONF_SUB_NUMBER)
+    if (
+        ch is None
+        and dtype == DEVICE_TYPE_CLIMATE
+        and device.get(CONF_CLIMATE_KIND) == CLIMATE_KIND_AC_IR
+    ):
+        # Several AC entities can share one IR module's address, only
+        # distinguished by HVAC No. -- show it so the device list (and
+        # edit/remove pickers) don't display identical-looking rows.
+        ch = device.get(CONF_HVAC_NUMBER)
     addr = f"{sub}.{dev}" + (f".{ch}" if ch is not None else "")
     return f"{name} [{dtype} @ {addr}]"
 
@@ -1262,8 +1301,12 @@ class ARHDLOptionsFlow(OptionsFlow):
                 }
             )
         elif dtype == DEVICE_TYPE_CLIMATE:
+            # Discovery only ever identifies DLP panels (the IR-module AC
+            # path has no bus-scan signature of its own -- add it by hand
+            # via "Add a device" and pick climate_kind = ac_ir).
             base.update(
                 {
+                    CONF_CLIMATE_KIND: CLIMATE_KIND_DLP,
                     CONF_PRESET_MODES: [PRESET_NONE],
                     CONF_RELAY_SUBNET: 0,
                     CONF_RELAY_DEVICE: 0,

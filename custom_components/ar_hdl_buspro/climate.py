@@ -17,9 +17,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ARHDLData
 from .const import (
+    CLIMATE_KIND_AC_IR,
+    CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
+    CONF_HVAC_NUMBER,
     CONF_NAME,
     CONF_PRESET_MODES,
     CONF_RELAY_CHANNEL,
@@ -35,6 +38,7 @@ from .const import (
 )
 from .entity import ARHDLBaseEntity, build_device_info, build_unique_id
 from .gateway import ARHDLGateway
+from .pybuspro.devices.climate import AirConditioner as PyBusproAirConditioner
 from .pybuspro.devices.climate import Climate as PyBusproClimate
 from .pybuspro.devices.climate import ControlFloorHeatingStatus
 from .pybuspro.devices.sensor import Sensor as PyBusproSensor
@@ -60,17 +64,20 @@ async def async_setup_entry(
     data: ARHDLData = hass.data[DOMAIN][entry.entry_id]
     devices = entry.options.get(CONF_DEVICES, [])
 
-    entities: list[ARHDLClimate] = []
+    entities: list[ClimateEntity] = []
     for device_cfg in devices:
         if device_cfg.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_CLIMATE:
             continue
-        entities.append(ARHDLClimate(entry, data.gateway, device_cfg))
+        if device_cfg.get(CONF_CLIMATE_KIND) == CLIMATE_KIND_AC_IR:
+            entities.append(ARHDLAcClimate(entry, data.gateway, device_cfg))
+        else:
+            entities.append(ARHDLDlpClimate(entry, data.gateway, device_cfg))
 
     if entities:
         async_add_entities(entities)
 
 
-class ARHDLClimate(ARHDLBaseEntity, ClimateEntity):
+class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
     """Representation of an HDL Buspro floor-heating climate device."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -227,3 +234,119 @@ class ARHDLClimate(ARHDLBaseEntity, ClimateEntity):
             ctrl.normal_temperature = target
 
         await self._climate.control_heating_status(ctrl)
+
+
+class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
+    """An air conditioner controlled through an IR emitter module's live AC
+    panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
+
+    Only power on/off and target temperature are exposed -- those are the
+    two fields confirmed from a real bus capture. Mode (Cool/Heat/Fan/etc.)
+    and fan speed are not settable yet: the capture showed their protocol
+    bytes referencing what looks like a per-installation IR code-library
+    slot rather than a portable enum, so this entity never sends a value
+    for them it hasn't actually observed on the bus. See the AirConditioner
+    docstring in pybuspro/devices/climate.py for the full writeup.
+    """
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1
+    # HVACMode.COOL doubles as the generic "on" state here -- turning the
+    # entity on only sets the power bit, it does not force Cool mode. The
+    # AC keeps whatever mode/fan speed it was last set to (by the physical
+    # panel or app); this entity has no way to change or display that yet.
+    _attr_hvac_modes = [HVACMode.COOL, HVACMode.OFF]
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        gateway: ARHDLGateway,
+        device_cfg: dict[str, Any],
+    ) -> None:
+        """Initialize the air conditioner."""
+        super().__init__(entry, gateway, device_cfg)
+
+        subnet = int(device_cfg[CONF_SUBNET_ID])
+        device = int(device_cfg[CONF_DEVICE_ID])
+        hvac_number = int(device_cfg.get(CONF_HVAC_NUMBER, 1))
+
+        self._ac = PyBusproAirConditioner(
+            gateway.hdl,
+            (subnet, device),
+            hvac_number,
+            device_cfg.get(CONF_NAME, ""),
+        )
+
+        self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_name = None
+        self._attr_supported_features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Register update callbacks."""
+        await super().async_added_to_hass()
+
+        async def _after_update(_device) -> None:
+            self.async_write_ha_state()
+
+        self._ac.register_device_updated_cb(_after_update)
+
+    # ----- state ----------------------------------------------------------
+    @property
+    def available(self) -> bool:
+        """Unavailable until a real status has been observed on the bus.
+
+        There's no safe default for the protocol bytes this entity doesn't
+        understand (see class docstring), so it refuses to guess rather
+        than show a possibly-wrong state.
+        """
+        return super().available and self._ac.available
+
+    @property
+    def current_temperature(self) -> float | None:
+        """Return the module's own room-temperature reading, if available."""
+        return self._ac.current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        """Return setpoint."""
+        return self._ac.target_temperature
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        """Return current HVAC mode (COOL is a generic "on", see class docstring)."""
+        return HVACMode.COOL if self._ac.is_on else HVACMode.OFF
+
+    @property
+    def hvac_action(self) -> HVACAction:
+        """Return current HVAC action."""
+        return HVACAction.COOLING if self._ac.is_on else HVACAction.OFF
+
+    # ----- commands -------------------------------------------------------
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set HVAC mode (power on/off only -- see class docstring)."""
+        if hvac_mode == HVACMode.OFF:
+            await self._ac.turn_off()
+        elif hvac_mode == HVACMode.COOL:
+            await self._ac.turn_on()
+        else:
+            _LOGGER.warning("Unsupported HVAC mode: %s", hvac_mode)
+
+    async def async_turn_on(self) -> None:
+        """Turn the AC on."""
+        await self._ac.turn_on()
+
+    async def async_turn_off(self) -> None:
+        """Turn the AC off."""
+        await self._ac.turn_off()
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set target temperature."""
+        temperature = kwargs.get(ATTR_TEMPERATURE)
+        if temperature is None:
+            return
+        await self._ac.set_target_temperature(int(temperature))

@@ -10,7 +10,7 @@ from ..helpers.enums import (
     TemperatureType,
 )
 from ..helpers.generics import Generics
-from .control import _ControlFloorHeatingStatus, _ReadFloorHeatingStatus
+from .control import _ControlFloorHeatingStatus, _GenericControl, _ReadFloorHeatingStatus
 from .device import Device
 
 
@@ -216,3 +216,171 @@ class Climate(Device):
         if self._mode == TemperatureMode.Night.value:
             return self._night_temperature
         return self._normal_temperature
+
+
+class AirConditioner(Device):
+    """HDL air conditioner wrapper, controlled through an IR emitter
+    module's live AC panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
+
+    Unlike Climate (a DLP floor-heating panel that owns its own bus
+    address), one IR module serves up to 4 AC units sharing the module's
+    address, distinguished within the payload by "HVAC No." (1-4).
+
+    Protocol notes -- reverse-engineered from a live bus capture on issue
+    #17, not from an HDL protocol document. The 13-byte ControlACStatus /
+    ControlACStatusResponse payload:
+      - byte 0        = HVAC No.
+      - byte 5 (mirrored in byte 11) = target temperature, whole degrees C
+      - byte 8         = power (1 = on, 0 = off)
+      - byte 9         = mode (0=Fan, 1=Cool, 4=Heat confirmed by an
+        isolated capture; values 2 and 3 were also seen -- likely Auto
+        and/or Dry -- but not identified, so mode is not settable yet)
+      - bytes 1,2,3,4,6,7,10,12 -- meaning not established. Multiple
+        captures showed them changing in ways that didn't track a simple
+        enum (two different fan speeds produced the same byte-7 value;
+        two different modes did too), consistent with them referencing a
+        slot in this specific installation's programmed IR code library
+        (the datasheet describes 24 stored devices / 100 IR codes,
+        programmed per-site in HDL's own Buspro Setup Tool) rather than a
+        portable protocol field.
+
+    Because that mapping isn't portable across installations, this class
+    never fabricates values for the unidentified bytes. It only ever
+    echoes back the last full payload actually observed on the bus (from
+    this module's own status broadcast, or a best-effort startup read),
+    changing just the confirmed field(s) a command asks to change. Until a
+    real payload has been observed, writes are refused rather than guessed
+    -- see _send_update().
+    """
+
+    def __init__(
+        self, buspro, device_address, hvac_number: int, name: str = ""
+    ) -> None:
+        """Initialize the air conditioner."""
+        super().__init__(buspro, device_address, name)
+        self._buspro = buspro
+        self._device_address = device_address
+        self._hvac_number = hvac_number
+        # Last full 13-int payload observed for this HVAC No., or None if
+        # nothing has been seen yet.
+        self._raw_payload: list[int] | None = None
+
+        self.register_telegram_received_cb(self._telegram_received_cb)
+        self._call_read_current_status(run_from_init=True)
+
+    def _telegram_received_cb(self, telegram) -> None:
+        if telegram.operate_code not in (
+            OperateCode.ControlACStatusResponse,
+            OperateCode.ReadACStatusResponse,
+        ):
+            return
+        payload = telegram.payload or []
+        # byte 0 of the payload is the HVAC No. this frame is about -- the
+        # IR module's single bus address serves up to 4 of them, so ignore
+        # frames for a different HVAC No. than this entity.
+        if len(payload) < 12 or payload[0] != self._hvac_number:
+            return
+        self._raw_payload = list(payload)
+        self._call_device_updated()
+
+    @property
+    def available(self) -> bool:
+        """Return True once a real payload has been observed on the bus."""
+        return self._raw_payload is not None
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._raw_payload) and self._raw_payload[8] == 1
+
+    @property
+    def target_temperature(self):
+        if not self._raw_payload:
+            return None
+        return self._raw_payload[5]
+
+    @property
+    def current_temperature(self):
+        """Best-effort room temperature reading.
+
+        Byte 3 stayed constant across an entire capture while target
+        temperature, mode and fan speed all changed around it, consistent
+        with a slow-moving sensor reading rather than a control field --
+        but this hasn't been confirmed against a known actual room
+        temperature.
+        """
+        if not self._raw_payload:
+            return None
+        return self._raw_payload[3]
+
+    async def read_status(self) -> None:
+        """Trigger a read of the current AC status."""
+        req = _GenericControl(self._buspro)
+        req.subnet_id, req.device_id = self._device_address
+        req.operate_code = OperateCode.ReadACStatus
+        req.payload = [self._hvac_number]
+        await req.send()
+
+    def _call_read_current_status(self, run_from_init: bool = False) -> None:
+        async def _read():
+            if run_from_init:
+                await asyncio.sleep(5)
+            try:
+                await self.read_status()
+            except Exception:  # noqa: BLE001
+                self._buspro.logger.debug(
+                    "Initial AC read failed for %s HVAC %s",
+                    self._device_address,
+                    self._hvac_number,
+                )
+
+        asyncio.ensure_future(_read(), loop=self._buspro.loop)
+
+    async def _send_update(self, **changes) -> None:
+        """Echo the last observed payload, changing only confirmed fields.
+
+        Refuses to send anything until a real payload has been observed --
+        there is no safe default for the unidentified bytes (see class
+        docstring), so guessing them risks triggering an unintended stored
+        IR code on real hardware.
+        """
+        if not self._raw_payload:
+            self._buspro.logger.warning(
+                "Cannot control AC %s HVAC %s yet: no status has been "
+                "observed on the bus. Waiting for an initial read or a "
+                "broadcast from the physical panel before this entity can "
+                "send commands.",
+                self._device_address,
+                self._hvac_number,
+            )
+            return
+
+        payload = list(self._raw_payload)
+        if "power" in changes:
+            payload[8] = changes["power"]
+        if "target_temperature" in changes:
+            temperature = int(changes["target_temperature"])
+            payload[5] = temperature
+            payload[11] = temperature
+
+        ctrl = _GenericControl(self._buspro)
+        ctrl.subnet_id, ctrl.device_id = self._device_address
+        ctrl.operate_code = OperateCode.ControlACStatus
+        ctrl.payload = payload
+        await ctrl.send()
+
+        # Optimistically update local state; the module's own broadcast
+        # reply will confirm (or correct) it shortly after.
+        self._raw_payload = payload
+        self._call_device_updated()
+
+    async def turn_on(self) -> None:
+        """Turn the AC on (leaves mode/fan at their last real setting)."""
+        await self._send_update(power=1)
+
+    async def turn_off(self) -> None:
+        """Turn the AC off."""
+        await self._send_update(power=0)
+
+    async def set_target_temperature(self, temperature: int) -> None:
+        """Set the target temperature, in whole degrees Celsius."""
+        await self._send_update(target_temperature=temperature)
