@@ -320,18 +320,35 @@ class AirConditioner(Device):
         req.payload = [self._hvac_number]
         await req.send()
 
+    # How often to retry the startup read while no status has been observed
+    # yet. A single one-shot attempt is fragile -- it can race the gateway
+    # coming up, drop a packet, or (we suspect, but haven't confirmed) the
+    # module may simply not answer ReadACStatus for a channel nobody has
+    # ever operated. Retrying costs nothing (it's a tiny broadcast, and it
+    # stops the moment real status arrives, from this read or from anyone
+    # else operating the AC) and fixes the "entity never becomes available"
+    # case whenever the read *would* have worked eventually.
+    _READ_RETRY_SECONDS = 30
+
     def _call_read_current_status(self, run_from_init: bool = False) -> None:
         async def _read():
             if run_from_init:
                 await asyncio.sleep(5)
-            try:
-                await self.read_status()
-            except Exception:  # noqa: BLE001
-                self._buspro.logger.debug(
-                    "Initial AC read failed for %s HVAC %s",
-                    self._device_address,
-                    self._hvac_number,
-                )
+            while self._raw_payload is None:
+                try:
+                    await self.read_status()
+                except Exception:  # noqa: BLE001
+                    self._buspro.logger.debug(
+                        "AC status read failed for %s HVAC %s",
+                        self._device_address,
+                        self._hvac_number,
+                    )
+                await asyncio.sleep(self._READ_RETRY_SECONDS)
+            self._buspro.logger.debug(
+                "AC %s HVAC %s status observed, stopping read retries",
+                self._device_address,
+                self._hvac_number,
+            )
 
         asyncio.ensure_future(_read(), loop=self._buspro.loop)
 
@@ -346,12 +363,19 @@ class AirConditioner(Device):
         if not self._raw_payload:
             self._buspro.logger.warning(
                 "Cannot control AC %s HVAC %s yet: no status has been "
-                "observed on the bus. Waiting for an initial read or a "
-                "broadcast from the physical panel before this entity can "
-                "send commands.",
+                "observed on the bus. Retrying a status read now -- if "
+                "this keeps happening, operate this AC once from the HDL "
+                "app or a physical panel, which will also seed it.",
                 self._device_address,
                 self._hvac_number,
             )
+            # Nudge a fresh read right away rather than only waiting for
+            # the next periodic retry -- if the module does answer reads,
+            # this shortens "try the command again in a bit" to seconds.
+            try:
+                await self.read_status()
+            except Exception:  # noqa: BLE001
+                pass
             return
 
         payload = list(self._raw_payload)
