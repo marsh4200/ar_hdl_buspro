@@ -218,7 +218,6 @@ class Climate(Device):
         return self._normal_temperature
 
 
-class AirConditioner(Device):
     """HDL air conditioner wrapper, controlled through an IR emitter
     module's live AC panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
 
@@ -226,32 +225,63 @@ class AirConditioner(Device):
     address), one IR module serves up to 4 AC units sharing the module's
     address, distinguished within the payload by "HVAC No." (1-4).
 
-    Protocol notes -- reverse-engineered from a live bus capture on issue
+    Protocol notes -- reverse-engineered from live bus captures on issue
     #17, not from an HDL protocol document. The 13-byte ControlACStatus /
     ControlACStatusResponse payload:
       - byte 0        = HVAC No.
       - byte 5 (mirrored in byte 11) = target temperature, whole degrees C
+      - byte 7         = derived from mode + fan speed while on, see
+        _MODE_BASE below; not set directly, computed in _send_update()
       - byte 8         = power (1 = on, 0 = off)
-      - byte 9         = mode (0=Fan, 1=Cool, 4=Heat confirmed by an
-        isolated capture; values 2 and 3 were also seen -- likely Auto
-        and/or Dry -- but not identified, so mode is not settable yet)
-      - bytes 1,2,3,4,6,7,10,12 -- meaning not established. Multiple
-        captures showed them changing in ways that didn't track a simple
-        enum (two different fan speeds produced the same byte-7 value;
-        two different modes did too), consistent with them referencing a
-        slot in this specific installation's programmed IR code library
-        (the datasheet describes 24 stored devices / 100 IR codes,
-        programmed per-site in HDL's own Buspro Setup Tool) rather than a
-        portable protocol field.
+      - byte 9         = mode, see MODE_TO_BYTE below
+      - byte 10        = fan speed, see FAN_TO_BYTE below
+      - bytes 1,2,3,4,6,12 -- meaning not established, never touched.
 
-    Because that mapping isn't portable across installations, this class
-    never fabricates values for the unidentified bytes. It only ever
-    echoes back the last full payload actually observed on the bus (from
-    this module's own status broadcast, or a best-effort startup read),
-    changing just the confirmed field(s) a command asks to change. Until a
-    real payload has been observed, writes are refused rather than guessed
-    -- see _send_update().
+    This class never fabricates values for the unidentified bytes. It
+    only ever echoes back the last full payload actually observed on the
+    bus (from this module's own status broadcast, or a best-effort
+    startup read), changing just the confirmed field(s) a command asks to
+    change. Until a real payload has been observed, writes are refused
+    rather than guessed -- see _send_update().
     """
+
+    # HVAC mode <-> payload[9], confirmed from a real narrated test on
+    # issue #17 (module 1.42, HVAC 3): the reporter cycled through every
+    # mode in a fixed order with wall-clock times ("test start 9:18pm ...
+    # test ended 9:31pm"), which we matched against the real outbound
+    # ControlACStatus command frames (source (1,60) -> target (1,42), not
+    # the broadcast *Response echoes) by their own timestamps -- 13 named
+    # actions against 13 captured command frames spanning 21:18:37 to
+    # 21:30:54 (~12m17s, matching "9:18-9:31pm" almost to the second), one
+    # pair of which was an exact duplicate (a retransmit, not a distinct
+    # action) which accounts for the reporter's own self-flagged uncertain
+    # step ("flipped alone to cool again from itself"). This superseded an
+    # earlier partial mapping (0=Fan/1=Cool/4=Heat) drawn from a different
+    # capture without real per-step timestamps, which turned out to be a
+    # mis-alignment -- that's what produced the "byte9=4 can't be Heat and
+    # Dry at once" contradiction flagged previously. This mapping is the
+    # one to trust; the old one was wrong.
+    MODE_TO_BYTE = {"cool": 0, "heat": 1, "fan_only": 2, "auto": 3, "dry": 4}
+    BYTE_TO_MODE = {v: k for k, v in MODE_TO_BYTE.items()}
+
+    # Fan speed <-> payload[10], confirmed the same way (three explicit,
+    # isolated fan-speed button presses in the same test). The app's
+    # "Auto" fan setting produced the same byte value as "Low" in this
+    # capture, so it isn't exposed as a distinct option here -- only the
+    # three unambiguous speeds are.
+    FAN_TO_BYTE = {"high": 1, "medium": 2, "low": 3}
+    BYTE_TO_FAN = {v: k for k, v in FAN_TO_BYTE.items()}
+
+    # payload[7] tracks (mode, fan speed) while the unit is on -- in every
+    # power-on frame of that same capture, byte7 == _MODE_BASE[mode] +
+    # fan_byte, with zero exceptions across 11 independent frames. It's
+    # likely a slot index into this installation's own programmed IR-code
+    # library (per the datasheet's 24-device/100-code description) rather
+    # than a portable protocol field, so these base values are only known
+    # to be correct for this reporter's installation -- but since this
+    # class only ever mutates a real observed payload for one specific
+    # configured device, that's exactly the case that matters here.
+    _MODE_BASE = {0: 32, 1: 16, 2: 32, 3: 0, 4: 64}
 
     def __init__(
         self, buspro, device_address, hvac_number: int, name: str = ""
@@ -279,6 +309,35 @@ class AirConditioner(Device):
         # IR module's single bus address serves up to 4 of them, so ignore
         # frames for a different HVAC No. than this entity.
         if len(payload) < 12 or payload[0] != self._hvac_number:
+            return
+        # A HVAC No. with no AC actually wired to it reports back as all
+        # 0xFF (255) -- confirmed from a real ReadACStatusResponse capture
+        # (e.g. [2, 0, 27, 22, 25, 25, 25, 32, 255, 255, 255, 255, 255]).
+        # Accepting that as real state would make this entity look
+        # available with a plausible-but-fake temperature, and would send
+        # 0xFF bytes onto the bus the moment someone tried to control it.
+        # Treat it as "nothing configured here" instead.
+        if all(b == 255 for b in payload[8:13]):
+            if self._raw_payload is not None:
+                # We previously had real data and now see the empty-slot
+                # sentinel -- surface this loudly, it likely means the
+                # configured HVAC No. is wrong for this module.
+                self._buspro.logger.warning(
+                    "AC %s HVAC %s now reports as unconfigured (all-0xFF) "
+                    "after previously showing real status -- check the "
+                    "HVAC No. for this entity is correct.",
+                    self._device_address,
+                    self._hvac_number,
+                )
+                self._raw_payload = None
+                self._call_device_updated()
+            else:
+                self._buspro.logger.debug(
+                    "AC %s HVAC %s reports as unconfigured (all-0xFF) -- "
+                    "no AC unit wired to this HVAC No. on this module.",
+                    self._device_address,
+                    self._hvac_number,
+                )
             return
         self._raw_payload = list(payload)
         self._call_device_updated()
@@ -311,6 +370,23 @@ class AirConditioner(Device):
         if not self._raw_payload:
             return None
         return self._raw_payload[3]
+
+    @property
+    def hvac_mode(self) -> str | None:
+        """Return the current mode as one of MODE_TO_BYTE's keys, or None
+        if the AC is off or no status has been observed yet."""
+        if not self._raw_payload or not self.is_on:
+            return None
+        return self.BYTE_TO_MODE.get(self._raw_payload[9])
+
+    @property
+    def fan_speed(self) -> str | None:
+        """Return the current fan speed as one of FAN_TO_BYTE's keys, or
+        None if the AC is off, no status has been observed yet, or the
+        current byte value doesn't match a known speed (e.g. "Auto")."""
+        if not self._raw_payload or not self.is_on:
+            return None
+        return self.BYTE_TO_FAN.get(self._raw_payload[10])
 
     async def read_status(self) -> None:
         """Trigger a read of the current AC status."""
@@ -385,6 +461,23 @@ class AirConditioner(Device):
             temperature = int(changes["target_temperature"])
             payload[5] = temperature
             payload[11] = temperature
+        if "hvac_mode" in changes or "fan_speed" in changes:
+            mode_byte = (
+                self.MODE_TO_BYTE[changes["hvac_mode"]]
+                if "hvac_mode" in changes
+                else payload[9]
+            )
+            fan_byte = (
+                self.FAN_TO_BYTE[changes["fan_speed"]]
+                if "fan_speed" in changes
+                else payload[10]
+            )
+            payload[9] = mode_byte
+            payload[10] = fan_byte
+            # Only recompute byte 7 when the unit is (or is becoming) on --
+            # _MODE_BASE was only confirmed from power-on frames.
+            if payload[8] == 1:
+                payload[7] = self._MODE_BASE[mode_byte] + fan_byte
 
         ctrl = _GenericControl(self._buspro)
         ctrl.subnet_id, ctrl.device_id = self._device_address
@@ -408,3 +501,21 @@ class AirConditioner(Device):
     async def set_target_temperature(self, temperature: int) -> None:
         """Set the target temperature, in whole degrees Celsius."""
         await self._send_update(target_temperature=temperature)
+
+    async def set_hvac_mode(self, mode: str) -> None:
+        """Set the HVAC mode -- one of MODE_TO_BYTE's keys ("cool",
+        "heat", "fan_only", "auto", "dry"), or "off" to turn the unit off.
+        """
+        if mode == "off":
+            await self._send_update(power=0)
+            return
+        if mode not in self.MODE_TO_BYTE:
+            raise ValueError(f"Unknown AC mode: {mode!r}")
+        await self._send_update(power=1, hvac_mode=mode)
+
+    async def set_fan_speed(self, speed: str) -> None:
+        """Set the fan speed -- one of FAN_TO_BYTE's keys ("low",
+        "medium", "high")."""
+        if speed not in self.FAN_TO_BYTE:
+            raise ValueError(f"Unknown AC fan speed: {speed!r}")
+        await self._send_update(fan_speed=speed)
