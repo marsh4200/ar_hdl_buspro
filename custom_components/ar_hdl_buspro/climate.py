@@ -331,6 +331,10 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
             self.async_write_ha_state()
 
         self._ac.register_device_updated_cb(_after_update)
+        # Stop the continuous status-poll loop (see AirConditioner in
+        # pybuspro/devices/climate.py) when this entity goes away, so it
+        # doesn't keep polling the bus after removal/reload.
+        self.async_on_remove(self._ac.stop_status_polling)
 
     # ----- state ----------------------------------------------------------
     @property

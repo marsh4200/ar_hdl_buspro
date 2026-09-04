@@ -333,6 +333,7 @@ class AirConditioner(Device):
         # Last full 13-int payload observed for this HVAC No., or None if
         # nothing has been seen yet.
         self._raw_payload: list[int] | None = None
+        self._status_poll_task: asyncio.Task | None = None
 
         self.register_telegram_received_cb(self._telegram_received_cb)
         self._call_read_current_status(run_from_init=True)
@@ -442,21 +443,34 @@ class AirConditioner(Device):
         req.payload = [self._hvac_number]
         await req.send()
 
-    # How often to retry the startup read while no status has been observed
-    # yet. A single one-shot attempt is fragile -- it can race the gateway
-    # coming up, drop a packet, or (we suspect, but haven't confirmed) the
-    # module may simply not answer ReadACStatus for a channel nobody has
-    # ever operated. Retrying costs nothing (it's a tiny broadcast, and it
-    # stops the moment real status arrives, from this read or from anyone
-    # else operating the AC) and fixes the "entity never becomes available"
-    # case whenever the read *would* have worked eventually.
-    _READ_RETRY_SECONDS = 30
+    # A continuous backstop poll, not just a startup retry. This entity's
+    # state is normally driven by ControlACStatusResponse/ReadACStatusResponse
+    # broadcasts the module sends on its own -- but issue #17 testing across
+    # multiple IR-module channels showed that isn't fully reliable on every
+    # module: some channels don't reliably get a status-change broadcast to
+    # every listener, so an interface that didn't trigger the change can go
+    # stale and never catch up on its own. A single one-shot startup read is
+    # also fragile on top of that -- it can race the gateway coming up or
+    # drop a packet.
+    #
+    # A sibling HDL Buspro library (the Homey "smart-bus" app) hits the same
+    # broadcast-reliability limitation on this exact protocol and
+    # independently landed on the same fix: poll every device periodically
+    # regardless of broadcasts (every 60s, in their case, across several
+    # other device types). Doing the same here, scoped to AirConditioner
+    # only, costs very little -- this is a single 13-byte read request per
+    # AC entity -- so it can run much faster than 60s: 5s keeps this
+    # entity's own display caught up with reality within a few seconds of
+    # any change, from any source, without depending on the module
+    # broadcasting reliably. No other entity type in this integration is
+    # affected.
+    _STATUS_POLL_SECONDS = 5
 
     def _call_read_current_status(self, run_from_init: bool = False) -> None:
         async def _read():
             if run_from_init:
                 await asyncio.sleep(5)
-            while self._raw_payload is None:
+            while True:
                 try:
                     await self.read_status()
                 except Exception:  # noqa: BLE001
@@ -465,14 +479,21 @@ class AirConditioner(Device):
                         self._device_address,
                         self._hvac_number,
                     )
-                await asyncio.sleep(self._READ_RETRY_SECONDS)
-            self._buspro.logger.debug(
-                "AC %s HVAC %s status observed, stopping read retries",
-                self._device_address,
-                self._hvac_number,
-            )
+                await asyncio.sleep(self._STATUS_POLL_SECONDS)
 
-        asyncio.ensure_future(_read(), loop=self._buspro.loop)
+        self._status_poll_task = asyncio.ensure_future(
+            _read(), loop=self._buspro.loop
+        )
+
+    def stop_status_polling(self) -> None:
+        """Cancel the continuous status poll.
+
+        Called when the entity is removed from Home Assistant so the poll
+        loop doesn't keep running (and sending bus traffic) forever.
+        """
+        if self._status_poll_task is not None:
+            self._status_poll_task.cancel()
+            self._status_poll_task = None
 
     async def _send_update(self, **changes) -> None:
         """Echo the last observed payload, changing only confirmed fields.
