@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate import (
+    FAN_AUTO,
     FAN_HIGH,
     FAN_LOW,
     FAN_MEDIUM,
@@ -20,7 +21,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ARHDLData
 from .const import (
+    AC_HVAC_MODES,
     CLIMATE_KIND_AC_IR,
+    CONF_AC_HVAC_MODES,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
@@ -263,24 +266,21 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
     panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
 
     Power, target temperature, HVAC mode (Cool/Heat/Fan/Auto/Dry) and fan
-    speed (Low/Medium/High) are all confirmed and exposed. "Auto" fan
-    speed isn't distinguishable from "Low" in the capture this was built
-    from, so it isn't offered as a fan-speed option (selecting Low is the
-    same underlying command). See the AirConditioner docstring in
-    pybuspro/devices/climate.py for the full writeup and provenance.
+    speed (Auto/Low/Medium/High) are all confirmed and exposed, per HDL's
+    own official AC control spec as well as real captures from this
+    issue. See the AirConditioner docstring in pybuspro/devices/climate.py
+    for the full writeup and provenance.
     """
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1
-    _attr_hvac_modes = [
-        HVACMode.OFF,
-        HVACMode.COOL,
-        HVACMode.HEAT,
-        HVACMode.FAN_ONLY,
-        HVACMode.AUTO,
-        HVACMode.DRY,
+    # Fallback covering every mode this class knows about; __init__
+    # narrows this to CONF_AC_HVAC_MODES when a device is configured with
+    # fewer (e.g. a cooling-only unit with no physical Heat mode).
+    _attr_hvac_modes = [HVACMode.OFF] + [
+        AC_MODE_TO_HA_HVAC_MODE[m] for m in AC_HVAC_MODES
     ]
-    _attr_fan_modes = [FAN_LOW, FAN_MEDIUM, FAN_HIGH]
+    _attr_fan_modes = [FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
 
     def __init__(
         self,
@@ -301,6 +301,17 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
             hvac_number,
             device_cfg.get(CONF_NAME, ""),
         )
+
+        # Only offer the modes this specific unit actually has (config
+        # flow default is all of them, unchanged from before this option
+        # existed). Unknown entries in stored config are ignored rather
+        # than raising, and OFF is always offered regardless.
+        configured_modes = device_cfg.get(CONF_AC_HVAC_MODES, AC_HVAC_MODES)
+        self._attr_hvac_modes = [HVACMode.OFF] + [
+            AC_MODE_TO_HA_HVAC_MODE[m]
+            for m in configured_modes
+            if m in AC_MODE_TO_HA_HVAC_MODE
+        ]
 
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
         self._attr_device_info = build_device_info(entry, device_cfg)
@@ -358,9 +369,8 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     @property
     def fan_mode(self) -> str | None:
-        """Return current fan speed ("low"/"medium"/"high"), or None if
-        off, not yet known, or set to something this entity can't tell
-        apart from another speed (e.g. "Auto")."""
+        """Return current fan speed ("auto"/"low"/"medium"/"high"), or
+        None if off or not yet known."""
         if not self._ac.is_on:
             return None
         return self._ac.fan_speed
@@ -379,7 +389,7 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set fan speed."""
-        if fan_mode not in (FAN_LOW, FAN_MEDIUM, FAN_HIGH):
+        if fan_mode not in (FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH):
             _LOGGER.warning("Unsupported fan mode: %s", fan_mode)
             return
         await self._ac.set_fan_speed(fan_mode)
