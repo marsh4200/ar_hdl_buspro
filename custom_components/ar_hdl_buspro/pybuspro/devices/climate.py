@@ -218,6 +218,7 @@ class Climate(Device):
         return self._normal_temperature
 
 
+class AirConditioner(Device):
     """HDL air conditioner wrapper, controlled through an IR emitter
     module's live AC panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
 
