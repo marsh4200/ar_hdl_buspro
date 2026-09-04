@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
+<img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
 
 
 #  HDL Buspro for Home Assistant
