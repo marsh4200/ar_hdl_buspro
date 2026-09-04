@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/custom_components/ar_hdl_buspro/brand/logo.png" width="88" alt="AR HDL BUSPRO logo" />
+<img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
 
 
 #  HDL Buspro for Home Assistant
@@ -317,7 +317,7 @@ This isn't found by **Scan bus for devices** — add it by hand:
 
 If a unit doesn't have every mode (a cooling-only split, say, with no Heat), open **Edit a device** for it and narrow **AC HVAC modes to offer** to just the ones it actually has — the entity won't show modes that aren't ticked there.
 
-> This byte-level protocol was reverse-engineered from real bus captures and independently cross-checked against HDL's own published AC control specification, so it should hold for any HDL AC-via-IR-module setup — but it's newer and less travelled than the rest of this integration. If something doesn't behave as expected on your hardware, please open an issue with your `ar_hdl_buspro.telegram` debug log.
+> This byte-level protocol was reverse-engineered from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) and independently cross-checked against HDL's own published AC control specification, so it should hold for any HDL AC-via-IR-module setup — but it's newer and less travelled than the rest of this integration. If something doesn't behave as expected on your hardware, please open an issue with your `ar_hdl_buspro.telegram` debug log.
 
 ## 📖 Recognised HDL Type Codes
 
