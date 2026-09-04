@@ -409,3 +409,4 @@ If you find **AR HDL BUSPRO** useful:
 - 💡 Suggest features
 - 🤝 Contribute improvements
 
+<img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
