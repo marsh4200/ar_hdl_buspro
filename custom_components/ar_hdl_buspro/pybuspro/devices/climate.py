@@ -226,63 +226,101 @@ class AirConditioner(Device):
     address), one IR module serves up to 4 AC units sharing the module's
     address, distinguished within the payload by "HVAC No." (1-4).
 
-    Protocol notes -- reverse-engineered from live bus captures on issue
-    #17, not from an HDL protocol document. The 13-byte ControlACStatus /
-    ControlACStatusResponse payload:
-      - byte 0        = HVAC No.
-      - byte 5 (mirrored in byte 11) = target temperature, whole degrees C
-      - byte 7         = derived from mode + fan speed while on, see
-        _MODE_BASE below; not set directly, computed in _send_update()
-      - byte 8         = power (1 = on, 0 = off)
-      - byte 9         = mode, see MODE_TO_BYTE below
-      - byte 10        = fan speed, see FAN_TO_BYTE below
-      - bytes 1,2,3,4,6,12 -- meaning not established, never touched.
+    Protocol notes. The mode/speed enum and full byte layout below were
+    originally reverse-engineered from live bus captures on issue #17
+    (see MODE_TO_BYTE/FAN_TO_BYTE comments), then independently confirmed
+    byte-for-byte against two further sources: caligo-mentis/smart-bus
+    (an unrelated open source HDL Buspro library,
+    github.com/caligo-mentis/smart-bus) whose AC.parse/AC.encode
+    functions document this same payload, and HDL's own official
+    "HDLBUS Pro operation codes" spec (Jan 2013), section 7 "AC control".
+    All three agree on every field below without exception:
+      - byte 0        = AC No. (HVAC No. in the module, called "AC No."
+        in the official spec)
+      - byte 1        = temperature unit (0 = C, 1 = F) -- not touched,
+        this integration always operates in whole degrees C
+      - byte 2        = current (room) temperature reading ("Now" in the
+        official spec)
+      - byte 3        = remembered setpoint for Cooling mode
+      - byte 4        = remembered setpoint for Heating mode
+      - byte 5        = remembered setpoint for Auto mode
+      - byte 6        = remembered setpoint for Dry mode
+        (bytes 3-6 are per-mode temperature memory the panel/app keeps so
+        switching modes doesn't lose your last setpoint for that mode --
+        not touched here, since we only ever set byte 11 directly)
+      - byte 7         = "current" mode (upper nibble) + fan speed (lower
+        nibble), i.e. (MODE_TO_BYTE[mode] << 4) | FAN_TO_BYTE[speed] --
+        this mirrors the *previous* observed status in real captures from
+        the HDL app rather than the new target, suggesting it's just an
+        informational echo, not something the module acts on. We set it
+        to mirror the new target instead of replicating that staleness.
+      - byte 8         = power (1 = on, 0 = off, called "AC status" in
+        the official spec)
+      - byte 9         = target mode ("Setup Mode"), see MODE_TO_BYTE
+      - byte 10        = target fan speed ("Setup Speed"), see FAN_TO_BYTE
+      - byte 11        = target temperature, whole degrees C ("Setup
+        Temperature" -- the official spec's table mislabels this row
+        "Current Mode" but gives it the same 0-30C/32-86F temperature
+        range as the other setpoint bytes and the position matches
+        smart-bus's setup.temperature exactly, so that's a labelling
+        error in HDL's own PDF, not a different field)
+      - byte 12        = sweep/swing (upper nibble = enabled, lower =
+        active) -- officially documented, but never observed as
+        anything but 0 in any capture from this reporter's unit, so not
+        exposed as a control yet; may not even be wired up on this
+        hardware. Left untouched -- a genuine future feature, not
+        something this class currently guesses at.
 
-    This class never fabricates values for the unidentified bytes. It
-    only ever echoes back the last full payload actually observed on the
-    bus (from this module's own status broadcast, or a best-effort
+    This class never fabricates values for bytes it doesn't set itself.
+    It only ever echoes back the last full payload actually observed on
+    the bus (from this module's own status broadcast, or a best-effort
     startup read), changing just the confirmed field(s) a command asks to
     change. Until a real payload has been observed, writes are refused
     rather than guessed -- see _send_update().
     """
 
-    # HVAC mode <-> payload[9], confirmed from a real narrated test on
-    # issue #17 (module 1.42, HVAC 3): the reporter cycled through every
-    # mode in a fixed order with wall-clock times ("test start 9:18pm ...
-    # test ended 9:31pm"), which we matched against the real outbound
-    # ControlACStatus command frames (source (1,60) -> target (1,42), not
-    # the broadcast *Response echoes) by their own timestamps -- 13 named
-    # actions against 13 captured command frames spanning 21:18:37 to
-    # 21:30:54 (~12m17s, matching "9:18-9:31pm" almost to the second), one
-    # pair of which was an exact duplicate (a retransmit, not a distinct
-    # action) which accounts for the reporter's own self-flagged uncertain
-    # step ("flipped alone to cool again from itself"). This superseded an
-    # earlier partial mapping (0=Fan/1=Cool/4=Heat) drawn from a different
-    # capture without real per-step timestamps, which turned out to be a
-    # mis-alignment -- that's what produced the "byte9=4 can't be Heat and
-    # Dry at once" contradiction flagged previously. This mapping is the
-    # one to trust; the old one was wrong.
+    # Mode <-> payload[9] ("Setup Mode"). Originally confirmed from a real
+    # narrated test on issue #17 (module 1.42, HVAC 3): the reporter
+    # cycled through every mode in a fixed order with wall-clock times
+    # ("test start 9:18pm ... test ended 9:31pm"), which we matched
+    # against the real outbound ControlACStatus command frames (source
+    # (1,60) -> target (1,42), not the broadcast *Response echoes) by
+    # their own timestamps -- 13 named actions against 13 captured
+    # command frames spanning 21:18:37 to 21:30:54 (~12m17s, matching
+    # "9:18-9:31pm" almost to the second), one pair of which was an exact
+    # duplicate (a retransmit, not a distinct action) which accounts for
+    # the reporter's own self-flagged uncertain step ("flipped alone to
+    # cool again from itself"). Independently confirmed exactly right by
+    # both caligo-mentis/smart-bus's AC.modes array and HDL's own
+    # official spec's "Setup Mode" row (see class docstring).
     MODE_TO_BYTE = {"cool": 0, "heat": 1, "fan_only": 2, "auto": 3, "dry": 4}
     BYTE_TO_MODE = {v: k for k, v in MODE_TO_BYTE.items()}
 
-    # Fan speed <-> payload[10], confirmed the same way (three explicit,
-    # isolated fan-speed button presses in the same test). The app's
-    # "Auto" fan setting produced the same byte value as "Low" in this
-    # capture, so it isn't exposed as a distinct option here -- only the
-    # three unambiguous speeds are.
-    FAN_TO_BYTE = {"high": 1, "medium": 2, "low": 3}
+    # Fan speed <-> payload[10] ("Setup Speed"). High/medium/low confirmed
+    # the same way (three explicit, isolated fan-speed button presses in
+    # the same test). "auto" = 0 was never actually observed changing in
+    # a real capture from this reporter's unit, but is now in FAN_TO_BYTE
+    # because it's confirmed by both independent sources above -- most
+    # decisively HDL's own official spec, not just another codebase.
+    FAN_TO_BYTE = {"auto": 0, "high": 1, "medium": 2, "low": 3}
     BYTE_TO_FAN = {v: k for k, v in FAN_TO_BYTE.items()}
 
-    # payload[7] tracks (mode, fan speed) while the unit is on -- in every
-    # power-on frame of that same capture, byte7 == _MODE_BASE[mode] +
-    # fan_byte, with zero exceptions across 11 independent frames. It's
-    # likely a slot index into this installation's own programmed IR-code
-    # library (per the datasheet's 24-device/100-code description) rather
-    # than a portable protocol field, so these base values are only known
-    # to be correct for this reporter's installation -- but since this
-    # class only ever mutates a real observed payload for one specific
-    # configured device, that's exactly the case that matters here.
-    _MODE_BASE = {0: 32, 1: 16, 2: 32, 3: 0, 4: 64}
+    # Each mode except Fan keeps its OWN remembered target temperature --
+    # payload[3]=Cooling, [4]=Heating, [5]=Auto, [6]=Dry (official spec,
+    # see class docstring). payload[11] ("Setup Temperature") is what
+    # actually drives the physical unit for whichever mode is active, and
+    # earlier code always wrote temperature changes to payload[5] (Auto's
+    # slot) regardless of the AC's actual mode. That's harmless for the
+    # physical unit (payload[11] was always right) but explains a real
+    # bug a reporter found on issue #17: with the AC in Cool or Dry mode,
+    # a temperature change from one interface (this integration or the
+    # HDL app) reached the physical unit correctly but didn't show up on
+    # the OTHER interface -- because whichever one reads payload[3]/[6]
+    # for its own Cool/Dry-mode display saw a stale value, since only
+    # payload[5] (the wrong slot for those modes) was being updated. In
+    # Auto mode there was no bug, because payload[5] is the right slot
+    # there. Fan has no temperature at all, so it's absent here.
+    _TEMP_BYTE_FOR_MODE = {0: 3, 1: 4, 3: 5, 4: 6}  # cool/heat/auto/dry
 
     def __init__(
         self, buspro, device_address, hvac_number: int, name: str = ""
@@ -354,23 +392,31 @@ class AirConditioner(Device):
 
     @property
     def target_temperature(self):
-        if not self._raw_payload:
-            return None
-        return self._raw_payload[5]
+        """Return the setpoint for the AC's current mode.
 
-    @property
-    def current_temperature(self):
-        """Best-effort room temperature reading.
-
-        Byte 3 stayed constant across an entire capture while target
-        temperature, mode and fan speed all changed around it, consistent
-        with a slow-moving sensor reading rather than a control field --
-        but this hasn't been confirmed against a known actual room
-        temperature.
+        Reads whichever per-mode byte (see _TEMP_BYTE_FOR_MODE) matches
+        the AC's own current mode, not payload[11], so this always
+        agrees with what the HDL app itself displays for that mode --
+        see _TEMP_BYTE_FOR_MODE's comment for why that matters. Returns
+        None in Fan mode, which has no temperature.
         """
         if not self._raw_payload:
             return None
-        return self._raw_payload[3]
+        temp_index = self._TEMP_BYTE_FOR_MODE.get(self._raw_payload[9])
+        if temp_index is None:
+            return None
+        return self._raw_payload[temp_index]
+
+    @property
+    def current_temperature(self):
+        """Room temperature reading, per byte 2 in the class docstring's
+        confirmed byte layout. Not independently verified against a known
+        actual room temperature on this reporter's unit, but the field
+        itself (and its offset) is confirmed, not guessed.
+        """
+        if not self._raw_payload:
+            return None
+        return self._raw_payload[2]
 
     @property
     def hvac_mode(self) -> str | None:
@@ -383,8 +429,7 @@ class AirConditioner(Device):
     @property
     def fan_speed(self) -> str | None:
         """Return the current fan speed as one of FAN_TO_BYTE's keys, or
-        None if the AC is off, no status has been observed yet, or the
-        current byte value doesn't match a known speed (e.g. "Auto")."""
+        None if the AC is off or no status has been observed yet."""
         if not self._raw_payload or not self.is_on:
             return None
         return self.BYTE_TO_FAN.get(self._raw_payload[10])
@@ -458,16 +503,21 @@ class AirConditioner(Device):
         payload = list(self._raw_payload)
         if "power" in changes:
             payload[8] = changes["power"]
+        # Resolve the effective mode up front (even if this call doesn't
+        # change it) so a target_temperature change always lands in the
+        # right per-mode byte, regardless of call order below.
+        mode_byte = (
+            self.MODE_TO_BYTE[changes["hvac_mode"]]
+            if "hvac_mode" in changes
+            else payload[9]
+        )
         if "target_temperature" in changes:
             temperature = int(changes["target_temperature"])
-            payload[5] = temperature
+            temp_index = self._TEMP_BYTE_FOR_MODE.get(mode_byte)
+            if temp_index is not None:
+                payload[temp_index] = temperature
             payload[11] = temperature
         if "hvac_mode" in changes or "fan_speed" in changes:
-            mode_byte = (
-                self.MODE_TO_BYTE[changes["hvac_mode"]]
-                if "hvac_mode" in changes
-                else payload[9]
-            )
             fan_byte = (
                 self.FAN_TO_BYTE[changes["fan_speed"]]
                 if "fan_speed" in changes
@@ -475,10 +525,13 @@ class AirConditioner(Device):
             )
             payload[9] = mode_byte
             payload[10] = fan_byte
-            # Only recompute byte 7 when the unit is (or is becoming) on --
-            # _MODE_BASE was only confirmed from power-on frames.
+            # Byte 7 mirrors mode+speed as nibbles (see class docstring) --
+            # only meaningful while on, per caligo-mentis/smart-bus's own
+            # encode(). We mirror the new target rather than replicating
+            # the staleness real captures show; it isn't acted on by the
+            # module either way, this is just keeping it well-formed.
             if payload[8] == 1:
-                payload[7] = self._MODE_BASE[mode_byte] + fan_byte
+                payload[7] = (mode_byte << 4) | fan_byte
 
         ctrl = _GenericControl(self._buspro)
         ctrl.subnet_id, ctrl.device_id = self._device_address

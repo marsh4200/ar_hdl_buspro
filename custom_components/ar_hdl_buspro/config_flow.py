@@ -18,6 +18,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    AC_HVAC_MODES,
     BINARY_KIND_DRY_CONTACT,
     BINARY_KIND_MOTION,
     BINARY_KIND_SINGLE_CHANNEL,
@@ -27,6 +28,7 @@ from .const import (
     CLIMATE_KIND_DLP,
     CLIMATE_KINDS,
     CLIMATE_PRESETS,
+    CONF_AC_HVAC_MODES,
     CONF_BINARY_KIND,
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
@@ -368,9 +370,25 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=4, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            # AC via IR module only. Which HVAC modes this specific unit
+            # actually has -- e.g. no Heat on a cooling-only unit -- so the
+            # entity doesn't offer modes that don't exist on the hardware.
+            # Defaults to all of them (the original, unconfigurable
+            # behaviour) when left as-is. Ignored for a DLP panel.
+            vol.Optional(
+                CONF_AC_HVAC_MODES,
+                default=defaults.get(CONF_AC_HVAC_MODES, AC_HVAC_MODES),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=AC_HVAC_MODES,
+                    mode=selector.SelectSelectorMode.LIST,
+                    multiple=True,
+                    translation_key="ac_hvac_mode",
+                )
+            ),
             # DLP panel only (climate_kind = dlp). Ignored for an AC via an
-            # IR module -- mode/preset selection there isn't supported yet
-            # (see AirConditioner's docstring in pybuspro/devices/climate.py).
+            # IR module -- preset selection isn't meaningful there (see
+            # AirConditioner's docstring in pybuspro/devices/climate.py).
             vol.Optional(
                 CONF_PRESET_MODES,
                 default=defaults.get(CONF_PRESET_MODES, [PRESET_NONE]),

@@ -74,6 +74,13 @@ CLIMATE_KINDS: Final = [CLIMATE_KIND_DLP, CLIMATE_KIND_AC_IR]
 # "HVAC No." (1-4): which of the IR module's live AC channels this entity
 # targets. Only meaningful when CONF_CLIMATE_KIND is CLIMATE_KIND_AC_IR.
 CONF_HVAC_NUMBER: Final = "hvac_number"
+# Which HVAC modes to actually offer for an AC_IR device (e.g. a unit with
+# no physical Heat mode shouldn't show one). Values match
+# AirConditioner.MODE_TO_BYTE's keys in pybuspro/devices/climate.py.
+# Defaults to all of them (AC_HVAC_MODES) when unset, matching the
+# original unconfigurable behaviour. Only meaningful for CLIMATE_KIND_AC_IR.
+CONF_AC_HVAC_MODES: Final = "ac_hvac_modes"
+AC_HVAC_MODES: Final = ["cool", "heat", "fan_only", "auto", "dry"]
 
 # Device types (used to discriminate entries in the device list)
 DEVICE_TYPE_LIGHT: Final = "light"

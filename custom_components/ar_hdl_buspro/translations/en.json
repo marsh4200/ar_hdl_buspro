@@ -92,6 +92,7 @@
           "device_hw_kind": "Hardware variant",
           "climate_kind": "Climate protocol",
           "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
+          "ac_hvac_modes": "AC HVAC modes to offer (AC via IR module only)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
@@ -130,6 +131,7 @@
           "device_hw_kind": "Hardware variant",
           "climate_kind": "Climate protocol",
           "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
+          "ac_hvac_modes": "AC HVAC modes to offer (AC via IR module only)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
@@ -232,6 +234,15 @@
       "options": {
         "dlp": "DLP panel (floor heating / thermostat)",
         "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)"
+      }
+    },
+    "ac_hvac_mode": {
+      "options": {
+        "cool": "Cool",
+        "heat": "Heat",
+        "fan_only": "Fan only",
+        "auto": "Auto",
+        "dry": "Dry"
       }
     }
   },
