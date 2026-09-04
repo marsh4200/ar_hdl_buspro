@@ -31,6 +31,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
   - [Keypads and wall panels](#keypads-and-wall-panels)
   - [Re-scanning is always safe](#re-scanning-is-always-safe)
 - [Adding and editing devices by hand](#adding-and-editing-devices-by-hand)
+- [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module)
 - [Recognised HDL type codes](#recognised-hdl-type-codes)
 - [Services](#services)
 - [How the connection works](#how-the-connection-works)
@@ -58,7 +59,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 | **Light** | Dimmer modules (MDT0601, DT0601, …) and relay channels | Dimmable or on/off, configurable ramp time |
 | **Switch** | Relay modules (R0816, MR-family, …) | One entity per relay channel |
 | **Cover** | Curtain modules (MW02 / MWM70B family) **and** relay-pair curtains | Real open / close / stop — see [Curtain modules](#curtain-modules) |
-| **Climate** | Floor heating (6B0-10v, DLP panels) | Presets, optional relay feedback for heating-vs-idle state |
+| **Climate** | Floor heating (6B0-10v, DLP panels) **and** air conditioners via an IR emitter module (e.g. HDL-MIRC04.40) | Floor heating: presets, optional relay feedback. AC via IR module: power, mode, fan speed, target temperature — see [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module) |
 | **Sensor** | 12-in-1, 8-in-1, MSP07M sensors-in-one | Temperature and illuminance, broadcast + optional polling |
 | **Binary sensor** | Motion, dry contacts, universal switches, channel status | Per-device scan interval |
 
@@ -299,6 +300,24 @@ Everything the scanner does, you can do manually — and everything it imports, 
 - **Remove a device** — removes the entity; the physical device is of course untouched.
 
 Per-device **scan interval** (sensors and binary sensors) enables active polling; `0` relies purely on bus broadcasts.
+
+## ❄️ Air Conditioning via an IR Module
+
+HDL IR emitter modules like the **HDL-MIRC04.40** have 4 "live AC panel" channels, each of which can control one air conditioner directly — separate from the module's larger 24-device/100-code IR library used for TVs, projectors and the like. AR HDL BUSPRO can control these 4 channels as full climate entities: power, HVAC mode, fan speed and target temperature.
+
+This isn't found by **Scan bus for devices** — add it by hand:
+
+1. **Configure → Add a device → Climate**
+2. Fill in the module's own subnet/device address (not the AC unit's)
+3. Set **Climate protocol** to *Air conditioner via IR module*
+4. Set **HVAC No.** (1–4) — which of the module's 4 live AC channels this entity is
+5. Repeat for each of the up to 4 AC units wired to the module, one entity per HVAC No.
+
+**Supported modes:** Cool, Heat, Fan only, Auto, Dry. **Supported fan speeds:** Auto, Low, Medium, High.
+
+If a unit doesn't have every mode (a cooling-only split, say, with no Heat), open **Edit a device** for it and narrow **AC HVAC modes to offer** to just the ones it actually has — the entity won't show modes that aren't ticked there.
+
+> This byte-level protocol was reverse-engineered from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) and independently cross-checked against HDL's own published AC control specification, so it should hold for any HDL AC-via-IR-module setup — but it's newer and less travelled than the rest of this integration. If something doesn't behave as expected on your hardware, please open an issue with your `ar_hdl_buspro.telegram` debug log.
 
 ## 📖 Recognised HDL Type Codes
 
