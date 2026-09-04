@@ -5,6 +5,9 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate import (
+    FAN_HIGH,
+    FAN_LOW,
+    FAN_MEDIUM,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -53,6 +56,25 @@ HA_PRESET_TO_HDL = {
     PRESET_AWAY: 4,   # Away
 }
 HDL_TO_HA_PRESET = {v: k for k, v in HA_PRESET_TO_HDL.items()}
+
+# AirConditioner's own mode keys ("cool"/"heat"/"fan_only"/"auto"/"dry")
+# line up 1:1 with HVACMode's values, so this is just HVACMode(key) --
+# spelled out as a dict for a clear error if that mapping ever drifts.
+HA_HVAC_MODE_TO_AC_MODE = {
+    HVACMode.COOL: "cool",
+    HVACMode.HEAT: "heat",
+    HVACMode.FAN_ONLY: "fan_only",
+    HVACMode.AUTO: "auto",
+    HVACMode.DRY: "dry",
+}
+AC_MODE_TO_HA_HVAC_MODE = {v: k for k, v in HA_HVAC_MODE_TO_AC_MODE.items()}
+AC_MODE_TO_HVAC_ACTION = {
+    "cool": HVACAction.COOLING,
+    "heat": HVACAction.HEATING,
+    "fan_only": HVACAction.FAN,
+    "dry": HVACAction.DRYING,
+    "auto": HVACAction.IDLE,
+}
 
 
 async def async_setup_entry(
@@ -240,22 +262,25 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
     """An air conditioner controlled through an IR emitter module's live AC
     panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
 
-    Only power on/off and target temperature are exposed -- those are the
-    two fields confirmed from a real bus capture. Mode (Cool/Heat/Fan/etc.)
-    and fan speed are not settable yet: the capture showed their protocol
-    bytes referencing what looks like a per-installation IR code-library
-    slot rather than a portable enum, so this entity never sends a value
-    for them it hasn't actually observed on the bus. See the AirConditioner
-    docstring in pybuspro/devices/climate.py for the full writeup.
+    Power, target temperature, HVAC mode (Cool/Heat/Fan/Auto/Dry) and fan
+    speed (Low/Medium/High) are all confirmed and exposed. "Auto" fan
+    speed isn't distinguishable from "Low" in the capture this was built
+    from, so it isn't offered as a fan-speed option (selecting Low is the
+    same underlying command). See the AirConditioner docstring in
+    pybuspro/devices/climate.py for the full writeup and provenance.
     """
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1
-    # HVACMode.COOL doubles as the generic "on" state here -- turning the
-    # entity on only sets the power bit, it does not force Cool mode. The
-    # AC keeps whatever mode/fan speed it was last set to (by the physical
-    # panel or app); this entity has no way to change or display that yet.
-    _attr_hvac_modes = [HVACMode.COOL, HVACMode.OFF]
+    _attr_hvac_modes = [
+        HVACMode.OFF,
+        HVACMode.COOL,
+        HVACMode.HEAT,
+        HVACMode.FAN_ONLY,
+        HVACMode.AUTO,
+        HVACMode.DRY,
+    ]
+    _attr_fan_modes = [FAN_LOW, FAN_MEDIUM, FAN_HIGH]
 
     def __init__(
         self,
@@ -282,6 +307,7 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
         self._attr_name = None
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
         )
@@ -318,23 +344,45 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return current HVAC mode (COOL is a generic "on", see class docstring)."""
-        return HVACMode.COOL if self._ac.is_on else HVACMode.OFF
+        """Return current HVAC mode."""
+        if not self._ac.is_on:
+            return HVACMode.OFF
+        return AC_MODE_TO_HA_HVAC_MODE.get(self._ac.hvac_mode, HVACMode.OFF)
 
     @property
     def hvac_action(self) -> HVACAction:
         """Return current HVAC action."""
-        return HVACAction.COOLING if self._ac.is_on else HVACAction.OFF
+        if not self._ac.is_on:
+            return HVACAction.OFF
+        return AC_MODE_TO_HVAC_ACTION.get(self._ac.hvac_mode, HVACAction.IDLE)
+
+    @property
+    def fan_mode(self) -> str | None:
+        """Return current fan speed ("low"/"medium"/"high"), or None if
+        off, not yet known, or set to something this entity can't tell
+        apart from another speed (e.g. "Auto")."""
+        if not self._ac.is_on:
+            return None
+        return self._ac.fan_speed
 
     # ----- commands -------------------------------------------------------
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode (power on/off only -- see class docstring)."""
+        """Set HVAC mode."""
         if hvac_mode == HVACMode.OFF:
             await self._ac.turn_off()
-        elif hvac_mode == HVACMode.COOL:
-            await self._ac.turn_on()
-        else:
+            return
+        mode = HA_HVAC_MODE_TO_AC_MODE.get(hvac_mode)
+        if mode is None:
             _LOGGER.warning("Unsupported HVAC mode: %s", hvac_mode)
+            return
+        await self._ac.set_hvac_mode(mode)
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set fan speed."""
+        if fan_mode not in (FAN_LOW, FAN_MEDIUM, FAN_HIGH):
+            _LOGGER.warning("Unsupported fan mode: %s", fan_mode)
+            return
+        await self._ac.set_fan_speed(fan_mode)
 
     async def async_turn_on(self) -> None:
         """Turn the AC on."""
