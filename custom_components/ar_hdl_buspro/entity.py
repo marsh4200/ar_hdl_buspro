@@ -10,16 +10,55 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
 from .const import (
+    CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_DLP,
     CONF_CHANNEL,
+    CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
+    CONF_DEVICE_TYPE,
     CONF_NAME,
     CONF_SUBNET_ID,
     CONF_SUB_NUMBER,
+    DEVICE_TYPE_BINARY_SENSOR,
+    DEVICE_TYPE_CLIMATE,
+    DEVICE_TYPE_COVER,
+    DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_SENSOR,
+    DEVICE_TYPE_SWITCH,
+    DEVICE_TYPE_UNIVERSAL_SWITCH,
     DOMAIN,
     MANUFACTURER,
     SIGNAL_GATEWAY_AVAILABILITY,
 )
 from .gateway import ARHDLGateway
+
+# Friendly label for the device list's model line (see build_device_info).
+# Deliberately the broad HA platform category, not the specific HDL
+# hardware model or channel count -- that detail (e.g. "16ch") isn't kept
+# around after a bus scan finishes, so it isn't available here. The entity
+# count Home Assistant already shows next to this (e.g. "16 entities")
+# covers that in practice.
+_DEVICE_TYPE_LABELS: dict[str, str] = {
+    DEVICE_TYPE_LIGHT: "Light",
+    DEVICE_TYPE_SWITCH: "Relay",
+    DEVICE_TYPE_UNIVERSAL_SWITCH: "Universal Switch",
+    DEVICE_TYPE_COVER: "Curtain",
+    DEVICE_TYPE_SENSOR: "Sensor",
+    DEVICE_TYPE_BINARY_SENSOR: "Binary Sensor",
+}
+_CLIMATE_KIND_LABELS: dict[str, str] = {
+    CLIMATE_KIND_DLP: "Climate – Floor Heating",
+    CLIMATE_KIND_AC_IR: "Climate – AC via IR Module",
+}
+
+
+def _device_type_label(device_cfg: dict[str, Any]) -> str | None:
+    """Return a friendly type label for device_cfg, or None if unknown."""
+    dtype = device_cfg.get(CONF_DEVICE_TYPE)
+    if dtype == DEVICE_TYPE_CLIMATE:
+        kind = device_cfg.get(CONF_CLIMATE_KIND, CLIMATE_KIND_DLP)
+        return _CLIMATE_KIND_LABELS.get(kind)
+    return _DEVICE_TYPE_LABELS.get(dtype)
 
 
 def build_device_info(
@@ -37,15 +76,25 @@ def build_device_info(
     whichever channel happened to be set up last would silently overwrite the
     others — the module's address is the only value guaranteed to be the same
     across all of a module's channels, so it's what we use here.
+
+    The model line similarly gets a friendly type label appended (e.g.
+    "HDL Buspro 1.11 · Relay") when every channel on this device agrees on
+    one -- see _device_type_label. Same one-name-per-device caveat applies:
+    if a module's channels somehow disagree on type, whichever call happens
+    last wins, same as the existing name/model behaviour.
     """
     subnet = device_cfg.get(CONF_SUBNET_ID, 0)
     device = device_cfg.get(CONF_DEVICE_ID, 0)
     name = f"HDL {subnet}.{device}"
+    model = f"HDL Buspro {subnet}.{device}"
+    type_label = _device_type_label(device_cfg)
+    if type_label:
+        model = f"{model} · {type_label}"
 
     return DeviceInfo(
         identifiers={(DOMAIN, f"{entry.entry_id}_{subnet}_{device}")},
         manufacturer=MANUFACTURER,
-        model=f"HDL Buspro {subnet}.{device}",
+        model=model,
         name=name,
         via_device=(DOMAIN, f"gateway_{entry.entry_id}"),
     )
