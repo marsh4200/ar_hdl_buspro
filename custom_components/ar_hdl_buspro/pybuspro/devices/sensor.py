@@ -43,6 +43,7 @@ class Sensor(Device):
         self._switch_number = switch_number
 
         self._current_temperature = None
+        self._current_humidity = None
         self._brightness = None
         self._motion_sensor = None
         self._sonic = None
@@ -99,6 +100,9 @@ class Sensor(Device):
             self._current_temperature = payload[1]
             # Lux occupies the same slots as in the 12in1 reply (hi, lo).
             self._brightness = (payload[2] << 8) | payload[3]
+            # Humidity (%RH), confirmed at payload[4] -- see the
+            # SENSOR_KIND_HUMIDITY comment in const.py for the source.
+            self._current_humidity = payload[4]
             self._motion_sensor = payload[7]
             self._dry_contact_1_status = payload[8]
             self._dry_contact_2_status = payload[9]
@@ -216,6 +220,17 @@ class Sensor(Device):
         if self._brightness is None:
             return 0
         return self._brightness
+
+    @property
+    def humidity(self) -> int:
+        """Return the current relative humidity percentage.
+
+        Only ever populated from ReadSensorsInOneStatusResponse (the
+        "sensors_in_one" hw kind) -- see SENSOR_KIND_HUMIDITY in const.py.
+        """
+        if self._current_humidity is None:
+            return 0
+        return self._current_humidity
 
     @property
     def movement(self) -> bool:

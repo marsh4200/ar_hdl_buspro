@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import LIGHT_LUX, UnitOfTemperature
+from homeassistant.const import LIGHT_LUX, PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
@@ -33,6 +33,7 @@ from .const import (
     DEVICE_HW_GENERIC,
     DEVICE_TYPE_SENSOR,
     DOMAIN,
+    SENSOR_KIND_HUMIDITY,
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
 )
@@ -124,6 +125,10 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             self._attr_device_class = SensorDeviceClass.ILLUMINANCE
             self._attr_native_unit_of_measurement = LIGHT_LUX
             self._attr_state_class = SensorStateClass.MEASUREMENT
+        elif self._sensor_kind == SENSOR_KIND_HUMIDITY:
+            self._attr_device_class = SensorDeviceClass.HUMIDITY
+            self._attr_native_unit_of_measurement = PERCENTAGE
+            self._attr_state_class = SensorStateClass.MEASUREMENT
 
     async def async_added_to_hass(self) -> None:
         """Register update callback and optional polling timer."""
@@ -154,6 +159,8 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             return self._sensor._current_temperature is not None  # noqa: SLF001
         if self._sensor_kind == SENSOR_KIND_ILLUMINANCE:
             return self._sensor._brightness is not None  # noqa: SLF001
+        if self._sensor_kind == SENSOR_KIND_HUMIDITY:
+            return self._sensor._current_humidity is not None  # noqa: SLF001
         return True
 
     @property
@@ -183,4 +190,6 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             return value + self._offset
         if self._sensor_kind == SENSOR_KIND_ILLUMINANCE:
             return self._sensor.brightness
+        if self._sensor_kind == SENSOR_KIND_HUMIDITY:
+            return self._sensor.humidity
         return None

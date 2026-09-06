@@ -192,7 +192,8 @@
     "sensor_kind": {
       "options": {
         "temperature": "Temperature",
-        "illuminance": "Illuminance"
+        "illuminance": "Illuminance",
+        "humidity": "Humidity"
       }
     },
     "binary_kind": {
@@ -303,6 +304,9 @@
       },
       "illuminance": {
         "name": "Illuminance"
+      },
+      "humidity": {
+        "name": "Humidity"
       }
     },
     "binary_sensor": {

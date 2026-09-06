@@ -116,10 +116,23 @@ DEFAULT_TRAVEL_TIME: Final = 30
 # Sensor kinds (sensor platform)
 SENSOR_KIND_TEMPERATURE: Final = "temperature"
 SENSOR_KIND_ILLUMINANCE: Final = "illuminance"
+# Relative humidity. Only ever carried by ReadSensorsInOneStatusResponse
+# (op 0x1605) at payload[4] -- confirmed against caligo-mentis/smart-bus's
+# own documented fixture for that exact operate code (temp=0x2C-20=24C,
+# brightness=(0x01<<8|0x08)=264, humidity=0x28=40%, motion=1, dry1=1,
+# dry2=0 -- every other byte matches this integration's existing decode
+# byte-for-byte, the same cross-check pattern used for AirConditioner's
+# protocol in climate.py). Neither the plain ReadSensorStatusResponse
+# (0x1646) nor any of the Broadcast* sensor telegrams carry a humidity
+# byte in any documented capture, so this only ever populates for the
+# "sensors_in_one" hw kind, which is the only one that actively sends
+# ReadSensorsInOneStatus (0x1604). See pybuspro/devices/sensor.py.
+SENSOR_KIND_HUMIDITY: Final = "humidity"
 
 SENSOR_KINDS: Final = [
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KIND_ILLUMINANCE,
+    SENSOR_KIND_HUMIDITY,
 ]
 
 # Binary sensor kinds
@@ -228,7 +241,17 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0890": DEVICE_TYPE_CLIMATE,            # HDL-MPTL4C.48 Granite Display touch panel (issue #13) - has a
                                                # built-in temperature/humidity sensor and drives HVAC/floor
                                                # heating, like the DLP panels above; was falling through to
-                                               # switch since it had no entry here.
+                                               # switch since it had no entry here. Its own ReadFloorHeating-
+                                               # StatusResponse (captured live: [0,26,0,1,25,25,25,25,1,0,1,1])
+                                               # carries 4 bytes this integration doesn't parse yet (indices
+                                               # 8-11) beyond the standard 8-byte DLP layout -- none of them
+                                               # look like a %RH reading (all 0/1). If this panel's built-in
+                                               # humidity turns out not to be reachable via a second "Sensor"
+                                               # device entry at the same address with hw kind "sensors_in_one"
+                                               # (ReadSensorsInOneStatus/0x1604, see SENSOR_KIND_HUMIDITY),
+                                               # those 4 extra bytes are the next place to look -- capture a
+                                               # log while the panel's on-screen humidity visibly changes and
+                                               # see which byte tracks it.
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
