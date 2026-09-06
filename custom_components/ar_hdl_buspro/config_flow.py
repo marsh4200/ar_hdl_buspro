@@ -92,6 +92,7 @@ from .const import (
     MIN_SCAN_DURATION,
     PRESET_NONE,
     ROLE_KEYPAD,
+    SENSOR_KIND_HUMIDITY,
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KINDS,
@@ -1190,10 +1191,11 @@ class ARHDLOptionsFlow(OptionsFlow):
         """Append a full entity bundle for a discovered multi-sensor.
 
         One physical HDL sensor (12in1 / 8in1 / sensors-in-one) surfaces as
-        three HA entities: temperature sensor, illuminance sensor and motion
-        binary sensor. They share the (subnet, device) address so HA groups
-        them under one device. Existing entries of the same kind are left
-        alone so a re-scan never duplicates. Returns how many were added.
+        several HA entities: temperature sensor, illuminance sensor, motion
+        binary sensor and (sensors-in-one only) a humidity sensor. They
+        share the (subnet, device) address so HA groups them under one
+        device. Existing entries of the same kind are left alone so a
+        re-scan never duplicates. Returns how many were added.
         """
         subnet, device = disc.subnet_id, disc.device_id
         name = f"HDL {disc.address}"
@@ -1217,7 +1219,14 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
 
         added = 0
-        for kind in (SENSOR_KIND_TEMPERATURE, SENSOR_KIND_ILLUMINANCE):
+        sensor_kinds = [SENSOR_KIND_TEMPERATURE, SENSOR_KIND_ILLUMINANCE]
+        if hw_kind == DEVICE_HW_SENSORS_IN_ONE:
+            # Humidity is only ever carried by ReadSensorsInOneStatusResponse
+            # (see SENSOR_KIND_HUMIDITY in const.py) -- the 12in1 hw kind
+            # relies on BroadcastSensorStatusAutoResponse instead, which
+            # doesn't include a humidity byte, so don't offer it there.
+            sensor_kinds.append(SENSOR_KIND_HUMIDITY)
+        for kind in sensor_kinds:
             if have(DEVICE_TYPE_SENSOR, CONF_SENSOR_KIND, kind):
                 continue
             devices.append(

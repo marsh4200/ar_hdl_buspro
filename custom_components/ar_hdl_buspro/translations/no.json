@@ -188,7 +188,8 @@
     "sensor_kind": {
       "options": {
         "temperature": "Temperatur",
-        "illuminance": "Lysstyrke"
+        "illuminance": "Lysstyrke",
+        "humidity": "Luftfuktighet"
       }
     },
     "binary_kind": {
@@ -284,6 +285,9 @@
       },
       "illuminance": {
         "name": "Belysningsstyrke"
+      },
+      "humidity": {
+        "name": "Luftfuktighet"
       }
     },
     "binary_sensor": {
