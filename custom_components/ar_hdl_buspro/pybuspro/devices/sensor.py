@@ -102,7 +102,13 @@ class Sensor(Device):
             self._brightness = (payload[2] << 8) | payload[3]
             # Humidity (%RH), confirmed at payload[4] -- see the
             # SENSOR_KIND_HUMIDITY comment in const.py for the source.
-            self._current_humidity = payload[4]
+            # 0xFF is a documented sentinel for "no humidity sensor wired
+            # to this sensors-in-one module" (independently confirmed in
+            # a second HDL Buspro implementation, Frequencies/home_assistant_
+            # buspro) -- treat it the same as "not read yet" rather than
+            # showing a bogus 255% reading.
+            humidity = payload[4]
+            self._current_humidity = None if humidity == 0xFF else humidity
             self._motion_sensor = payload[7]
             self._dry_contact_1_status = payload[8]
             self._dry_contact_2_status = payload[9]

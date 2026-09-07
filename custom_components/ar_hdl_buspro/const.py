@@ -117,16 +117,30 @@ DEFAULT_TRAVEL_TIME: Final = 30
 SENSOR_KIND_TEMPERATURE: Final = "temperature"
 SENSOR_KIND_ILLUMINANCE: Final = "illuminance"
 # Relative humidity. Only ever carried by ReadSensorsInOneStatusResponse
-# (op 0x1605) at payload[4] -- confirmed against caligo-mentis/smart-bus's
-# own documented fixture for that exact operate code (temp=0x2C-20=24C,
-# brightness=(0x01<<8|0x08)=264, humidity=0x28=40%, motion=1, dry1=1,
-# dry2=0 -- every other byte matches this integration's existing decode
-# byte-for-byte, the same cross-check pattern used for AirConditioner's
-# protocol in climate.py). Neither the plain ReadSensorStatusResponse
-# (0x1646) nor any of the Broadcast* sensor telegrams carry a humidity
-# byte in any documented capture, so this only ever populates for the
-# "sensors_in_one" hw kind, which is the only one that actively sends
-# ReadSensorsInOneStatus (0x1604). See pybuspro/devices/sensor.py.
+# (op 0x1605) at payload[4] -- confirmed against TWO independent HDL
+# Buspro implementations: caligo-mentis/smart-bus's own documented fixture
+# for this exact operate code (temp=0x2C-20=24C, brightness=(0x01<<8|0x08)
+# =264, humidity=0x28=40%, motion=1, dry1=1, dry2=0 -- every other byte
+# matches this integration's existing decode byte-for-byte, the same
+# cross-check pattern used for AirConditioner's protocol in climate.py),
+# and Frequencies/home_assistant_buspro's production sensor.py, which
+# reads the identical payload[4] for humidity and treats 0xFF there as
+# "no humidity sensor wired to this module" (a sentinel this integration
+# now also honours -- see pybuspro/devices/sensor.py). Neither the plain
+# ReadSensorStatusResponse (0x1646), the DLP floor-heating protocol, nor
+# any of the Broadcast* sensor telegrams carry a humidity byte in any
+# documented capture from either project, so this only ever populates for
+# the "sensors_in_one" hw kind, which is the only one that actively sends
+# ReadSensorsInOneStatus (0x1604).
+#
+# Panel-style touch devices (MPTL/MP2B/MP4B/MPL8, e.g. the Granite Display
+# below) are notably NOT claimed to support humidity in either upstream
+# project either -- Frequencies' own supported-model list groups them
+# under "temperature, illuminance, motion" only, same as this repo's
+# findings on issue #13's HDL-MPTL4C. That's independent evidence this
+# panel family's onboard humidity (if wired at all) isn't exposed over
+# Buspro through any telegram either project has reverse-engineered, not
+# just a gap in this integration.
 SENSOR_KIND_HUMIDITY: Final = "humidity"
 
 SENSOR_KINDS: Final = [
@@ -245,13 +259,22 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
                                                # StatusResponse (captured live: [0,26,0,1,25,25,25,25,1,0,1,1])
                                                # carries 4 bytes this integration doesn't parse yet (indices
                                                # 8-11) beyond the standard 8-byte DLP layout -- none of them
-                                               # look like a %RH reading (all 0/1). If this panel's built-in
-                                               # humidity turns out not to be reachable via a second "Sensor"
-                                               # device entry at the same address with hw kind "sensors_in_one"
-                                               # (ReadSensorsInOneStatus/0x1604, see SENSOR_KIND_HUMIDITY),
-                                               # those 4 extra bytes are the next place to look -- capture a
-                                               # log while the panel's on-screen humidity visibly changes and
-                                               # see which byte tracks it.
+                                               # look like a %RH reading (all 0/1).
+                                               #
+                                               # Tested on real hardware: adding a second "Sensor" device entry
+                                               # at this same address with hw kind "sensors_in_one" got NEITHER
+                                               # temperature nor humidity (both stayed unavailable) -- this
+                                               # panel doesn't answer ReadSensorsInOneStatus (0x1604) at all, it
+                                               # only ever replies to ReadFloorHeatingStatus. Combined with
+                                               # SENSOR_KIND_HUMIDITY's finding that a second independent HDL
+                                               # Buspro project (Frequencies/home_assistant_buspro) also doesn't
+                                               # claim humidity support for this MPTL/panel family, the current
+                                               # working theory is this panel's onboard humidity simply isn't
+                                               # exposed over Buspro through any telegram either project has
+                                               # reverse-engineered -- not just a gap in this integration. The 4
+                                               # unparsed bytes above remain the only lead if that's wrong;
+                                               # confirming it needs a log captured while the panel's on-screen
+                                               # humidity visibly changes, to see whether any of them track it.
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
