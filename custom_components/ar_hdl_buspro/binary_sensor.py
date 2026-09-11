@@ -130,7 +130,7 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
         self._attr_unique_id = build_unique_id(
             entry.entry_id, device_cfg, suffix=self._kind
         )
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_translation_key = self._kind
         self._attr_device_class = DEVICE_CLASS_BY_KIND.get(self._kind)
 

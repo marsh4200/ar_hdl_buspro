@@ -39,6 +39,12 @@ class ARHDLGateway:
         self._available = False
         self._stop_requested = False
         self._reconnect_task: asyncio.Task | None = None
+        # Set by __init__.py right after the gateway device is registered,
+        # so build_device_info() can link every other device to it via
+        # via_device_id instead of the deprecated via_device identifiers
+        # tuple (device_registry.async_get_or_create's via_device kwarg is
+        # removed in HA 2027.8).
+        self.device_id: str | None = None
 
         # The receive-bind address: use specified local IP if provided
         send_addr = (host, port)

@@ -104,7 +104,7 @@ class _ARHDLCoverBase(ARHDLBaseEntity, CoverEntity):
         super().__init__(entry, gateway, device_cfg)
         self._subnet = int(device_cfg[CONF_SUBNET_ID])
         self._device_id = int(device_cfg[CONF_DEVICE_ID])
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         # See light.py: a curtain module can drive several curtains that all
         # share one HA device, so each one needs its own visible name rather
         # than deferring to the (shared) device name.

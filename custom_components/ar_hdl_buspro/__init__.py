@@ -120,9 +120,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = ARHDLData(gateway=gateway)
 
-    # Register the gateway as a device in the device registry.
+    # Register the gateway as a device in the device registry. Every other
+    # device links to it via_device_id (see build_device_info in entity.py)
+    # rather than the deprecated via_device identifiers tuple, so stash the
+    # id the registry hands back right here.
     device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
+    gateway_device = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, f"gateway_{entry.entry_id}")},
         manufacturer=MANUFACTURER,
@@ -130,6 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         model="HDL Buspro Gateway",
         configuration_url=f"http://{host}",
     )
+    gateway.device_id = gateway_device.id
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

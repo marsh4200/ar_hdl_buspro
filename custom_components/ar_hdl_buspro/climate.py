@@ -142,7 +142,7 @@ class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
             )
 
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_name = None
 
         features = (
@@ -314,7 +314,7 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
         ]
 
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_name = None
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE

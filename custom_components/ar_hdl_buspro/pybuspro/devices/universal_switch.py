@@ -48,8 +48,17 @@ class UniversalSwitch(Device):
         """Turn the universal switch off."""
         await self._set(OnOff.OFF)
 
-    async def read_status(self):  # pragma: no cover
-        raise NotImplementedError
+    async def read_status(self) -> None:
+        """Request a fresh read of this switch's current status.
+
+        A single on-demand request -- used to resync entity state right
+        after the gateway link comes back (see ARHDLBaseEntity.
+        _handle_gateway_availability in entity.py), not a periodic poll.
+        """
+        req = _ReadStatusOfUniversalSwitch(self._buspro)
+        req.subnet_id, req.device_id = self._device_address
+        req.switch_number = self._switch_number
+        await req.send()
 
     @property
     def is_on(self) -> bool:
