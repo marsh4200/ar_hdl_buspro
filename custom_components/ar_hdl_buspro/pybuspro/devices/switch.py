@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..helpers.enums import OperateCode
 from ..helpers.generics import Generics
-from .control import _SingleChannelControl
+from .control import _ReadStatusOfChannels, _SingleChannelControl
 from .device import Device
 
 
@@ -49,8 +49,20 @@ class Switch(Device):
         """Turn the switch off."""
         await self._set(0, 0)
 
-    async def read_status(self):  # pragma: no cover
-        raise NotImplementedError
+    async def read_status(self) -> None:
+        """Request a fresh read of this channel's current status.
+
+        A single on-demand request (no delay, no retry loop) -- used to
+        resync entity state right after the gateway link comes back (see
+        ARHDLBaseEntity._handle_gateway_availability in entity.py), not as
+        a periodic poll. See AirConditioner._call_read_current_status in
+        climate.py for why continuous/periodic polling was reverted on
+        this bus for IR-module channels; this only fires on a reconnect
+        event, never on a timer, so that history doesn't apply here.
+        """
+        reader = _ReadStatusOfChannels(self._buspro)
+        reader.subnet_id, reader.device_id = self._device_address
+        await reader.send()
 
     @property
     def supports_brightness(self) -> bool:

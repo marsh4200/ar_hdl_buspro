@@ -112,7 +112,7 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
         self._attr_unique_id = build_unique_id(
             entry.entry_id, device_cfg, suffix=self._sensor_kind
         )
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         # With has_entity_name and a translation_key we get nicely named entities
         # like "Living Room Temperature".
         self._attr_translation_key = self._sensor_kind

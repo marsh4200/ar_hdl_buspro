@@ -62,12 +62,20 @@ def _device_type_label(device_cfg: dict[str, Any]) -> str | None:
 
 
 def build_device_info(
-    entry: ConfigEntry, device_cfg: dict[str, Any]
+    entry: ConfigEntry, device_cfg: dict[str, Any], gateway_device_id: str | None = None
 ) -> DeviceInfo:
     """Build a DeviceInfo for an HDL device entry.
 
     One DeviceInfo per (subnet, device) — channels are entities of the same
-    device. The gateway is identified as `via_device`.
+    device, linked to the gateway device via `via_device_id` (the gateway's
+    actual device-registry id, set on ARHDLGateway.device_id right after
+    __init__.py registers it). The older `via_device` identifiers-tuple
+    kwarg is deprecated as of HA's device-registry follow-up changes and is
+    removed in 2027.8 -- see developers.home-assistant.io/blog/2026/08/24/
+    device-registry-follow-up-changes/. gateway_device_id is optional only
+    so a caller that somehow runs before the gateway device exists still
+    gets a DeviceInfo (just without the via-device link) instead of an
+    exception.
 
     The device name is deliberately *not* taken from device_cfg[CONF_NAME]:
     that field holds the per-channel entity name (e.g. "HDL 1.11 ch3"), and
@@ -91,13 +99,15 @@ def build_device_info(
     if type_label:
         model = f"{model} · {type_label}"
 
-    return DeviceInfo(
+    info = DeviceInfo(
         identifiers={(DOMAIN, f"{entry.entry_id}_{subnet}_{device}")},
         manufacturer=MANUFACTURER,
         model=model,
         name=name,
-        via_device=(DOMAIN, f"gateway_{entry.entry_id}"),
     )
+    if gateway_device_id is not None:
+        info["via_device_id"] = gateway_device_id
+    return info
 
 
 def build_unique_id(entry_id: str, device_cfg: dict[str, Any], suffix: str = "") -> str:
@@ -122,6 +132,15 @@ class ARHDLBaseEntity(Entity):
 
     _attr_should_poll = False
     _attr_has_entity_name = True
+
+    # Subclasses that can be actively re-read (switch/universal-switch/light
+    # channels) set this to their pybuspro device object in __init__, giving
+    # it an awaitable `read_status()`. Left None for entities that already
+    # handle this themselves (sensors poll on a timer; AC climate has its
+    # own tuned retry logic -- see AirConditioner in pybuspro/devices/
+    # climate.py for why blanket polling was reverted there) or that have
+    # no reliable status read at all (curtain/cover modules).
+    _resync_device: Any = None
 
     def __init__(
         self,
@@ -148,9 +167,36 @@ class ARHDLBaseEntity(Entity):
 
     @callback
     def _handle_gateway_availability(self, available: bool) -> None:
-        """Update availability from the gateway signal."""
+        """Update availability from the gateway signal.
+
+        On a reconnect (False -> True; the initial connect never sees this
+        transition since `_gateway_available` already starts True) also
+        kick off a one-shot resync of `_resync_device`, if set. Without
+        this, a switch/light's last-known state -- which is a Python
+        object living for the lifetime of the config entry, not re-created
+        just because the socket dropped and came back -- goes stale
+        forever after any mid-session gateway blip: whatever the physical
+        device was doing when the link was lost keeps displaying in HA
+        until someone operates it manually. This is a single on-demand
+        read per reconnect event, not a timer -- see the _resync_device
+        docstring above for why that distinction matters on this bus.
+        """
+        was_available = self._gateway_available
         self._gateway_available = available
         self.async_write_ha_state()
+
+        if available and not was_available and self._resync_device is not None:
+            self.hass.async_create_task(self._async_resync_after_reconnect())
+
+    async def _async_resync_after_reconnect(self) -> None:
+        """Re-read `_resync_device`'s status once, after a reconnect."""
+        try:
+            await self._resync_device.read_status()
+        except Exception:  # noqa: BLE001
+            self._gateway.hdl.logger.debug(
+                "Post-reconnect resync read failed for %s",
+                getattr(self._resync_device, "device_identifier", "?"),
+            )
 
     @property
     def available(self) -> bool:

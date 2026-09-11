@@ -81,9 +81,13 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
         self._light = PyBusproLight(
             gateway.hdl, (subnet, device), channel, device_cfg.get(CONF_NAME, "")
         )
+        # Lets ARHDLBaseEntity re-read this channel once after a reconnect,
+        # instead of showing whatever it was doing before the link dropped
+        # (see _handle_gateway_availability in entity.py).
+        self._resync_device = self._light
 
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         # A single HDL module (subnet.device) can drive several independent
         # channels, and they all share one HA "device" (see build_device_info).
         # has_entity_name=True + _attr_name=None would then show every channel

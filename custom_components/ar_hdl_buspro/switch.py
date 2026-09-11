@@ -70,9 +70,12 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
         self._switch = PyBusproSwitch(
             gateway.hdl, (subnet, device), channel, device_cfg.get(CONF_NAME, "")
         )
+        # Lets ARHDLBaseEntity re-read this channel once after a reconnect
+        # (see _handle_gateway_availability in entity.py).
+        self._resync_device = self._switch
 
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         # See light.py: several channels can share one HA device, so each one
         # needs its own visible name rather than deferring to the device name.
         self._attr_has_entity_name = False
@@ -131,11 +134,14 @@ class ARHDLUniversalSwitch(ARHDLBaseEntity, SwitchEntity):
             switch_number,
             device_cfg.get(CONF_NAME, ""),
         )
+        # Lets ARHDLBaseEntity re-read this switch once after a reconnect
+        # (see _handle_gateway_availability in entity.py).
+        self._resync_device = self._switch
 
         self._attr_unique_id = build_unique_id(
             entry.entry_id, device_cfg, suffix="universal_switch"
         )
-        self._attr_device_info = build_device_info(entry, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         # See light.py/switch.py: several universal switches can share one HA
         # device, so each one needs its own visible name.
         self._attr_has_entity_name = False
