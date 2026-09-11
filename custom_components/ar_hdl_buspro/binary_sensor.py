@@ -23,6 +23,7 @@ from .const import (
     BINARY_KIND_SINGLE_CHANNEL,
     BINARY_KIND_UNIVERSAL_SWITCH,
     CONF_BINARY_KIND,
+    CONF_DEVICE_HW_KIND,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
@@ -31,6 +32,7 @@ from .const import (
     CONF_SUBNET_ID,
     CONF_SUB_NUMBER,
     DEFAULT_SCAN_INTERVAL,
+    DEVICE_HW_GENERIC,
     DEVICE_TYPE_BINARY_SENSOR,
     DOMAIN,
 )
@@ -98,12 +100,24 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
         elif self._kind == BINARY_KIND_DRY_CONTACT:
             switch_number = sub_number
 
+        # A motion binary sensor backed by a "sensors_in_one" module has to
+        # poll (and recognize broadcasts) with that hw kind, exactly like
+        # sensor.py does for the temperature/humidity/illuminance entities
+        # on the same physical device -- otherwise read_sensor_status()
+        # falls through to the generic _ReadSensorStatus request, which a
+        # sensors_in_one module doesn't answer, and _motion_sensor never
+        # gets set (entity stays permanently "clear"). This was previously
+        # left unset here, defaulting to None/generic for every kind.
+        hw_kind = device_cfg.get(CONF_DEVICE_HW_KIND, DEVICE_HW_GENERIC)
+        legacy_device_kind = hw_kind if hw_kind in ("dlp", "12in1", "sensors_in_one") else None
+
         self._sensor = PyBusproSensor(
             gateway.hdl,
             (subnet, device),
             universal_switch_number=universal_switch_number,
             channel_number=channel_number,
             switch_number=switch_number,
+            device=legacy_device_kind,
             name=device_cfg.get(CONF_NAME, ""),
         )
 

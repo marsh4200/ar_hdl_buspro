@@ -275,6 +275,18 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
                                                # unparsed bytes above remain the only lead if that's wrong;
                                                # confirming it needs a log captured while the panel's on-screen
                                                # humidity visibly changes, to see whether any of them track it.
+                                               #
+                                               # New lead (2026-09-11, from that same second project's repo): its
+                                               # DIFFERENT MPTL-family panel (HDL-MPTLC43.46-A "Enviro", not this
+                                               # Granite Display) doesn't read its built-in temperature via DLP or
+                                               # sensors_in_one either -- it uses its own channel-addressed pair,
+                                               # E3E7 (read, payload=channel) / E3E8 (reply=channel + signed whole-
+                                               # degree temp, optionally +4-byte float), with the panel's onboard
+                                               # sensor answering on channel 1. Neither project has tried E3E7
+                                               # against a Granite Display, or tried a channel other than 1 (e.g.
+                                               # 2) to see if humidity rides the same request family. Worth one
+                                               # bus-monitor capture: send E3E7 with a few channel numbers to this
+                                               # panel's address and see what, if anything, answers on E3E8.
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
