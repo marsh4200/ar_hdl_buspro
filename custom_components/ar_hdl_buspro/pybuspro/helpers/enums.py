@@ -126,6 +126,16 @@ class OperateCode(Enum):
 
     ReadSensorsInOneStatus = b"\x16\x04"
     ReadSensorsInOneStatusResponse = b"\x16\x05"
+    # Unsolicited push from a "sensors_in_one" module (PIR/motion fires,
+    # periodic temp/humidity update, etc). Same payload layout as
+    # ReadSensorsInOneStatusResponse above -- confirmed against a second,
+    # independent HDL Buspro implementation (Frequencies/home_assistant_
+    # buspro) which handles both ops with one identical parser. Without
+    # this opcode defined, telegram_helper's enum lookup returns None for
+    # 0x1630 frames and they get silently dropped by every Sensor's
+    # _telegram_received_cb -- which starves a "sensors_in_one" motion
+    # sensor of any update that isn't its own poll response.
+    BroadcastSensorsInOneStatusResponse = b"\x16\x30"
 
     TIME_IF_FROM_LOGIC_OR_SECURITY = b"\xDA\x44"
     INFO_IF_FROM_RELE_10V = b"\xEF\xFF"

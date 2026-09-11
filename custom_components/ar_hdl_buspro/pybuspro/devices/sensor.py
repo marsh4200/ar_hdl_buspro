@@ -96,7 +96,10 @@ class Sensor(Device):
                 )
             self._call_device_updated()
 
-        elif op == OperateCode.ReadSensorsInOneStatusResponse:
+        elif op in (
+            OperateCode.ReadSensorsInOneStatusResponse,
+            OperateCode.BroadcastSensorsInOneStatusResponse,
+        ):
             self._current_temperature = payload[1]
             # Lux occupies the same slots as in the 12in1 reply (hi, lo).
             self._brightness = (payload[2] << 8) | payload[3]
