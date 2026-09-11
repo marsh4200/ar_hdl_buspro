@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+import random
 
 from ..helpers.enums import OnOff, OperateCode, SwitchStatusOnOff
 from .control import _ReadStatusOfUniversalSwitch, _UniversalSwitch
 from .device import Device
+
+# See device.py's _CHANNEL_STATUS_RETRY_SECONDS for why a single one-shot
+# startup read isn't reliable enough (lost UDP packet -> stuck showing the
+# default state forever) and why this retries until a real reading arrives,
+# then stops, instead of polling forever.
+_STATUS_RETRY_SECONDS = 20
 
 
 class UniversalSwitch(Device):
@@ -34,10 +41,12 @@ class UniversalSwitch(Device):
             status = telegram.payload[1]
             if switch_number == self._switch_number:
                 self._switch_status = status
+                self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfUniversalSwitchResponse:
             if self._switch_number <= telegram.payload[0]:
                 self._switch_status = telegram.payload[1]
+                self._got_initial_status = True
                 self._call_device_updated()
 
     async def set_on(self) -> None:
@@ -84,16 +93,31 @@ class UniversalSwitch(Device):
     def _call_read_current_status_of_universal_switch(self, run_from_init: bool = False) -> None:
         async def _read():
             if run_from_init:
-                await asyncio.sleep(1)
-            req = _ReadStatusOfUniversalSwitch(self._buspro)
-            req.subnet_id, req.device_id = self._device_address
-            req.switch_number = self._switch_number
-            try:
-                await req.send()
-            except Exception:  # noqa: BLE001
-                self._buspro.logger.debug(
-                    "Initial universal switch read failed for %s",
-                    self._device_address,
-                )
+                # Stagger the first attempt so a restart with many universal
+                # switches doesn't fire them all in the same UDP burst.
+                await asyncio.sleep(1 + random.uniform(0, 2))
+                while not self._got_initial_status:
+                    req = _ReadStatusOfUniversalSwitch(self._buspro)
+                    req.subnet_id, req.device_id = self._device_address
+                    req.switch_number = self._switch_number
+                    try:
+                        await req.send()
+                    except Exception:  # noqa: BLE001
+                        self._buspro.logger.debug(
+                            "Startup universal switch read failed for %s",
+                            self._device_address,
+                        )
+                    await asyncio.sleep(_STATUS_RETRY_SECONDS)
+            else:
+                req = _ReadStatusOfUniversalSwitch(self._buspro)
+                req.subnet_id, req.device_id = self._device_address
+                req.switch_number = self._switch_number
+                try:
+                    await req.send()
+                except Exception:  # noqa: BLE001
+                    self._buspro.logger.debug(
+                        "Universal switch read failed for %s",
+                        self._device_address,
+                    )
 
         asyncio.ensure_future(_read(), loop=self._buspro.loop)

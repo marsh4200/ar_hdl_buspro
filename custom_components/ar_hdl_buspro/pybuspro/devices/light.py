@@ -35,11 +35,13 @@ class Light(Device):
             if channel == self._channel:
                 self._brightness = brightness
                 self._set_previous_brightness(self._brightness)
+                self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
             if self._channel <= telegram.payload[0]:
                 self._brightness = telegram.payload[self._channel]
                 self._set_previous_brightness(self._brightness)
+                self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.SceneControlResponse:
             self._call_read_current_status_of_channels()
