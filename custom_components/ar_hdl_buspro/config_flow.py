@@ -60,6 +60,7 @@ from .const import (
     CONF_SPLIT_CHANNELS,
     CONF_SUB_NUMBER,
     CONF_SUBNET_ID,
+    CONF_TEMP_CHANNEL,
     CONF_TEMP_FAHRENHEIT,
     CONF_TEMP_OFFSET,
     CONF_TRAVEL_TIME,
@@ -70,10 +71,13 @@ from .const import (
     DEFAULT_RUNNING_TIME,
     DEFAULT_SCAN_DURATION,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_TEMP_CHANNEL,
     DEFAULT_TEMP_OFFSET,
     DEVICE_HW_GENERIC,
     DEVICE_HW_12IN1,
+    DEVICE_HW_8IN1,
     DEVICE_HW_KINDS,
+    DEVICE_HW_PANEL,
     DEVICE_HW_SENSORS_IN_ONE,
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
@@ -235,6 +239,19 @@ def _sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
                     translation_key=CONF_DEVICE_HW_KIND,
                 )
             ),
+            # Only used by the "panel" hw kind (MPTL/Granite Display), whose
+            # temperature read is channel-addressed (0xE3E7). The onboard
+            # sensor answers on channel 1 on every panel seen so far, and the
+            # panel replies on all of its channels with that one reading, so
+            # this exists mainly to pin which reply the entity accepts.
+            vol.Optional(
+                CONF_TEMP_CHANNEL,
+                default=defaults.get(CONF_TEMP_CHANNEL, DEFAULT_TEMP_CHANNEL),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=32, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
             vol.Optional(
                 CONF_TEMP_OFFSET,
                 default=defaults.get(CONF_TEMP_OFFSET, DEFAULT_TEMP_OFFSET),
@@ -278,6 +295,22 @@ def _binary_sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            # This field was missing entirely, which made binary_sensor.py's
+            # hw-kind handling unreachable: every manually added motion sensor
+            # was stuck on "generic" and therefore polled with
+            # ReadSensorStatus (0x1645) no matter what the hardware was. A
+            # CMS-PIR module ("pir") or a sensors-in-one module never answers
+            # that opcode, so the entity could never leave its default state.
+            vol.Optional(
+                CONF_DEVICE_HW_KIND,
+                default=defaults.get(CONF_DEVICE_HW_KIND, DEVICE_HW_GENERIC),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=DEVICE_HW_KINDS,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_DEVICE_HW_KIND,
                 )
             ),
             vol.Optional(
@@ -453,6 +486,7 @@ def _normalize_device_input(
         CONF_RUNNING_TIME,
         CONF_SCAN_INTERVAL,
         CONF_TEMP_OFFSET,
+        CONF_TEMP_CHANNEL,
         CONF_SUB_NUMBER,
         CONF_CURTAIN_NUMBER,
         CONF_OPEN_CHANNEL,
@@ -1203,7 +1237,9 @@ class ARHDLOptionsFlow(OptionsFlow):
         # (e.g. the 12in1's -20 temperature offset on auto broadcasts).
         hw_kind = {
             "0x0134": DEVICE_HW_12IN1,        # SB_CMS_12in1
+            "0x0135": DEVICE_HW_8IN1,         # SB_CMS_8in1 (same +20 temp bias)
             "0x0150": DEVICE_HW_SENSORS_IN_ONE,  # HDL_MSP07M
+            "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
         }.get(disc.type_code, DEVICE_HW_GENERIC)
         # Poll every 60s so readings arrive even when the sensor doesn't
         # broadcast on its own; broadcasts still update instantly.

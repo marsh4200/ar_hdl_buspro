@@ -54,6 +54,13 @@ class _Control:
         elif isinstance(control, _ReadSensorsInOneStatus):
             operate_code = OperateCode.ReadSensorsInOneStatus
             payload = []
+        elif isinstance(control, _ReadTemperature):
+            # Channel-addressed panel temperature read (MPTL/Granite family).
+            operate_code = OperateCode.ReadTemperature
+            payload = [control.channel_number or 1]
+        elif isinstance(control, _ReadMotionSensorStatus):
+            operate_code = OperateCode.ReadMotionSensorStatus
+            payload = []
         elif isinstance(control, _ReadFloorHeatingStatus):
             operate_code = OperateCode.ReadFloorHeatingStatus
             payload = []
@@ -143,6 +150,18 @@ class _ReadSensorsInOneStatus(_Control):
 
 class _ReadFloorHeatingStatus(_Control):
     pass
+
+
+class _ReadTemperature(_Control):
+    """Channel-addressed temperature read (0xE3E7) for MPTL/panel devices."""
+
+    def __init__(self, buspro) -> None:
+        super().__init__(buspro)
+        self.channel_number = 1
+
+
+class _ReadMotionSensorStatus(_Control):
+    """Motion-only status read (0xDB00) for CMS-PIR style modules."""
 
 
 class _ControlFloorHeatingStatus(_Control):

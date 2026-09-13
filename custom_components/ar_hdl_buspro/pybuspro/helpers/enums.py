@@ -102,6 +102,41 @@ class OperateCode(Enum):
 
     BroadcastTemperatureResponse = b"\xE3\xE5"
 
+    # Channel-addressed temperature read used by the MPTL/panel family
+    # (HDL-MPTL4C.48 "Granite Display", HDL-MPTLC43.46-A "Enviro", ...).
+    # Request payload is [channel]; the reply is
+    #   [channel, signed_whole_degrees, <float32 little-endian degrees>]
+    # where the trailing 4 bytes are optional but present on every frame
+    # captured so far.
+    #
+    # CONFIRMED from a live capture on a Granite Display at 1.60 (device
+    # type 0x0890): 456 frames over two days, e.g.
+    #   [1, 27, 216, 163, 216, 65] -> struct.unpack("<f", bytes([216,163,216,65]))
+    #                              -> 27.080 degC
+    #   [2, 26, 134, 235, 215, 65] -> 26.990 degC
+    #   [1, 26,  12, 215, 215, 65] -> 26.980 degC
+    # The whole-degree byte is a truncation of the float (26.99 -> 26), so
+    # the float wins when it is present. Note the byte is PLAIN Celsius --
+    # there is no -20 bias on this telegram (see Sensor.temperature).
+    #
+    # Without these two members defined, Generics.get_enum_value() returns
+    # None for 0xE3E8 frames and telegram_helper hands every Sensor a
+    # telegram whose operate_code is None -- so the panel's only working
+    # temperature source was being dropped before any decode ran. Both
+    # reference implementations (Frequencies/home_assistant_buspro and
+    # the home-assistant-buspro dashboard fork) define this pair.
+    ReadTemperature = b"\xE3\xE7"
+    ReadTemperatureResponse = b"\xE3\xE8"
+
+    # Motion-only read for CMS-PIR style modules. These answer 0xDB00 with
+    # 0xDB01 and do NOT answer ReadSensorStatus (0x1645) at all, so without
+    # this pair a PIR-only presence sensor is polled with an opcode it will
+    # never reply to and its entity stays "clear" forever. Reply payload is
+    # [.., .., .., motion] -- motion at index 3, same as both reference
+    # implementations.
+    ReadMotionSensorStatus = b"\xDB\x00"
+    ReadMotionSensorStatusResponse = b"\xDB\x01"
+
     ReadFloorHeatingStatus = b"\x19\x44"
     ReadFloorHeatingStatusResponse = b"\x19\x45"
     ControlFloorHeatingStatus = b"\x19\x46"

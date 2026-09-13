@@ -97,6 +97,7 @@
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
           "relay_channel": "Relay channel (optional)",
+          "temperature_channel": "Temperature channel (touch-panel hardware only)",
           "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
           "cover_mode": "Curtain hardware",
           "curtain_number": "Curtain number (curtain module mode)",
@@ -135,6 +136,7 @@
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
           "relay_channel": "Relay channel (optional)",
+          "temperature_channel": "Temperature channel (touch-panel hardware only)",
           "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
           "cover_mode": "Curtain hardware",
           "curtain_number": "Curtain number (curtain module mode)",
@@ -210,8 +212,11 @@
       "options": {
         "generic": "Generic",
         "dlp": "DLP panel",
+        "panel": "Touch panel (MPTL / Granite Display)",
         "12in1": "12-in-1 sensor",
+        "8in1": "8-in-1 sensor",
         "sensors_in_one": "Sensors-in-one (MSP07M)",
+        "pir": "PIR motion-only module (CMS-PIR)",
         "dry_contact": "Dry-contact module"
       }
     },
