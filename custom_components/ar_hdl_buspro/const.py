@@ -42,6 +42,22 @@ CONF_TEMP_OFFSET: Final = "temperature_offset"
 CONF_TEMP_FAHRENHEIT: Final = "temperature_fahrenheit"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_TEMP_CHANNEL: Final = "temperature_channel"  # panel hw kind: 0xE3E7 channel
+# Universal-switch number a multisensor uses to PUSH a PIR trip in real time.
+# HDL CMS hardware uses 201 (0xC9). A polled status read almost always lands
+# between trips -- motion is latched only briefly -- so on CMS multisensors
+# this push is effectively the ONLY usable source of live motion. 0 disables.
+CONF_MOTION_UV_SWITCH: Final = "motion_uv_switch"
+# Which byte of the sensors-in-one BROADCAST (0x1630) carries the motion flag.
+# 6 by default: that frame's layout is the polled 0x1605 layout shifted one
+# lower (no leading success byte), proven at index 0 where 45 decodes to the
+# same 25 degC the module's own 0xE3E5 reports at the same moment, and
+# corroborated at index 3 where 0xFF lands on humidity's "not fitted"
+# sentinel. Under that shift 0x1605's motion at [7] becomes [6]. It is an
+# inference from a uniform shift rather than a capture of motion itself, so
+# it is configurable -- set -1 to decode no motion from this frame at all.
+# The motion entity's `broadcast_byte_variance` attribute names the byte that
+# actually changes when someone walks past, which settles it in one look.
+CONF_MOTION_BYTE_INDEX: Final = "motion_byte_index"
 CONF_DEVICE_HW_KIND: Final = "device_hw_kind"  # e.g. "dlp", "12in1", "sensors_in_one"
 CONF_PRESET_MODES: Final = "preset_modes"
 CONF_COVER_MODE: Final = "cover_mode"          # "curtain_module" or "relay_pair"
@@ -210,6 +226,14 @@ DEFAULT_PORT: Final = 6000
 DEFAULT_RUNNING_TIME: Final = 0
 DEFAULT_TEMP_OFFSET: Final = 0
 DEFAULT_TEMP_CHANNEL: Final = 1
+# DISABLED by default. 201 (0xC9) is documented as the motion push switch on
+# HDL CMS multisensors, but that is a claim about specific models, not about
+# every module -- and shipping it on by default means guessing at someone's
+# hardware. A module that uses UV 201 for anything else (a heartbeat, a
+# day/night flag) would be read as continuous phantom motion. Opt in per
+# entity once a capture shows 201 actually carries motion on that device.
+DEFAULT_MOTION_UV_SWITCH: Final = 0
+DEFAULT_MOTION_BYTE_INDEX: Final = 6
 DEFAULT_SCAN_INTERVAL: Final = 0
 
 # Bus discovery

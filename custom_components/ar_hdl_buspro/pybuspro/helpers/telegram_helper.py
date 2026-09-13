@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 import traceback
 from struct import pack
 
@@ -13,8 +14,46 @@ from .generics import Generics
 _LOGGER = logging.getLogger(__name__)
 
 
+# Fallback for the outbound header's source-IP field, used only when the real
+# local IP toward the gateway could not be determined. This exact constant was
+# the unconditional, hardcoded value in every release up to 4.4.5 (and in two
+# of the three upstream pybuspro forks) -- keeping it as the fallback means
+# detection failing can never be worse than the old behaviour.
+_LEGACY_ADVERTISED_IP = (192, 168, 1, 15)
+
+
 class TelegramHelper:
     """Encode/decode HDL Buspro telegrams to/from UDP byte buffers."""
+
+    def __init__(self, buspro=None) -> None:
+        """Hold an optional Buspro client, read for its advertised IP.
+
+        The client is stored rather than the IP itself so a value resolved
+        after this helper is constructed (the route to the gateway is only
+        known once the socket exists) is still picked up.
+        """
+        self._buspro = buspro
+
+    def _advertised_ip_bytes(self) -> bytes:
+        """Return the 4 header bytes identifying this client to the gateway.
+
+        HDL IP gateways use this field, not just the UDP source address. A
+        hardcoded 192.168.1.15 happens to be plausible on a 192.168.1.0/24
+        network and is unroutable anywhere else -- which is consistent with
+        polled reads working (the gateway unicasts its reply straight back to
+        the UDP sender) while relayed bus broadcasts never arrive.
+        """
+        ip = getattr(self._buspro, "advertised_ip", None)
+        if ip:
+            try:
+                return socket.inet_aton(ip)
+            except OSError:
+                _LOGGER.warning(
+                    "Invalid advertised IP %r; falling back to %s",
+                    ip,
+                    ".".join(str(b) for b in _LEGACY_ADVERTISED_IP),
+                )
+        return bytes(_LEGACY_ADVERTISED_IP)
 
     def build_telegram_from_udp_data(self, data, address):
         """Parse a raw UDP datagram into a Telegram. Returns None on failure."""
@@ -88,7 +127,7 @@ class TelegramHelper:
 
     def build_send_buffer(self, telegram: Telegram):
         """Build the raw UDP send buffer for a telegram."""
-        send_buf = bytearray([192, 168, 1, 15])
+        send_buf = bytearray(self._advertised_ip_bytes())
         send_buf.extend(b"HDLMIRACLE")
         send_buf.append(0xAA)
         send_buf.append(0xAA)

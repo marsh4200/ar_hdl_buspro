@@ -28,9 +28,13 @@ from .const import (
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
     CONF_NAME,
+    CONF_MOTION_BYTE_INDEX,
+    CONF_MOTION_UV_SWITCH,
     CONF_SCAN_INTERVAL,
     CONF_SUBNET_ID,
     CONF_SUB_NUMBER,
+    DEFAULT_MOTION_BYTE_INDEX,
+    DEFAULT_MOTION_UV_SWITCH,
     DEFAULT_SCAN_INTERVAL,
     DEVICE_HW_GENERIC,
     DEVICE_TYPE_BINARY_SENSOR,
@@ -119,6 +123,22 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
             else None
         )
 
+        # Motion push channel. Only meaningful for a motion entity, and only
+        # on hardware that actually pushes (CMS multisensors); a device that
+        # doesn't simply never sends it, so the default is harmless. Set 0 to
+        # disable. See Sensor._apply_motion_uv_switch for why this matters
+        # more than the polled motion byte does.
+        motion_uv_switch = None
+        motion_byte_index = None
+        if self._kind == BINARY_KIND_MOTION:
+            motion_uv_switch = int(
+                device_cfg.get(CONF_MOTION_UV_SWITCH, DEFAULT_MOTION_UV_SWITCH)
+            ) or None
+            idx = int(
+                device_cfg.get(CONF_MOTION_BYTE_INDEX, DEFAULT_MOTION_BYTE_INDEX)
+            )
+            motion_byte_index = idx if idx >= 0 else None
+
         self._sensor = PyBusproSensor(
             gateway.hdl,
             (subnet, device),
@@ -127,6 +147,8 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
             switch_number=switch_number,
             device=legacy_device_kind,
             name=device_cfg.get(CONF_NAME, ""),
+            motion_uv_switch=motion_uv_switch,
+            motion_byte_index=motion_byte_index,
         )
 
         # See sensor.py: per-entity scan_interval is ignored by HA for
@@ -161,6 +183,48 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
                     self.hass, _poll, timedelta(seconds=self._scan_interval)
                 )
             )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the last raw telegram so a silent sensor can be diagnosed.
+
+        Mirrors sensor.py. For a motion entity that reads Unknown this is the
+        fastest way to see whether the device is answering at all, and on which
+        operate code -- no debug log needed.
+        """
+        op = getattr(self._sensor, "last_telegram_op", None)
+        if op is None:
+            return None
+        attrs: dict[str, Any] = {
+            "last_telegram": op,
+            "raw_payload": getattr(self._sensor, "last_telegram_payload", None),
+        }
+        if self._kind == BINARY_KIND_MOTION:
+            attrs["motion_uv_switch"] = getattr(
+                self._sensor, "_motion_uv_switch", None
+            )
+            # The telegram that last CHANGED this entity's motion state --
+            # which is the answer whenever motion reports something the room
+            # does not.
+            attrs["motion_last_telegram"] = getattr(
+                self._sensor, "motion_last_op", None
+            )
+            attrs["motion_last_payload"] = getattr(
+                self._sensor, "motion_last_payload", None
+            )
+            attrs["motion_last_value"] = getattr(
+                self._sensor, "motion_last_value", None
+            )
+            attrs["motion_byte_index"] = getattr(
+                self._sensor, "_motion_byte_index", None
+            )
+            # Bytes of the 0x1630 broadcast that have been seen to CHANGE.
+            # Walk past the sensor, then read this: the index that toggles is
+            # the motion flag, and it goes straight into "Motion byte index".
+            attrs["broadcast_byte_variance"] = getattr(
+                self._sensor, "broadcast_byte_variance", None
+            )
+        return attrs
 
     @property
     def is_on(self) -> bool | None:

@@ -15,7 +15,7 @@ class NetworkInterface:
         self.udp_client: UDPClient | None = None
         self.callback = None
         self._init_udp_client()
-        self._th = TelegramHelper()
+        self._th = TelegramHelper(buspro)
 
     def _init_udp_client(self) -> None:
         self.udp_client = UDPClient(
@@ -37,10 +37,26 @@ class NetworkInterface:
         """
         allowed = getattr(self.buspro, "allowed_source_ips", None)
         if allowed and address and address[0] not in allowed:
-            self.buspro.logger.debug(
-                "Dropping UDP frame from foreign source %s (gateway filter)",
-                address[0],
-            )
+            # Warn ONCE per foreign source IP, at WARNING, not debug.
+            # A dropped frame here is indistinguishable from a device that
+            # never answered: the entity just sits at its default state. With
+            # only a debug line on a non-default logger, an installation whose
+            # gateway IP changed -- or one with a second gateway relaying part
+            # of the bus -- looks exactly like broken hardware, with nothing
+            # in the log to say otherwise. Once per IP keeps it out of the way
+            # while still being impossible to miss the first time.
+            seen = self.buspro.dropped_source_ips
+            if address[0] not in seen:
+                seen.add(address[0])
+                self.buspro.logger.warning(
+                    "Ignoring HDL telegrams from %s: it is not this entry's "
+                    "gateway (%s). If devices on this bus are reached through "
+                    "%s, their broadcasts are being discarded -- check the "
+                    "gateway host in the integration options.",
+                    address[0],
+                    ", ".join(sorted(allowed)) or "unset",
+                    address[0],
+                )
             return
         if self.callback is None:
             return
