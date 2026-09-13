@@ -15,6 +15,8 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
@@ -756,6 +758,68 @@ class ARHDLOptionsFlow(OptionsFlow):
         """Persist a new device list as the options payload."""
         return self.async_create_entry(
             title="", data={**self._entry.options, CONF_DEVICES: devices}
+        )
+
+    def _purge_registry_for_device(self, device_cfg: dict[str, Any]) -> None:
+        """Delete the registry rows belonging to a removed device entry.
+
+        Removing a device from the options list stops the integration from
+        creating its entities, but it does NOT remove their entity-registry
+        rows: those belong to the config entry, which still exists. Home
+        Assistant keeps them, shows them as unavailable, and -- critically --
+        keeps their entity_ids reserved.
+
+        So re-adding the same physical channel produced a duplicate. The
+        unique_id is derived from the device entry's random UUID (see
+        build_unique_id in entity.py), a re-scan mints a fresh UUID, and HA
+        correctly treats that as a new entity -- which then has to take
+        `switch.x_2` because the dead row still holds `switch.x`. The only
+        way out was deleting and re-adding the whole config entry, which is
+        what finally purged the rows.
+
+        Removing them here frees the entity_id, so re-adding the channel gets
+        its original name back and there is nothing stale to clean up.
+
+        The device-registry entry is removed too, but only once no entities
+        are left on it -- a module's other channels share that device.
+        """
+        entry_id = self._entry.entry_id
+        prefix = f"{entry_id}_{device_cfg.get('id')}"
+
+        ent_reg = er.async_get(self.hass)
+        removed = 0
+        for entity in list(
+            er.async_entries_for_config_entry(ent_reg, entry_id)
+        ):
+            # Suffixed ids (sensor kinds, binary kinds, cover channels) all
+            # share the "<entry>_<device uuid>" stem.
+            if entity.unique_id == prefix or entity.unique_id.startswith(
+                f"{prefix}_"
+            ):
+                ent_reg.async_remove(entity.entity_id)
+                removed += 1
+
+        if not removed:
+            return
+
+        subnet = device_cfg.get(CONF_SUBNET_ID, 0)
+        device = device_cfg.get(CONF_DEVICE_ID, 0)
+        dev_reg = dr.async_get(self.hass)
+        hdl_device = dev_reg.async_get_device(
+            identifiers={(DOMAIN, f"{entry_id}_{subnet}_{device}")}
+        )
+        if hdl_device is not None and not er.async_entries_for_device(
+            ent_reg, hdl_device.id, include_disabled_entities=True
+        ):
+            dev_reg.async_update_device(
+                hdl_device.id, remove_config_entry_id=entry_id
+            )
+
+        _LOGGER.debug(
+            "Removed %s stale registry entrie(s) for device %s.%s",
+            removed,
+            subnet,
+            device,
         )
 
     # ----- main menu -------------------------------------------------------
@@ -1544,7 +1608,12 @@ class ARHDLOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             target_id = user_input["device_id_choice"]
+            target = next((d for d in devices if d["id"] == target_id), None)
             new_devices = [d for d in devices if d["id"] != target_id]
+            if target is not None:
+                # Free the entity_ids before the entry reloads, so re-adding
+                # this channel later reuses them instead of colliding.
+                self._purge_registry_for_device(target)
             return self._save_devices(new_devices)
 
         return self.async_show_form(
