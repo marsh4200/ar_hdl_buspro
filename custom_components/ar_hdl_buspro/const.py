@@ -41,6 +41,7 @@ CONF_TEMP_OFFSET: Final = "temperature_offset"
 # The sensor hardware reports Fahrenheit on the bus; convert to Celsius.
 CONF_TEMP_FAHRENHEIT: Final = "temperature_fahrenheit"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
+CONF_TEMP_CHANNEL: Final = "temperature_channel"  # panel hw kind: 0xE3E7 channel
 CONF_DEVICE_HW_KIND: Final = "device_hw_kind"  # e.g. "dlp", "12in1", "sensors_in_one"
 CONF_PRESET_MODES: Final = "preset_modes"
 CONF_COVER_MODE: Final = "cover_mode"          # "curtain_module" or "relay_pair"
@@ -169,15 +170,30 @@ BINARY_KINDS: Final = [
 # Hardware variants relevant for sensor decoding
 DEVICE_HW_DLP: Final = "dlp"
 DEVICE_HW_12IN1: Final = "12in1"
+# CMS 8-in-1 (SB_CMS_8in1, type 0x0135). Shares the 12in1's (degC + 20)
+# single-byte temperature encoding; it was missing here, so an 8-in-1 read
+# its temperature 20 degrees high.
+DEVICE_HW_8IN1: Final = "8in1"
 DEVICE_HW_SENSORS_IN_ONE: Final = "sensors_in_one"
 DEVICE_HW_DRY_CONTACT: Final = "dry_contact"
+# CMS-PIR style motion-only module. Answers ReadMotionSensorStatus (0xDB00)
+# and nothing else -- polled with the generic ReadSensorStatus (0x1645) it
+# never replies, so its motion entity stays "clear" forever.
+DEVICE_HW_PIR: Final = "pir"
+# MPTL/Granite Display touch-panel family. Reads its onboard temperature via
+# the channel-addressed ReadTemperature pair (0xE3E7 / 0xE3E8) rather than
+# the DLP floor-heating or sensors-in-one protocols.
+DEVICE_HW_PANEL: Final = "panel"
 DEVICE_HW_GENERIC: Final = "generic"
 
 DEVICE_HW_KINDS: Final = [
     DEVICE_HW_GENERIC,
     DEVICE_HW_DLP,
+    DEVICE_HW_PANEL,
     DEVICE_HW_12IN1,
+    DEVICE_HW_8IN1,
     DEVICE_HW_SENSORS_IN_ONE,
+    DEVICE_HW_PIR,
     DEVICE_HW_DRY_CONTACT,
 ]
 
@@ -193,6 +209,7 @@ CLIMATE_PRESETS: Final = [PRESET_NONE, PRESET_AWAY, PRESET_HOME, PRESET_SLEEP]
 DEFAULT_PORT: Final = 6000
 DEFAULT_RUNNING_TIME: Final = 0
 DEFAULT_TEMP_OFFSET: Final = 0
+DEFAULT_TEMP_CHANNEL: Final = 1
 DEFAULT_SCAN_INTERVAL: Final = 0
 
 # Bus discovery
@@ -253,40 +270,46 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
                                               # imports as switch channels; re-tag the 4 dimmer channels to
                                               # "light" afterwards via the edit-device screen.
     "0x0890": DEVICE_TYPE_CLIMATE,            # HDL-MPTL4C.48 Granite Display touch panel (issue #13) - has a
-                                               # built-in temperature/humidity sensor and drives HVAC/floor
-                                               # heating, like the DLP panels above; was falling through to
-                                               # switch since it had no entry here. Its own ReadFloorHeating-
-                                               # StatusResponse (captured live: [0,26,0,1,25,25,25,25,1,0,1,1])
-                                               # carries 4 bytes this integration doesn't parse yet (indices
-                                               # 8-11) beyond the standard 8-byte DLP layout -- none of them
-                                               # look like a %RH reading (all 0/1).
+                                               # built-in temperature sensor and drives HVAC/floor heating, like
+                                               # the DLP panels above; was falling through to switch since it had
+                                               # no entry here.
                                                #
-                                               # Tested on real hardware: adding a second "Sensor" device entry
-                                               # at this same address with hw kind "sensors_in_one" got NEITHER
-                                               # temperature nor humidity (both stayed unavailable) -- this
-                                               # panel doesn't answer ReadSensorsInOneStatus (0x1604) at all, it
-                                               # only ever replies to ReadFloorHeatingStatus. Combined with
-                                               # SENSOR_KIND_HUMIDITY's finding that a second independent HDL
-                                               # Buspro project (Frequencies/home_assistant_buspro) also doesn't
-                                               # claim humidity support for this MPTL/panel family, the current
-                                               # working theory is this panel's onboard humidity simply isn't
-                                               # exposed over Buspro through any telegram either project has
-                                               # reverse-engineered -- not just a gap in this integration. The 4
-                                               # unparsed bytes above remain the only lead if that's wrong;
-                                               # confirming it needs a log captured while the panel's on-screen
-                                               # humidity visibly changes, to see whether any of them track it.
+                                               # TEMPERATURE: SOLVED (2026-09-13). This panel reports its onboard
+                                               # temperature on the channel-addressed ReadTemperature pair,
+                                               # 0xE3E7 (read, payload=[channel]) / 0xE3E8 (reply), NOT via the
+                                               # floor-heating or sensors-in-one protocols. Add it as a "Sensor"
+                                               # device with hw kind "panel" (DEVICE_HW_PANEL) and it works.
                                                #
-                                               # New lead (2026-09-11, from that same second project's repo): its
-                                               # DIFFERENT MPTL-family panel (HDL-MPTLC43.46-A "Enviro", not this
-                                               # Granite Display) doesn't read its built-in temperature via DLP or
-                                               # sensors_in_one either -- it uses its own channel-addressed pair,
-                                               # E3E7 (read, payload=channel) / E3E8 (reply=channel + signed whole-
-                                               # degree temp, optionally +4-byte float), with the panel's onboard
-                                               # sensor answering on channel 1. Neither project has tried E3E7
-                                               # against a Granite Display, or tried a channel other than 1 (e.g.
-                                               # 2) to see if humidity rides the same request family. Worth one
-                                               # bus-monitor capture: send E3E7 with a few channel numbers to this
-                                               # panel's address and see what, if anything, answers on E3E8.
+                                               # Confirmed against a live capture from a Granite Display at 1.60:
+                                               # 456 x 0xE3E8 frames over two days, layout
+                                               #   [channel, signed_whole_degrees, <float32 little-endian degC>]
+                                               #   [1, 27, 216, 163, 216, 65] -> 27.080 degC
+                                               #   [2, 26, 134, 235, 215, 65] -> 26.990 degC
+                                               #   [1, 26,  12, 215, 215, 65] -> 26.980 degC
+                                               # The panel answers on every channel it owns (1-8 observed), all
+                                               # carrying the single onboard reading, which is why the sensor
+                                               # entity filters on its configured channel. The whole-degree byte
+                                               # is plain Celsius with NO -20 bias, and is a truncation of the
+                                               # float - so the float is preferred when present.
+                                               #
+                                               # These frames were previously dropped outright: 0xE3E7/0xE3E8
+                                               # were absent from the OperateCode enum, so every one of them
+                                               # reached the Sensor decode with operate_code=None. The only
+                                               # temperature the panel could deliver was therefore its
+                                               # ReadFloorHeatingStatusResponse byte (captured live:
+                                               # [0,26,0,1,25,25,25,25,1,0,1,1] -> 26), which the old inverted
+                                               # -20 bias in Sensor.temperature then turned into 6 degC.
+                                               #
+                                               # HUMIDITY: still unconfirmed, deliberately not guessed at. All
+                                               # eight 0xE3E8 channels carry temperature, so humidity does not
+                                               # ride that request family on this panel. Indices 8-11 of its
+                                               # ReadFloorHeatingStatusResponse remain unparsed but are all 0/1,
+                                               # so none of them is a %RH reading. Frequencies/home_assistant_
+                                               # buspro likewise claims only temperature/illuminance/motion for
+                                               # this MPTL/panel family. Confirming it needs a capture taken while
+                                               # the panel's on-screen humidity visibly changes - the sensor
+                                               # entity's last_telegram/raw_payload attributes expose exactly
+                                               # that without needing a bus monitor.
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module

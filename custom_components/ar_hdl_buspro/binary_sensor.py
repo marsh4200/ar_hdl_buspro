@@ -108,8 +108,16 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
         # sensors_in_one module doesn't answer, and _motion_sensor never
         # gets set (entity stays permanently "clear"). This was previously
         # left unset here, defaulting to None/generic for every kind.
+        # Keep in sync with DEVICE_HW_KINDS in const.py and with sensor.py.
+        # "pir" matters most here: a CMS-PIR motion-only module answers only
+        # ReadMotionSensorStatus (0xDB00), so without it in this tuple the
+        # entity polls 0x1645, is never answered, and reads "clear" for good.
         hw_kind = device_cfg.get(CONF_DEVICE_HW_KIND, DEVICE_HW_GENERIC)
-        legacy_device_kind = hw_kind if hw_kind in ("dlp", "12in1", "sensors_in_one") else None
+        legacy_device_kind = (
+            hw_kind
+            if hw_kind in ("dlp", "panel", "12in1", "8in1", "sensors_in_one", "pir")
+            else None
+        )
 
         self._sensor = PyBusproSensor(
             gateway.hdl,

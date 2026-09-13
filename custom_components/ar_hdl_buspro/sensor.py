@@ -26,9 +26,11 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SENSOR_KIND,
     CONF_SUBNET_ID,
+    CONF_TEMP_CHANNEL,
     CONF_TEMP_FAHRENHEIT,
     CONF_TEMP_OFFSET,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_TEMP_CHANNEL,
     DEFAULT_TEMP_OFFSET,
     DEVICE_HW_GENERIC,
     DEVICE_TYPE_SENSOR,
@@ -95,10 +97,21 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             device_cfg.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
 
+        self._temp_channel = int(
+            device_cfg.get(CONF_TEMP_CHANNEL, DEFAULT_TEMP_CHANNEL)
+        )
+
         # The vendored Sensor class accepts a `device` kwarg to indicate hw kind.
         # Translate our hw kind to the legacy string the library understands.
+        # NOTE: every kind the library knows how to decode differently must be
+        # listed here -- a kind missing from this tuple silently degrades to
+        # generic, which is how "8in1" temperatures came out 20 degrees high
+        # and "pir"/"panel" devices were polled with an opcode they never
+        # answer. Keep in sync with DEVICE_HW_KINDS in const.py.
         legacy_device_kind = (
-            self._hw_kind if self._hw_kind in ("dlp", "12in1", "sensors_in_one") else None
+            self._hw_kind
+            if self._hw_kind in ("dlp", "panel", "12in1", "8in1", "sensors_in_one", "pir")
+            else None
         )
 
         self._sensor = PyBusproSensor(
@@ -106,6 +119,7 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             (subnet, device),
             device=legacy_device_kind,
             name=device_cfg.get(CONF_NAME, ""),
+            temperature_channel=self._temp_channel,
         )
 
         # Entity metadata
