@@ -100,6 +100,7 @@ from .const import (
     MIN_SCAN_DURATION,
     PRESET_NONE,
     ROLE_KEYPAD,
+    SENSOR_HAS_HUMIDITY,
     SENSOR_KIND_HUMIDITY,
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
@@ -1270,6 +1271,11 @@ class ARHDLOptionsFlow(OptionsFlow):
             "0x0134": DEVICE_HW_12IN1,        # SB_CMS_12in1
             "0x0135": DEVICE_HW_8IN1,         # SB_CMS_8in1 (same +20 temp bias)
             "0x0150": DEVICE_HW_SENSORS_IN_ONE,  # HDL_MSP07M
+            # 0x0138 answers the sensors-in-one protocol (it is the family
+            # that pushes the 0x1630 broadcast), so it polls 0x1604 rather
+            # than the 8-in-1's 0x1645. Changeable per entity in the UI if a
+            # given unit turns out to answer something else.
+            "0x0138": DEVICE_HW_SENSORS_IN_ONE,
             "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
         }.get(disc.type_code, DEVICE_HW_GENERIC)
         # Poll every 60s so readings arrive even when the sensor doesn't
@@ -1287,7 +1293,11 @@ class ARHDLOptionsFlow(OptionsFlow):
 
         added = 0
         sensor_kinds = [SENSOR_KIND_TEMPERATURE, SENSOR_KIND_ILLUMINANCE]
-        if hw_kind == DEVICE_HW_SENSORS_IN_ONE:
+        # Humidity comes from the type code, NOT from the hw kind. 0x0138
+        # speaks the same sensors-in-one protocol as the MSP07M but has no
+        # humidity element, so keying off the protocol created a permanently
+        # unavailable humidity entity for it.
+        if SENSOR_HAS_HUMIDITY.get(disc.type_code, False):
             # Humidity is only ever carried by ReadSensorsInOneStatusResponse
             # (see SENSOR_KIND_HUMIDITY in const.py) -- the 12in1 hw kind
             # relies on BroadcastSensorStatusAutoResponse instead, which

@@ -271,6 +271,10 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0134": DEVICE_TYPE_SENSOR,         # SB_CMS_12in1 sensor
     "0x0135": DEVICE_TYPE_SENSOR,         # SB_CMS_8in1 sensor
     "0x0150": DEVICE_TYPE_SENSOR,         # HDL_MSP07M sensors-in-one
+    # Reported by @marsh4200 from real hardware: temperature, illuminance and
+    # motion, NO humidity. Sits in the CMS sensor family (0x013x) alongside
+    # the 12-in-1 and 8-in-1 above.
+    "0x0138": DEVICE_TYPE_SENSOR,         # CMS sensor (temp / lux / motion)
     # ARSmartHome site relay modules (identified on a live bus).
     "0x120B": DEVICE_TYPE_SWITCH,         # relay module
     "0x0141": DEVICE_TYPE_SWITCH,         # relay module
@@ -341,6 +345,18 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0187": DEVICE_TYPE_SENSOR,             # sensor
 }
 
+# Which readings a discovered multi-sensor actually has, by type code.
+# Humidity is the one that must not be assumed: an entity created for a
+# sensor the hardware doesn't have sits "unavailable" forever and looks like
+# a bug. Anything not listed here gets the common temperature / illuminance /
+# motion set, which is the safe subset -- every CMS sensor has those.
+SENSOR_HAS_HUMIDITY: Final = {
+    "0x0150": True,    # HDL_MSP07M sensors-in-one
+    "0x0138": False,   # temp / lux / motion only, confirmed on real hardware
+    "0x0134": False,   # SB_CMS_12in1
+    "0x0135": False,   # SB_CMS_8in1
+}
+
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
 # discovered devices read sensibly in the UI instead of "Unknown".
 HDL_TYPE_NAMES: Final = {
@@ -370,6 +386,7 @@ HDL_TYPE_NAMES: Final = {
     "0x164B": "Dimmer module",
     "0x158A": "Relay module",
     "0x027E": "Dimmer module",
+    "0x0138": "Sensor module (temperature, illuminance, motion)",
     "0x0148": "Sensor module",
     "0x0187": "Sensor module",
 }
