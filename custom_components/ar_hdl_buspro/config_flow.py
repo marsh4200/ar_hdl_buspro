@@ -46,6 +46,8 @@ from .const import (
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
     CONF_LOCAL_IP,
+    CONF_MOTION_BYTE_INDEX,
+    CONF_MOTION_UV_SWITCH,
     CONF_NAME,
     CONF_OPEN_CHANNEL,
     CONF_PRESET_MODES,
@@ -69,6 +71,8 @@ from .const import (
     DEFAULT_TRAVEL_TIME,
     DEFAULT_PORT,
     DEFAULT_RUNNING_TIME,
+    DEFAULT_MOTION_BYTE_INDEX,
+    DEFAULT_MOTION_UV_SWITCH,
     DEFAULT_SCAN_DURATION,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TEMP_CHANNEL,
@@ -246,6 +250,8 @@ def _sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
             # this exists mainly to pin which reply the entity accepts.
             vol.Optional(
                 CONF_TEMP_CHANNEL,
+        CONF_MOTION_UV_SWITCH,
+        CONF_MOTION_BYTE_INDEX,
                 default=defaults.get(CONF_TEMP_CHANNEL, DEFAULT_TEMP_CHANNEL),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
@@ -311,6 +317,31 @@ def _binary_sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
                     options=DEVICE_HW_KINDS,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     translation_key=CONF_DEVICE_HW_KIND,
+                )
+            ),
+            # Motion kind only. 201 (0xC9) is what HDL CMS multisensors use to
+            # push a PIR trip in real time; 0 disables. Harmless on hardware
+            # that doesn't push -- it simply never arrives.
+            vol.Optional(
+                CONF_MOTION_UV_SWITCH,
+                default=defaults.get(
+                    CONF_MOTION_UV_SWITCH, DEFAULT_MOTION_UV_SWITCH
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            # Motion kind only. Which byte of the 0x1630 broadcast is the
+            # motion flag; -1 decodes none. See CONF_MOTION_BYTE_INDEX.
+            vol.Optional(
+                CONF_MOTION_BYTE_INDEX,
+                default=defaults.get(
+                    CONF_MOTION_BYTE_INDEX, DEFAULT_MOTION_BYTE_INDEX
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-1, max=15, mode=selector.NumberSelectorMode.BOX
                 )
             ),
             vol.Optional(

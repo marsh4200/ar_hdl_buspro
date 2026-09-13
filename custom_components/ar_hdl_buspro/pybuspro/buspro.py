@@ -61,6 +61,16 @@ class Buspro:
         # cannot pollute this instance with phantom devices. Populated by the
         # integration's gateway wrapper after resolving the configured host.
         self.allowed_source_ips: set[str] = set()
+        # Source IPs whose frames have been dropped by the filter above, so
+        # each is reported once and can be surfaced in diagnostics.
+        self.dropped_source_ips: set[str] = set()
+
+        # The IP this client advertises inside every outbound telegram's
+        # 4-byte header (see TelegramHelper.build_send_buffer). Set by the
+        # integration's gateway wrapper once the route to the gateway is
+        # known. HDL IP gateways read this field; a hardcoded value from a
+        # foreign subnet is not something they can route back to.
+        self.advertised_ip: str | None = None
 
         self.gateway_address_send_receive = gateway_address_send_receive
 

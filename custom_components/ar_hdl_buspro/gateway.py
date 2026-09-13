@@ -87,9 +87,52 @@ class ARHDLGateway:
         self.hdl.allowed_source_ips = ips
         _LOGGER.debug("Gateway source-IP filter set to %s", ips)
 
+    async def _async_refresh_advertised_ip(self) -> None:
+        """Work out which local IP to advertise inside outbound telegrams.
+
+        Uses the configured local_ip when the user set one, otherwise asks the
+        OS which source address it would use to reach the gateway. Nothing is
+        sent -- connect() on a UDP socket only fixes the route.
+
+        This field was a hardcoded 192.168.1.15 in every release up to 4.4.5.
+        HDL IP gateways read it, so on any network that is not 192.168.1.0/24
+        it names a host that cannot be reached: polled reads still work
+        (the gateway unicasts its reply to the UDP sender) but relayed bus
+        broadcasts have nowhere to go.
+        """
+        import socket as _socket
+
+        if self.local_ip:
+            self.hdl.advertised_ip = self.local_ip
+            _LOGGER.debug("Advertising configured local IP %s", self.local_ip)
+            return
+
+        def _probe() -> str | None:
+            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+            try:
+                sock.connect((self.host, self.port))
+                return sock.getsockname()[0]
+            except OSError:
+                return None
+            finally:
+                sock.close()
+
+        ip = await self.hass.async_add_executor_job(_probe)
+        if not ip or ip == "0.0.0.0":  # noqa: S104 - sentinel, not a bind
+            _LOGGER.warning(
+                "Could not determine the local IP used to reach gateway %s; "
+                "outbound telegrams will advertise the legacy placeholder "
+                "address, which some HDL gateways will not route broadcasts to",
+                self.host,
+            )
+            return
+        self.hdl.advertised_ip = ip
+        _LOGGER.debug("Advertising local IP %s to gateway %s", ip, self.host)
+
     async def async_connect(self) -> bool:
         """Connect to the gateway. Returns True on success."""
         await self._async_refresh_source_filter()
+        await self._async_refresh_advertised_ip()
         try:
             await self.hdl.start(state_updater=False)
         except Exception as err:  # noqa: BLE001 - third-party can raise anything
@@ -187,6 +230,20 @@ class ARHDLGateway:
             "port": self.port,
             "local_ip": self.local_ip or "auto",
             "source_ip_filter": sorted(self.hdl.allowed_source_ips) or "disabled",
+            "advertised_ip": self.hdl.advertised_ip or "legacy placeholder",
+            # Redacted above like every other LAN address, so also report HOW
+            # it was obtained -- that is the part worth reading in a bug
+            # report, and it carries nothing identifying.
+            "advertised_ip_source": (
+                "configured local_ip"
+                if self.local_ip
+                else "auto-detected"
+                if self.hdl.advertised_ip
+                else "legacy placeholder (192.168.1.15)"
+            ),
+            # Non-empty means bus traffic IS arriving from an IP this entry is
+            # discarding -- a second gateway, or a gateway whose IP changed.
+            "dropped_source_ips": sorted(self.hdl.dropped_source_ips),
             "available": self._available,
             "stop_requested": self._stop_requested,
             "reconnect_active": bool(

@@ -36,6 +36,8 @@ async def async_get_config_entry_diagnostics(
     if data is not None:
         gw_info = data.gateway.diagnostics()
         # Redact the host explicitly here too in case it appears verbatim.
-        diag["gateway"] = async_redact_data(gw_info, {"host", "local_ip"})
+        diag["gateway"] = async_redact_data(
+            gw_info, {"host", "local_ip", "advertised_ip"}
+        )
 
     return diag
