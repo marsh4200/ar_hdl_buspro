@@ -57,7 +57,7 @@ _LOGGER = logging.getLogger(__name__)
 # If this is left empty the integration runs permanently in trial/locked
 # mode and logs an error, deliberately: a build that silently accepted
 # everything would be a lock that does nothing.
-_PUBLIC_KEY_HEX = ""
+_PUBLIC_KEY_HEX = "ecb4802e522dc2cc0a820824406ba004d4f70b9afea7e1325095d77309842f25"
 
 PRODUCT = "ar_hdl_buspro"
 TOKEN_PREFIX = "WIQL1."
