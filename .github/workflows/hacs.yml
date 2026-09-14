@@ -17,3 +17,10 @@ jobs:
         uses: "hacs/action@main"
         with:
           category: "integration"
+          # AR HDL BUSPRO is proprietary software (see LICENSE). HACS requires
+          # an OSI-approved licence for inclusion in its default store, which
+          # this repository cannot satisfy by design. The licence check runs
+          # only inside this action -- it is never run by Home Assistant -- so
+          # ignoring it here does not affect anyone installing the integration
+          # as a HACS custom repository, which is the supported route.
+          ignore: "license"
