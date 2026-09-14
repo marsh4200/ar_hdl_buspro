@@ -6,7 +6,7 @@
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=marsh4200&repository=ar_hdl_buspro&category=integration)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub release](https://img.shields.io/github/v/release/marsh4200/ar_hdl_buspro)](https://github.com/marsh4200/ar_hdl_buspro/releases)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 
 Control an entire **HDL Buspro** installation from Home Assistant — lights, relays, curtains, floor heating, sensors and dry contacts — configured **entirely from the UI**. No YAML, no manual address hunting: point it at your gateway, press **Scan bus**, tick the devices you want, done.
 
@@ -410,3 +410,24 @@ If you find **AR HDL BUSPRO** useful:
 - 🤝 Contribute improvements
 
 <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
+
+## Licensing
+
+AR HDL BUSPRO is proprietary, licensed software — see [LICENSE](LICENSE). It
+is not free or open source, and may not be redistributed or modified.
+Third-party components it includes keep their own terms; see [NOTICE](NOTICE).
+
+Each Home Assistant install generates its own **Server ID** the first time the
+integration is set up. It is shown on the Licence step during setup, and at any
+time under **Settings → Devices & Services → AR HDL BUSPRO → Configure →
+Licence**.
+
+A new install runs for **2 days** with no key so it can be evaluated. After
+that, entities report unavailable until a licence key is entered. Nothing is
+deleted — your gateway, devices and scan results stay exactly as they were and
+come straight back the moment a valid key is entered.
+
+To get a key, send your Server ID to [arsmarthome.co.za](https://arsmarthome.co.za).
+
+Verification is offline: no internet connection is needed at the client site,
+either to activate or to keep running.

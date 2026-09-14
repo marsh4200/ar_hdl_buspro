@@ -1,0 +1,43 @@
+AR HDL BUSPRO — third-party components
+======================================
+
+The AR HDL BUSPRO integration is proprietary software (see LICENSE). It
+incorporates the following third-party components, which remain governed
+by their own licences. Nothing in LICENSE changes those terms, and the
+notices below must be retained in every copy.
+
+--------------------------------------------------------------------
+custom_components/ar_hdl_buspro/pybuspro/
+--------------------------------------------------------------------
+Derived from the open-source `pybuspro` library used by the community
+Home Assistant HDL Buspro integration, with substantial modifications by
+AR Smart Home. The original work is distributed under the MIT Licence:
+
+    MIT License
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be
+    included in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+    BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+    ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+    CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+ACTION REQUIRED: fill in the upstream copyright holder's name and year
+on the "MIT License" line above (the original pybuspro author) before
+publishing. MIT permits sublicensing this code inside a proprietary
+product, but only while its copyright notice and permission notice are
+retained — which is what this file does.
+--------------------------------------------------------------------

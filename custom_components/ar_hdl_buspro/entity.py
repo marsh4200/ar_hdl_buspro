@@ -1,4 +1,10 @@
 """Shared entity base class and helpers for the AR HDL BUSPRO integration."""
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 from typing import Any
@@ -31,6 +37,7 @@ from .const import (
     SIGNAL_GATEWAY_AVAILABILITY,
 )
 from .gateway import ARHDLGateway
+from .licensing import SIGNAL_LICENSE_CHANGED, is_active as license_is_active
 
 # Friendly label for the device list's model line (see build_device_info).
 # Deliberately the broad HA platform category, not the specific HDL
@@ -153,6 +160,9 @@ class ARHDLBaseEntity(Entity):
         self._gateway = gateway
         self._device_cfg = device_cfg
         self._gateway_available = gateway.available
+        # Set from the licence manager on add; the hourly re-check in
+        # __init__.py moves it if the demo window runs out while running.
+        self._license_active = True
 
     async def async_added_to_hass(self) -> None:
         """Wire up availability dispatcher."""
@@ -164,6 +174,22 @@ class ARHDLBaseEntity(Entity):
                 self._handle_gateway_availability,
             )
         )
+        self._license_active = license_is_active(self.hass)
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_LICENSE_CHANGED,
+                self._handle_license_change,
+            )
+        )
+
+    @callback
+    def _handle_license_change(self, active: bool) -> None:
+        """Blank out (or restore) this entity when the licence state moves."""
+        if active == self._license_active:
+            return
+        self._license_active = active
+        self.async_write_ha_state()
 
     @callback
     def _handle_gateway_availability(self, available: bool) -> None:
@@ -200,5 +226,10 @@ class ARHDLBaseEntity(Entity):
 
     @property
     def available(self) -> bool:
-        """Return True if the gateway is connected."""
-        return self._gateway_available
+        """Return True if the gateway is connected and the licence is active.
+
+        An unlicensed install keeps its entities and configuration intact --
+        they just report unavailable until a key is entered, so activating
+        later restores everything without a re-scan.
+        """
+        return self._gateway_available and self._license_active
