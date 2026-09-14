@@ -3,7 +3,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\nSend this Server ID to AR Smart Home (arsmarthome.co.za) to get your licence key, then paste it below.\n\nYou can leave this blank to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is entered from this integration's Configure menu.",
+        "description": "**Server ID:** `{server_id}`\n\nGo to [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za), enter this Server ID, and we'll send you your licence key. Paste it below once you have it.\n\nYou can leave this blank to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is entered from this integration's Configure menu.",
         "data": {
           "license_key": "Licence key"
         }
@@ -32,9 +32,9 @@
       "unknown": "Unexpected error. See logs for details.",
       "invalid_key": "That licence key is not valid. Check it was copied in full, including the WIQL1. prefix.",
       "wrong_product": "That key was issued for a different product.",
-      "wrong_server": "That key was issued for a different Server ID. Send the Server ID shown above to arsmarthome.co.za.",
+      "wrong_server": "That key was issued for a different Server ID. Request one for the Server ID shown above at activatelicense.arsmarthome.co.za.",
       "expired": "That licence key has expired.",
-      "no_public_key": "This build has no licence public key compiled in. Contact arsmarthome.co.za."
+      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za."
     },
     "abort": {
       "already_configured": "This gateway is already configured."
@@ -44,7 +44,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Status:** {status}\n\n**Server ID:** `{server_id}`\n\nPaste a licence key below to activate this install, or leave it blank to go back without changing anything.",
+        "description": "**Status:** {status}\n\n**Server ID:** `{server_id}`\n\nPaste a licence key below to activate this install, or request one at [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za). Leave it blank to go back without changing anything.",
         "data": {
           "license_key": "Licence key"
         }
@@ -196,9 +196,9 @@
       "scan_failed": "The bus scan failed. See the logs for details.",
       "invalid_key": "That licence key is not valid. Check it was copied in full, including the WIQL1. prefix.",
       "wrong_product": "That key was issued for a different product.",
-      "wrong_server": "That key was issued for a different Server ID. Send the Server ID shown above to arsmarthome.co.za.",
+      "wrong_server": "That key was issued for a different Server ID. Request one for the Server ID shown above at activatelicense.arsmarthome.co.za.",
       "expired": "That licence key has expired.",
-      "no_public_key": "This build has no licence public key compiled in. Contact arsmarthome.co.za."
+      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",
@@ -367,11 +367,11 @@
   "issues": {
     "license_trial": {
       "title": "AR HDL BUSPRO is running in demo mode",
-      "description": "This install has {days_left} day(s) of the demo left. When it runs out all AR HDL BUSPRO entities become unavailable until a licence key is entered.\n\nServer ID: `{server_id}`\n\nGet a key from arsmarthome.co.za, then enter it under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
+      "description": "This install has {days_left} day(s) of the demo left. When it runs out all AR HDL BUSPRO entities become unavailable until a licence key is entered.\n\nServer ID: `{server_id}`\n\nRequest a key at activatelicense.arsmarthome.co.za, then enter it under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
     },
     "license_inactive": {
       "title": "AR HDL BUSPRO is not licensed",
-      "description": "The demo period has ended or the stored licence key is no longer valid, so all AR HDL BUSPRO entities are unavailable. Your devices and settings are untouched and come straight back once a key is entered.\n\nServer ID: `{server_id}`\n\nGet a key from arsmarthome.co.za, then enter it under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
+      "description": "The demo period has ended or the stored licence key is no longer valid, so all AR HDL BUSPRO entities are unavailable. Your devices and settings are untouched and come straight back once a key is entered.\n\nServer ID: `{server_id}`\n\nRequest a key at activatelicense.arsmarthome.co.za, then enter it under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
     }
   }
 }

@@ -50,13 +50,16 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Build-time configuration
 # ---------------------------------------------------------------------------
-# Paste the hex public key from the licence server's "Signing key" tab here
-# before publishing a release. It is safe to ship - it can verify signatures
-# but not create them.
+# The AR Smart Home Server signing key's PUBLIC half, from the licence
+# server's "Signing key" tab. Safe to ship: it can verify signatures but
+# never create them. Shared by every install - it is not per customer.
 #
-# If this is left empty the integration runs permanently in trial/locked
-# mode and logs an error, deliberately: a build that silently accepted
-# everything would be a lock that does nothing.
+# Do not change this unless the licence server's private key is replaced,
+# which would invalidate every licence already issued for this product.
+#
+# If this is ever left empty the integration runs permanently in
+# trial/locked mode and logs an error, deliberately: a build that silently
+# accepted everything would be a lock that does nothing.
 _PUBLIC_KEY_HEX = "ecb4802e522dc2cc0a820824406ba004d4f70b9afea7e1325095d77309842f25"
 
 PRODUCT = "ar_hdl_buspro"

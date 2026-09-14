@@ -218,7 +218,7 @@ def _async_apply_license_state(hass: HomeAssistant) -> None:
             "server_id": state.server_id,
             "days_left": str(state.trial_days_left),
         },
-        learn_more_url="https://arsmarthome.co.za",
+        learn_more_url="https://activatelicense.arsmarthome.co.za",
     )
 
 

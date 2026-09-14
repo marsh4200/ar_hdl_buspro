@@ -427,7 +427,7 @@ that, entities report unavailable until a licence key is entered. Nothing is
 deleted — your gateway, devices and scan results stay exactly as they were and
 come straight back the moment a valid key is entered.
 
-To get a key, send your Server ID to [arsmarthome.co.za](https://arsmarthome.co.za).
+To get a key, go to [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za), enter your Server ID, and you'll be sent your licence key.
 
 Verification is offline: no internet connection is needed at the client site,
 either to activate or to keep running.
