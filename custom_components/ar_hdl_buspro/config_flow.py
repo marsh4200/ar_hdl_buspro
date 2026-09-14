@@ -1,4 +1,10 @@
 """Config flow for the AR HDL BUSPRO integration."""
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 import re
@@ -47,6 +53,7 @@ from .const import (
     CONF_GATEWAY_HOST,
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
+    CONF_LICENSE_KEY,
     CONF_LOCAL_IP,
     CONF_MOTION_BYTE_INDEX,
     CONF_MOTION_UV_SWITCH,
@@ -107,6 +114,12 @@ from .const import (
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KINDS,
+)
+from .licensing import (
+    STATUS_LICENSED,
+    STATUS_TRIAL,
+    TRIAL_DAYS,
+    async_get_manager,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -603,6 +616,7 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the flow."""
         self._discovered_gateways: list[Any] = []
         self._prefill: dict[str, Any] = {}
+        self._license_seen = False
 
     async def _async_run_gateway_discovery(self) -> None:
         """Probe UDP/6000 for HDL gateways on the local network."""
@@ -620,6 +634,12 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """First step: auto-detect gateways on UDP/6000 and offer a pick list."""
+        # Licensing comes before anything else on a fresh install, so the
+        # installer sees the Server ID up front. Re-entry for "Scan again"
+        # skips it -- the flag is only cleared on a brand new flow.
+        if not self._license_seen:
+            return await self.async_step_license()
+
         if user_input is not None:
             choice = user_input[CONF_GATEWAY_CHOICE]
             if choice == CHOICE_RESCAN:
@@ -671,6 +691,50 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             description_placeholders={
                 "count": str(len(self._discovered_gateways))
+            },
+        )
+
+    async def async_step_license(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show this install's Server ID and accept a licence key.
+
+        Leaving the key blank is allowed: the integration then runs in the
+        %s-day demo window and the key can be entered later from the
+        integration's Configure menu, without redoing any of the setup.
+        """ % TRIAL_DAYS
+        manager = await async_get_manager(self.hass)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
+            if not key:
+                self._license_seen = True
+                return await self.async_step_user()
+
+            _state, reason = await manager.async_set_key(key)
+            if reason is None:
+                self._license_seen = True
+                return await self.async_step_user()
+            errors["base"] = reason
+
+        state = manager.state
+        return self.async_show_form(
+            step_id="license",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_LICENSE_KEY, default=""): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            multiline=True, type=selector.TextSelectorType.TEXT
+                        )
+                    )
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "server_id": manager.server_id,
+                "status": state.status,
+                "trial_days": str(TRIAL_DAYS),
             },
         )
 
@@ -830,6 +894,7 @@ class ARHDLOptionsFlow(OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=[
+                "license",
                 "gateway",
                 "detect_gateway",
                 "scan_bus",
@@ -837,6 +902,56 @@ class ARHDLOptionsFlow(OptionsFlow):
                 "edit_device",
                 "remove_device",
             ],
+        )
+
+    # ----- licence ----------------------------------------------------------
+    async def async_step_license(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """View licence status / Server ID and enter or replace a key."""
+        manager = await async_get_manager(self.hass)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
+            if not key:
+                return await self.async_step_init()
+
+            _state, reason = await manager.async_set_key(key)
+            if reason is None:
+                # Saving options reloads the entry, which re-evaluates the
+                # licence and clears the repair issue.
+                return self.async_create_entry(
+                    title="", data=dict(self._entry.options)
+                )
+            errors["base"] = reason
+
+        state = manager.state
+        if state.status == STATUS_LICENSED:
+            status_text = f"Licensed to {state.client or 'unknown'}" + (
+                f", expires {state.expires_at[:10]}" if state.expires_at else ", perpetual"
+            )
+        elif state.status == STATUS_TRIAL:
+            status_text = f"Demo - {state.trial_days_left} day(s) left"
+        else:
+            status_text = "Not licensed - entities are unavailable"
+
+        return self.async_show_form(
+            step_id="license",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_LICENSE_KEY, default=""): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            multiline=True, type=selector.TextSelectorType.TEXT
+                        )
+                    )
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "server_id": manager.server_id,
+                "status": status_text,
+            },
         )
 
     # ----- gateway settings -------------------------------------------------

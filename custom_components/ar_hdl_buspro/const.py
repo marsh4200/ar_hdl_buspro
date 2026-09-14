@@ -1,4 +1,10 @@
 """Constants for the AR HDL BUSPRO integration."""
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 from typing import Final
@@ -24,6 +30,9 @@ PLATFORMS: Final = [
 CONF_GATEWAY_HOST: Final = "gateway_host"
 CONF_GATEWAY_PORT: Final = "gateway_port"
 CONF_LOCAL_IP: Final = "local_ip"
+
+# Licence key entered in the config/options flow (see licensing.py).
+CONF_LICENSE_KEY: Final = "license_key"
 
 # Devices stored inside the entry's options
 CONF_DEVICES: Final = "devices"

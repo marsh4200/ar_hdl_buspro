@@ -15,6 +15,12 @@ So: open a socket on UDP/6000, blast a couple of harmless read requests to the
 broadcast addresses of every local interface, and every distinct source IP
 that sends back a CRC-valid HDL frame is a gateway.
 """
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 import asyncio

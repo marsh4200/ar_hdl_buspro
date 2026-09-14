@@ -17,6 +17,12 @@ The raw type code and operate codes are captured even for hardware we don't
 recognise, so unknown modules still surface and can be identified from what
 they replied with (and mapped later).
 """
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 import asyncio

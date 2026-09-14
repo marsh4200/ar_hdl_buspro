@@ -18,6 +18,12 @@ Two hardware styles are supported:
   the direction channel for the configured travel time, then release it, and
   track position optimistically.
 """
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 import asyncio

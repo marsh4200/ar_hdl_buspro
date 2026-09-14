@@ -1,17 +1,27 @@
 """The AR HDL BUSPRO integration."""
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     ATTR_ADDRESS,
@@ -32,6 +42,13 @@ from .const import (
     SERVICE_SET_UNIVERSAL_SWITCH,
 )
 from .gateway import ARHDLGateway
+from .licensing import (
+    DATA_LICENSE,
+    SIGNAL_LICENSE_CHANGED,
+    STATUS_LICENSED,
+    STATUS_TRIAL,
+    async_get_manager,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +61,13 @@ class ARHDLData:
     """Runtime data stored on the ConfigEntry."""
 
     gateway: ARHDLGateway
+
+
+# How often to re-evaluate the licence while running. The demo window can
+# run out mid-session, and an expiry date can pass overnight, so entity
+# availability has to move without waiting for a restart.
+LICENSE_RECHECK_INTERVAL = timedelta(hours=1)
+LICENSE_ISSUE_ID = "license_inactive"
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +118,13 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up AR HDL BUSPRO from a config entry."""
+    # Evaluate the licence before touching the bus. An unlicensed install is
+    # still set up -- entities appear but report unavailable -- so the owner
+    # can see exactly what they have and enter a key from the options flow
+    # without rebuilding their whole configuration.
+    await async_get_manager(hass)
+    _async_apply_license_state(hass)
+
     host = entry.data[CONF_GATEWAY_HOST]
     port = entry.data[CONF_GATEWAY_PORT]
     local_ip = entry.data.get(CONF_LOCAL_IP, "")
@@ -139,7 +170,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _register_services(hass)
 
+    @callback
+    def _recheck_license(_now) -> None:
+        _async_apply_license_state(hass)
+
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, _recheck_license, LICENSE_RECHECK_INTERVAL
+        )
+    )
+
     return True
+
+
+@callback
+def _async_apply_license_state(hass: HomeAssistant) -> None:
+    """Re-evaluate the licence, nudge entities, and raise/clear the repair.
+
+    Safe to call repeatedly: creating an issue that already exists and
+    deleting one that doesn't are both no-ops in the issue registry.
+    """
+    manager = hass.data.get(DATA_LICENSE)
+    if manager is None:
+        return
+
+    state = manager.evaluate()
+    async_dispatcher_send(hass, SIGNAL_LICENSE_CHANGED, state.active)
+
+    if state.status == STATUS_LICENSED:
+        ir.async_delete_issue(hass, DOMAIN, LICENSE_ISSUE_ID)
+        return
+
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        LICENSE_ISSUE_ID,
+        is_fixable=False,
+        severity=(
+            ir.IssueSeverity.WARNING
+            if state.status == STATUS_TRIAL
+            else ir.IssueSeverity.ERROR
+        ),
+        translation_key=(
+            "license_trial" if state.status == STATUS_TRIAL else "license_inactive"
+        ),
+        translation_placeholders={
+            "server_id": state.server_id,
+            "days_left": str(state.trial_days_left),
+        },
+        learn_more_url="https://arsmarthome.co.za",
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

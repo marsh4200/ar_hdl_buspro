@@ -1,21 +1,95 @@
-MIT License
+AR HDL BUSPRO — PROPRIETARY SOFTWARE LICENCE
+Copyright (c) 2026 Marsh — AR Smart Home (arsmarthome.co.za).
+All rights reserved.
 
-Copyright (c) 2026 marsh4200
+1. DEFINITIONS
+   "Software" means the AR HDL BUSPRO Home Assistant integration in this
+   repository, including its source code, configuration, translations,
+   images, branding and documentation, in all versions distributed under
+   this licence. "Licensor" means Marsh, trading as AR Smart Home.
+   "Licensee" means the natural or legal person to whom Licensor has
+   issued a licence key. "Installation" means one Home Assistant instance,
+   identified by the Server ID that the Software generates on first setup.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+2. GRANT
+   Subject to payment of the applicable fee and to continuing compliance
+   with this licence, Licensor grants Licensee a non-exclusive,
+   non-transferable, revocable right to install and use the Software on
+   the single Installation identified by the Server ID for which a licence
+   key was issued, for Licensee's own purposes.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+3. EVALUATION
+   The Software may be installed without a licence key for an evaluation
+   period of two (2) days from first setup, for the sole purpose of
+   assessing it. After that period the Software ceases to operate until a
+   valid licence key is entered. Evaluation use confers no other rights.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+4. RESTRICTIONS
+   Except to the extent this is expressly permitted by applicable law and
+   cannot be excluded by agreement, Licensee shall not:
+   (a) copy, publish, distribute, sublicense, sell, rent, lend or
+       otherwise make the Software available to any third party;
+   (b) modify, adapt, translate or create derivative works of it;
+   (c) reverse engineer, decompile or disassemble it, or attempt to
+       derive its source where not supplied;
+   (d) remove, obscure or alter any copyright notice, licence notice,
+       branding or attribution in it;
+   (e) circumvent, disable, tamper with or attempt to defeat its licence
+       verification, Server ID generation or evaluation period, or use,
+       distribute or assist in the creation of any key, patch, build or
+       tool intended to do so;
+   (f) use it on any Installation other than the one licensed, or share a
+       licence key with any other person or Installation.
+
+5. OWNERSHIP
+   The Software is licensed, not sold. All right, title and interest in
+   and to the Software, including all intellectual property rights in it,
+   remain with Licensor. Nothing in this licence transfers ownership of
+   anything.
+
+6. THIRD-PARTY COMPONENTS
+   The Software incorporates third-party components that remain governed
+   by their own licences, which are not superseded by this licence. See
+   the NOTICE file for the list of those components and their terms.
+
+7. TERM AND TERMINATION
+   This licence takes effect on installation and continues until
+   terminated. It terminates automatically and immediately, without
+   notice, if Licensee breaches any term of it, and may be terminated by
+   Licensor on written notice for non-payment. On termination Licensee
+   shall cease all use of the Software and remove it from every
+   Installation. Sections 4, 5, 8, 9 and 10 survive termination.
+
+8. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NON-INFRINGEMENT. LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE
+   UNINTERRUPTED OR ERROR-FREE, OR THAT IT WILL OPERATE WITH ANY
+   PARTICULAR HDL BUSPRO HARDWARE, GATEWAY OR HOME ASSISTANT VERSION.
+
+9. LIMITATION OF LIABILITY
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR SHALL NOT BE LIABLE
+   FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE
+   DAMAGES, OR FOR ANY LOSS OF PROFITS, DATA, USE OR GOODWILL, ARISING
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE, HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY. LICENSOR'S TOTAL AGGREGATE LIABILITY UNDER THIS
+   LICENCE SHALL NOT EXCEED THE FEES PAID BY LICENSEE FOR THE
+   INSTALLATION GIVING RISE TO THE CLAIM IN THE TWELVE (12) MONTHS
+   PRECEDING THE EVENT. THE SOFTWARE CONTROLS BUILDING SERVICES; IT IS
+   NOT DESIGNED OR LICENSED FOR USE IN LIFE-SAFETY, MEDICAL, SECURITY OR
+   OTHER APPLICATIONS WHERE FAILURE COULD CAUSE INJURY, DEATH OR
+   SUBSTANTIAL PROPERTY DAMAGE, AND LICENSEE ASSUMES ALL RISK OF ANY
+   SUCH USE.
+
+10. GOVERNING LAW
+    This licence is governed by the laws of the Republic of South Africa,
+    and the parties submit to the jurisdiction of the South African
+    courts.
+
+11. PRIOR RELEASES
+    Versions of the Software published by Licensor before this licence
+    took effect were released under the MIT Licence. That grant, for those
+    versions, is not withdrawn by this licence.
+
+Licence enquiries: arsmarthome.co.za
