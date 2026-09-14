@@ -34,6 +34,12 @@ CONF_LOCAL_IP: Final = "local_ip"
 # Licence key entered in the config/options flow (see licensing.py).
 CONF_LICENSE_KEY: Final = "license_key"
 
+# Where customers request a key. Passed into the config/options flow as
+# description placeholders rather than written into strings.json --
+# hassfest rejects literal URLs in translation strings.
+LICENSE_PORTAL_HOST: Final = "activatelicense.arsmarthome.co.za"
+LICENSE_PORTAL_URL: Final = f"https://{LICENSE_PORTAL_HOST}"
+
 # Devices stored inside the entry's options
 CONF_DEVICES: Final = "devices"
 CONF_DEVICE_TYPE: Final = "device_type"

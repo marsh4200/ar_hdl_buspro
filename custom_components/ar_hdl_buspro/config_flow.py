@@ -54,6 +54,8 @@ from .const import (
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
     CONF_LICENSE_KEY,
+    LICENSE_PORTAL_HOST,
+    LICENSE_PORTAL_URL,
     CONF_LOCAL_IP,
     CONF_MOTION_BYTE_INDEX,
     CONF_MOTION_UV_SWITCH,
@@ -735,6 +737,8 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 "server_id": manager.server_id,
                 "status": state.status,
                 "trial_days": str(TRIAL_DAYS),
+                "portal_url": LICENSE_PORTAL_URL,
+                "portal_host": LICENSE_PORTAL_HOST,
             },
         )
 
@@ -951,6 +955,8 @@ class ARHDLOptionsFlow(OptionsFlow):
             description_placeholders={
                 "server_id": manager.server_id,
                 "status": status_text,
+                "portal_url": LICENSE_PORTAL_URL,
+                "portal_host": LICENSE_PORTAL_HOST,
             },
         )
 

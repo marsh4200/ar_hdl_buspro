@@ -3,7 +3,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\nGo to [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za), enter this Server ID, and we'll send you your licence key. Paste it below once you have it.\n\nYou can leave this blank to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is entered from this integration's Configure menu.",
+        "description": "**Server ID:** `{server_id}`\n\nGo to [{portal_host}]({portal_url}), enter this Server ID, and we'll send you your licence key. Paste it below once you have it.\n\nYou can leave this blank to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is entered from this integration's Configure menu.",
         "data": {
           "license_key": "Licence key"
         }
@@ -44,7 +44,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Status:** {status}\n\n**Server ID:** `{server_id}`\n\nPaste a licence key below to activate this install, or request one at [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za). Leave it blank to go back without changing anything.",
+        "description": "**Status:** {status}\n\n**Server ID:** `{server_id}`\n\nPaste a licence key below to activate this install, or request one at [{portal_host}]({portal_url}). Leave it blank to go back without changing anything.",
         "data": {
           "license_key": "Licence key"
         }
