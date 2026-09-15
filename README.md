@@ -60,7 +60,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 | **Switch** | Relay modules (R0816, MR-family, …) | One entity per relay channel |
 | **Cover** | Curtain modules (MW02 / MWM70B family) **and** relay-pair curtains | Real open / close / stop — see [Curtain modules](#curtain-modules) |
 | **Climate** | Floor heating (6B0-10v, DLP panels) **and** air conditioners via an IR emitter module (e.g. HDL-MIRC04.40) | Floor heating: presets, optional relay feedback. AC via IR module: power, mode, fan speed, target temperature — see [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module) |
-| **Sensor** | 12-in-1, 8-in-1, MSP07M sensors-in-one | Temperature and illuminance, broadcast + optional polling |
+| **Sensor** | 12-in-1, 8-in-1, MSP07M sensors-in-one | Presence, Temperature and illuminance, broadcast + optional polling |
 | **Binary sensor** | Motion, dry contacts, universal switches, channel status | Per-device scan interval |
 
 ## 📥 Installation
