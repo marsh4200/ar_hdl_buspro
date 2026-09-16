@@ -22,9 +22,42 @@ Verification is fully offline - a client site with no internet still
 activates. The cost of that is there is no revocation: a key, once issued,
 keeps working on the Server ID it was issued for.
 
-The Server ID is minted once per Home Assistant install and stored in
-.storage, so it survives restarts, updates and HACS upgrades. It only
-changes if the integration's stored data is deleted.
+
+Server ID (v2)
+--------------
+The Server ID is derived deterministically from Home Assistant's own
+instance UUID (`.storage/core.uuid`), not minted randomly into this
+integration's own store. Deleting `.storage/ar_hdl_buspro.license`
+therefore reproduces the *same* Server ID, so:
+
+  * an installed key keeps working after a storage reset, and
+  * a storage reset no longer mints a fresh demo window.
+
+Installs created before v2 have a random Server ID already pinned in their
+store; that value is kept verbatim so keys issued against it stay valid.
+See `_async_resolve_server_id`.
+
+
+Trial anchor
+------------
+The demo window's start is written to three independent places (this
+integration's store, a second store, and every config entry's data). The
+*earliest* anchor found wins, and a present-but-unreadable anchor is
+treated as long expired rather than as "starts now" - corrupting the
+timestamp locks rather than unlocks. A monotonic high-water mark is kept
+alongside it so winding the system clock backwards does not extend the
+window.
+
+
+What this module cannot do
+--------------------------
+Everything here runs on the customer's machine from source they can read.
+None of it is a cryptographic barrier against a determined, competent
+attacker: the signature check cannot be forged, but it can be *removed*.
+The layers below (functional gating at the telegram send path, the
+integrity manifest, the compiled build) exist to raise the cost of that
+removal from a one-line edit to a deliberate, multi-file, documented act -
+which is what the LICENCE, not the code, is ultimately enforced on.
 """
 
 # Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
@@ -36,14 +69,19 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import json
 import logging
-import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +107,18 @@ TRIAL_DAYS = 2
 STORAGE_KEY = "ar_hdl_buspro.license"
 STORAGE_VERSION = 1
 
+# Second, deliberately dull-looking store holding a copy of the trial
+# anchor. Someone clearing "the licence file" to reset the demo window
+# generally does not clear this one too.
+SHADOW_STORAGE_KEY = "ar_hdl_buspro.runtime"
+SHADOW_STORAGE_VERSION = 1
+
+# Key under which the anchor is mirrored into each config entry's data.
+# Config entries live in .storage/core.config_entries - deleting that file
+# destroys the user's entire Home Assistant configuration, so this copy is
+# the one that is genuinely awkward to remove.
+ENTRY_ANCHOR_KEY = "rt_anchor"
+
 DATA_LICENSE = "ar_hdl_buspro_license"
 
 SIGNAL_LICENSE_CHANGED = "ar_hdl_buspro_license_changed"
@@ -79,32 +129,84 @@ STATUS_TRIAL_EXPIRED = "trial_expired"
 STATUS_LICENSE_EXPIRED = "license_expired"
 STATUS_INVALID = "invalid"
 STATUS_UNCONFIGURED = "unconfigured"
+STATUS_TAMPERED = "tampered"
 
 # Statuses under which entities are allowed to work.
 _ACTIVE_STATUSES = frozenset({STATUS_LICENSED, STATUS_TRIAL})
 
+# Only persist a new high-water mark this often, so a normal running
+# system is not rewriting .storage every evaluation.
+_HIGH_WATER_WRITE_INTERVAL = timedelta(hours=6)
 
+# Domain separation for the unlock token handed to the telegram send path.
+_GATE_SALT = b"ar_hdl_buspro/gate/v2"
+
+
+# ---------------------------------------------------------------------------
+# Integrity manifest
+# ---------------------------------------------------------------------------
+# Release builds ship a generated `_integrity.py` holding SHA-256 digests of
+# the gated modules (see build/gen_manifest.py). A working tree without it
+# runs normally, so development is unaffected; a *release* without it is a
+# build mistake and is reported loudly rather than silently unlocking.
+def _integrity_failure() -> str | None:
+    """Return the name of the first altered gated module, or None."""
+    try:
+        from . import _integrity  # type: ignore[attr-defined]
+    except ImportError:
+        return None
+
+    try:
+        import os
+
+        base = os.path.dirname(os.path.abspath(__file__))
+        for relpath, expected in _integrity.MANIFEST.items():
+            full = os.path.join(base, relpath)
+            try:
+                with open(full, "rb") as handle:
+                    digest = hashlib.sha256(handle.read()).hexdigest()
+            except OSError:
+                return relpath
+            if not hmac.compare_digest(digest, expected):
+                return relpath
+    except Exception:  # noqa: BLE001 - a broken manifest must not crash setup
+        _LOGGER.debug("Integrity manifest check failed to run", exc_info=True)
+        return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Unlock token
+# ---------------------------------------------------------------------------
 @dataclass(frozen=True)
-class LicenseState:
-    """The result of evaluating the stored licence at a point in time."""
+class UnlockToken:
+    """Capability object handed to the telegram send path when active.
 
-    status: str
-    server_id: str
-    client: str | None = None
-    license_id: str | None = None
-    expires_at: str | None = None
-    trial_days_left: int = 0
-    reason: str | None = None
+    This is not a cryptographic secret - everything needed to derive it is
+    in this file. Its job is to make the enforcement point a value that has
+    to be *produced* rather than a boolean that can be flipped, so that
+    disabling the licence means understanding and editing three cooperating
+    modules instead of changing one `return` statement.
+    """
 
-    @property
-    def active(self) -> bool:
-        """Return True if the integration is allowed to operate."""
-        return self.status in _ACTIVE_STATUSES
+    digest: bytes
 
-    @property
-    def licensed(self) -> bool:
-        """Return True if a valid perpetual/unexpired key is installed."""
-        return self.status == STATUS_LICENSED
+    def matches(self, server_id: str, status: str) -> bool:
+        """Return True if this token was minted for this install and status."""
+        return hmac.compare_digest(self.digest, _gate_digest(server_id, status))
+
+
+def _gate_digest(server_id: str, status: str) -> bytes:
+    """Derive the unlock digest for an install/status pair."""
+    return hashlib.blake2s(
+        _GATE_SALT
+        + bytes.fromhex(_PUBLIC_KEY_HEX or "00")
+        + server_id.encode()
+        + b"|"
+        + status.encode(),
+        digest_size=16,
+    ).digest()
 
 
 # ---------------------------------------------------------------------------
@@ -114,13 +216,16 @@ def _b64u_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def _parse_expiry(raw: str | None) -> datetime | None:
+def _parse_dt(raw: str | None) -> datetime | None:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def verify_license_key(key: str, server_id: str) -> tuple[dict | None, str | None]:
@@ -176,11 +281,108 @@ def verify_license_key(key: str, server_id: str) -> tuple[dict | None, str | Non
     if str(payload.get("server_id", "")).lower() != server_id.lower():
         return None, "wrong_server"
 
-    expires = _parse_expiry(payload.get("expires_at"))
+    expires = _parse_dt(payload.get("expires_at"))
     if expires is not None and datetime.now(timezone.utc) >= expires:
         return None, "expired"
 
     return payload, None
+
+
+# ---------------------------------------------------------------------------
+# Server ID
+# ---------------------------------------------------------------------------
+# Sentinel written into the store the first time a v2-derived Server ID is
+# used, so a later load can tell "derived" from "pinned legacy value".
+_SERVER_ID_SCHEME = "server_id_scheme"
+_SCHEME_DERIVED = "instance-v2"
+
+
+def _derive_server_id(instance_uuid: str) -> str:
+    """Derive a stable Server ID from Home Assistant's instance UUID.
+
+    Deterministic, so it survives deletion of this integration's store, and
+    one-way, so the Server ID a customer emails over does not disclose the
+    HA instance UUID itself.
+    """
+    return hashlib.sha256(
+        b"ar_hdl_buspro/server-id/v2|" + instance_uuid.encode()
+    ).hexdigest()[:32]
+
+
+# ---------------------------------------------------------------------------
+# Trial anchor
+# ---------------------------------------------------------------------------
+# A "corrupt" marker that sorts earlier than any real timestamp, so an
+# unparseable anchor expires the demo window instead of restarting it.
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+@dataclass
+class _Anchor:
+    """Resolved trial anchor: when the window opened, and how far the
+    clock has ever been seen to advance."""
+
+    started: datetime
+    high_water: datetime
+
+    def as_dict(self, server_id: str) -> dict[str, str]:
+        """Serialise for storage, bound to the install it was minted on."""
+        return {
+            "sid": server_id,
+            "ts": self.started.isoformat(),
+            "hw": self.high_water.isoformat(),
+        }
+
+
+def _read_anchor(raw: Any, server_id: str) -> _Anchor | None:
+    """Interpret one stored anchor record.
+
+    Returns None when the slot is genuinely empty, and an *expired* anchor
+    when the slot is populated but unreadable or bound to another install.
+    That asymmetry is the point: blanking the field must not be a way to
+    restart the demo window.
+    """
+    if raw in (None, "", {}):
+        return None
+
+    if not isinstance(raw, dict):
+        return _Anchor(started=_EPOCH, high_water=_EPOCH)
+
+    sid = str(raw.get("sid", "")).lower()
+    if sid and sid != server_id.lower():
+        # Anchor copied in from another install - do not honour it as a
+        # fresh window.
+        return _Anchor(started=_EPOCH, high_water=_EPOCH)
+
+    started = _parse_dt(raw.get("ts"))
+    if started is None:
+        return _Anchor(started=_EPOCH, high_water=_EPOCH)
+
+    high_water = _parse_dt(raw.get("hw")) or started
+    return _Anchor(started=started, high_water=max(started, high_water))
+
+
+@dataclass(frozen=True)
+class LicenseState:
+    """The result of evaluating the stored licence at a point in time."""
+
+    status: str
+    server_id: str
+    client: str | None = None
+    license_id: str | None = None
+    expires_at: str | None = None
+    trial_days_left: int = 0
+    reason: str | None = None
+
+    @property
+    def active(self) -> bool:
+        """Return True if the integration is allowed to operate."""
+        return self.status in _ACTIVE_STATUSES
+
+    @property
+    def licensed(self) -> bool:
+        """Return True if a valid perpetual/unexpired key is installed."""
+        return self.status == STATUS_LICENSED
 
 
 # ---------------------------------------------------------------------------
@@ -197,32 +399,156 @@ class ARHDLLicenseManager:
         """Initialise the manager."""
         self.hass = hass
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self._shadow: Store = Store(hass, SHADOW_STORAGE_VERSION, SHADOW_STORAGE_KEY)
         self._data: dict = {}
+        self._shadow_data: dict = {}
         self._state: LicenseState | None = None
+        self._anchor: _Anchor | None = None
+        self._server_id: str = ""
+        self._tampered: str | None = None
+        self._last_hw_write: datetime | None = None
 
     # ----- lifecycle -------------------------------------------------------
     async def async_load(self) -> LicenseState:
         """Load (or create) stored licence data and evaluate it."""
+        self._tampered = _integrity_failure()
+        if self._tampered:
+            _LOGGER.error(
+                "AR HDL BUSPRO integrity check failed for %s: this build has "
+                "been modified. The integration will stay locked. Reinstall "
+                "from HACS to restore it",
+                self._tampered,
+            )
+
         stored = await self._store.async_load()
         self._data = dict(stored) if stored else {}
+        shadow = await self._shadow.async_load()
+        self._shadow_data = dict(shadow) if shadow else {}
 
-        dirty = False
-        if not self._data.get("server_id"):
-            self._data["server_id"] = secrets.token_hex(16)
-            dirty = True
-        if not self._data.get("trial_started"):
-            self._data["trial_started"] = datetime.now(timezone.utc).isoformat()
-            dirty = True
-        if dirty:
+        self._server_id = await self._async_resolve_server_id()
+        self._anchor = await self._async_resolve_anchor()
+
+        await self._async_persist_anchor(force=True)
+        return self.evaluate()
+
+    async def _async_resolve_server_id(self) -> str:
+        """Return this install's Server ID, honouring legacy pinned values."""
+        pinned = self._data.get("server_id")
+        scheme = self._data.get(_SERVER_ID_SCHEME)
+
+        # A pinned value from a pre-v2 install: keep it verbatim, forever.
+        # Keys already issued to that customer are bound to it.
+        if pinned and scheme != _SCHEME_DERIVED:
+            return str(pinned)
+
+        try:
+            from homeassistant.helpers import instance_id
+
+            uuid = await instance_id.async_get(self.hass)
+        except Exception:  # noqa: BLE001 - never block setup on this
+            _LOGGER.debug("Could not read the HA instance UUID", exc_info=True)
+            uuid = ""
+
+        if not uuid:
+            # Fall back to whatever is already pinned rather than minting a
+            # new identity that would invalidate an installed key.
+            return str(pinned or "")
+
+        derived = _derive_server_id(uuid)
+        if pinned != derived or scheme != _SCHEME_DERIVED:
+            self._data["server_id"] = derived
+            self._data[_SERVER_ID_SCHEME] = _SCHEME_DERIVED
+            await self._store.async_save(self._data)
+        return derived
+
+    async def _async_resolve_anchor(self) -> _Anchor:
+        """Collect every stored anchor and reduce them to one.
+
+        Earliest start wins and the latest high-water mark wins, so adding
+        storage locations can only ever shorten a demo window, never
+        lengthen one.
+        """
+        server_id = self._server_id
+        candidates: list[_Anchor] = []
+
+        for raw in (
+            self._data.get("trial_anchor"),
+            self._shadow_data.get("trial_anchor"),
+            *(
+                entry.data.get(ENTRY_ANCHOR_KEY)
+                for entry in self.hass.config_entries.async_entries(PRODUCT)
+            ),
+        ):
+            anchor = _read_anchor(raw, server_id)
+            if anchor is not None:
+                candidates.append(anchor)
+
+        # Honour a pre-v2 `trial_started` string if that is all there is.
+        legacy = _parse_dt(self._data.get("trial_started"))
+        if legacy is not None:
+            candidates.append(_Anchor(started=legacy, high_water=legacy))
+        elif self._data.get("trial_started") is not None:
+            candidates.append(_Anchor(started=_EPOCH, high_water=_EPOCH))
+
+        now = datetime.now(timezone.utc)
+        if not candidates:
+            # Genuinely new install.
+            return _Anchor(started=now, high_water=now)
+
+        started = min(anchor.started for anchor in candidates)
+        high_water = max(
+            [anchor.high_water for anchor in candidates] + [started]
+        )
+        return _Anchor(started=started, high_water=high_water)
+
+    async def _async_persist_anchor(self, force: bool = False) -> None:
+        """Write the resolved anchor back to every storage location."""
+        if self._anchor is None:
+            return
+
+        now = datetime.now(timezone.utc)
+        if not force and self._last_hw_write is not None:
+            if now - self._last_hw_write < _HIGH_WATER_WRITE_INTERVAL:
+                return
+        self._last_hw_write = now
+
+        record = self._anchor.as_dict(self._server_id)
+
+        if self._data.get("trial_anchor") != record:
+            self._data["trial_anchor"] = record
+            self._data.pop("trial_started", None)
             await self._store.async_save(self._data)
 
-        return self.evaluate()
+        if self._shadow_data.get("trial_anchor") != record:
+            self._shadow_data["trial_anchor"] = record
+            await self._shadow.async_save(self._shadow_data)
+
+        # The config-entry mirror deliberately carries only the immutable
+        # half of the anchor (install + start), never the moving high-water
+        # mark. Rewriting entry data fires the entry's update listener,
+        # which reloads the integration; a field that changes every few
+        # hours would turn that into a reload loop.
+        entry_record = {"sid": record["sid"], "ts": record["ts"]}
+        for entry in self.hass.config_entries.async_entries(PRODUCT):
+            existing = entry.data.get(ENTRY_ANCHOR_KEY)
+            if isinstance(existing, dict) and (
+                existing.get("sid"),
+                existing.get("ts"),
+            ) == (entry_record["sid"], entry_record["ts"]):
+                continue
+            self.hass.config_entries.async_update_entry(
+                entry, data={**entry.data, ENTRY_ANCHOR_KEY: entry_record}
+            )
+
+    async def async_sync_anchor(self, entry: ConfigEntry | None = None) -> None:
+        """Re-mirror the anchor, e.g. after a new config entry is added."""
+        await self._async_persist_anchor(force=True)
 
     # ----- accessors -------------------------------------------------------
     @property
     def server_id(self) -> str:
         """Return this install's Server ID (hex, give this to the operator)."""
-        return self._data.get("server_id", "")
+        return self._server_id
 
     @property
     def state(self) -> LicenseState:
@@ -231,11 +557,30 @@ class ARHDLLicenseManager:
             return self.evaluate()
         return self._state
 
+    @property
+    def unlock(self) -> UnlockToken | None:
+        """Return the capability token when operation is permitted."""
+        state = self.state
+        if not state.active:
+            return None
+        return UnlockToken(digest=_gate_digest(self._server_id, state.status))
+
     # ----- evaluation ------------------------------------------------------
     @callback
     def evaluate(self) -> LicenseState:
         """Recompute the licence state from stored data and the clock."""
-        server_id = self.server_id
+        server_id = self._server_id
+
+        if self._tampered:
+            state = LicenseState(
+                status=STATUS_TAMPERED,
+                server_id=server_id,
+                reason="tampered",
+            )
+            self._state = state
+            self.hass.data[DATA_LICENSE] = self
+            return state
+
         stored_key = self._data.get("license_key")
 
         if stored_key:
@@ -265,16 +610,32 @@ class ARHDLLicenseManager:
         self.hass.data[DATA_LICENSE] = self
         return state
 
+    @callback
+    def _effective_now(self) -> datetime:
+        """Return the current time, floored at the highest ever observed.
+
+        Winding the host clock backwards must not hand back demo days that
+        have already been spent.
+        """
+        now = datetime.now(timezone.utc)
+        if self._anchor is None:
+            return now
+        if now < self._anchor.high_water:
+            return self._anchor.high_water
+        self._anchor.high_water = now
+        self.hass.async_create_task(self._async_persist_anchor())
+        return now
+
     def _evaluate_trial(self, server_id: str) -> LicenseState:
         """Evaluate the 2-day demo window."""
-        started = _parse_expiry(self._data.get("trial_started"))
-        if started is None:
-            # Unparseable/absent start - treat as starting now rather than
-            # locking someone out over a corrupt timestamp.
-            started = datetime.now(timezone.utc)
+        if self._anchor is None:
+            # Manager not loaded - fail closed rather than granting a window.
+            return LicenseState(
+                status=STATUS_TRIAL_EXPIRED, server_id=server_id, trial_days_left=0
+            )
 
-        ends = started + timedelta(days=TRIAL_DAYS)
-        remaining = ends - datetime.now(timezone.utc)
+        ends = self._anchor.started + timedelta(days=TRIAL_DAYS)
+        remaining = ends - self._effective_now()
 
         if remaining.total_seconds() <= 0:
             return LicenseState(
@@ -294,6 +655,9 @@ class ARHDLLicenseManager:
         Returns (state, error_reason). Nothing is stored if the key does not
         verify - a bad paste must never overwrite a working licence.
         """
+        if self._tampered:
+            return self.state, "tampered"
+
         payload, reason = verify_license_key(key, self.server_id)
         if payload is None:
             return self.state, reason
@@ -326,11 +690,20 @@ async def async_get_manager(hass: HomeAssistant) -> ARHDLLicenseManager:
 def is_active(hass: HomeAssistant) -> bool:
     """Cheap synchronous check used by entity availability.
 
-    Reads the last evaluated state; the hourly re-check in __init__.py is
-    what moves it when the demo window runs out.
+    Fails *closed*: callers run only after `async_get_manager` has been
+    awaited in `async_setup_entry`, so a missing manager means something
+    has gone wrong rather than "startup is still in progress".
     """
     manager: ARHDLLicenseManager | None = hass.data.get(DATA_LICENSE)
     if manager is None:
-        # Manager not loaded yet - don't blank out entities mid-startup.
-        return True
+        return False
     return manager.state.active
+
+
+@callback
+def get_unlock(hass: HomeAssistant) -> UnlockToken | None:
+    """Return the current unlock token, or None when operation is barred."""
+    manager: ARHDLLicenseManager | None = hass.data.get(DATA_LICENSE)
+    if manager is None:
+        return None
+    return manager.unlock

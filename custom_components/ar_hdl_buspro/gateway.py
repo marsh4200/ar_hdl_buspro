@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import SIGNAL_GATEWAY_AVAILABILITY
+from .licensing import DATA_LICENSE, get_unlock
 from .pybuspro.buspro import Buspro
 
 if TYPE_CHECKING:
@@ -56,6 +57,13 @@ class ARHDLGateway:
         send_addr = (host, port)
         receive_addr = (local_ip, port)
         self.hdl = Buspro((send_addr, receive_addr), hass.loop)
+        # Install the licence gate on the outbound path. Evaluated per
+        # telegram rather than captured once, so the bus goes quiet the
+        # moment a demo window closes and comes back the moment a key is
+        # entered - without a restart.
+        self.hdl.unlock_provider = lambda: get_unlock(hass)
+        manager = hass.data.get(DATA_LICENSE)
+        self.hdl.license_server_id = manager.server_id if manager else ""
         # When the UDP transport dies unexpectedly (interface change, docker
         # network flap, etc.) mark unavailable and start reconnecting.
         self.hdl.on_connection_lost = self._handle_connection_lost

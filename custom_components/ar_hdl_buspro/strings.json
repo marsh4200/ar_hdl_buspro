@@ -34,7 +34,9 @@
       "wrong_product": "That key was issued for a different product.",
       "wrong_server": "That key was issued for a different Server ID. Request one for the Server ID shown above at activatelicense.arsmarthome.co.za.",
       "expired": "That licence key has expired.",
-      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za."
+      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za.",
+      "tampered": "This installation of AR HDL BUSPRO has been modified and is locked. Reinstall it from HACS to restore it.",
+      "unsupported_platform": "This release has no licensing build for your Python version and processor architecture. Contact activatelicense.arsmarthome.co.za with the platform shown in the logs."
     },
     "abort": {
       "already_configured": "This gateway is already configured."
@@ -198,7 +200,9 @@
       "wrong_product": "That key was issued for a different product.",
       "wrong_server": "That key was issued for a different Server ID. Request one for the Server ID shown above at activatelicense.arsmarthome.co.za.",
       "expired": "That licence key has expired.",
-      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za."
+      "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za.",
+      "tampered": "This installation of AR HDL BUSPRO has been modified and is locked. Reinstall it from HACS to restore it.",
+      "unsupported_platform": "This release has no licensing build for your Python version and processor architecture. Contact activatelicense.arsmarthome.co.za with the platform shown in the logs."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",

@@ -72,6 +72,17 @@ class Buspro:
         # foreign subnet is not something they can route back to.
         self.advertised_ip: str | None = None
 
+        # Licence gating for outbound traffic. `unlock_provider` is a
+        # zero-argument callable returning the current unlock token (or None
+        # when the install is not entitled to drive the bus), and
+        # `license_server_id` is the Server ID that token must have been
+        # minted for. Both are installed by the integration's gateway
+        # wrapper; while they are unset, NetworkInterface.send_telegram
+        # discards everything, so a client constructed outside the
+        # integration's setup path is inert by default rather than open.
+        self.unlock_provider = None
+        self.license_server_id = ""
+
         self.gateway_address_send_receive = gateway_address_send_receive
 
     async def start(self, state_updater: bool = False) -> None:
