@@ -122,7 +122,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # still set up -- entities appear but report unavailable -- so the owner
     # can see exactly what they have and enter a key from the options flow
     # without rebuilding their whole configuration.
-    await async_get_manager(hass)
+    manager = await async_get_manager(hass)
+    # Mirror the trial anchor into this entry's data now that it exists, so
+    # the window cannot be restarted by clearing .storage alone.
+    await manager.async_sync_anchor(entry)
     _async_apply_license_state(hass)
 
     host = entry.data[CONF_GATEWAY_HOST]

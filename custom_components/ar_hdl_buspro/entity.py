@@ -160,9 +160,13 @@ class ARHDLBaseEntity(Entity):
         self._gateway = gateway
         self._device_cfg = device_cfg
         self._gateway_available = gateway.available
-        # Set from the licence manager on add; the hourly re-check in
-        # __init__.py moves it if the demo window runs out while running.
-        self._license_active = True
+        # Set from the licence manager in async_added_to_hass; the hourly
+        # re-check in __init__.py moves it if the demo window runs out while
+        # running. Starts False so an entity that is somehow added before the
+        # manager is loaded reports unavailable rather than operable - the
+        # manager is awaited at the top of async_setup_entry, well before
+        # platforms are forwarded, so this is a guard, not a normal path.
+        self._license_active = False
 
     async def async_added_to_hass(self) -> None:
         """Wire up availability dispatcher."""
