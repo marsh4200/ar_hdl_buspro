@@ -130,6 +130,35 @@ STATUS_LICENSE_EXPIRED = "license_expired"
 STATUS_INVALID = "invalid"
 STATUS_UNCONFIGURED = "unconfigured"
 STATUS_TAMPERED = "tampered"
+# Server ID reached the licence server but is not approved yet.
+STATUS_PENDING = "pending_approval"
+
+# ---------------------------------------------------------------------------
+# Online activation
+# ---------------------------------------------------------------------------
+# The licence server mints SHORT-LIVED keys and the install renews them in
+# the background. That single decision provides both halves of what the
+# offline-only scheme could not do:
+#
+#   * revocation - stop renewing a Server ID and its key simply expires, and
+#   * an offline grace period - a site that loses internet keeps running
+#     until the key it already holds runs out.
+#
+# So the grace window IS the key lifetime; there is no separate "last seen"
+# clock to be tampered with, and no second verification path. A renewal
+# response is just another Ed25519-signed key checked the same way as one
+# pasted in by hand, which is why pointing the install at a hostile URL
+# gains nothing.
+ACTIVATE_PATH = "/api/activation/activate"
+
+# How often to try a renewal. Deliberately far shorter than the key
+# lifetime: a site with flaky internet gets many chances to catch up before
+# anything expires.
+RENEW_INTERVAL = timedelta(hours=12)
+
+# Give up on a single HTTP attempt quickly - this runs in the background and
+# must never hold up setup.
+ACTIVATION_TIMEOUT = 15
 
 # Statuses under which entities are allowed to work.
 _ACTIVE_STATUSES = frozenset({STATUS_LICENSED, STATUS_TRIAL})
@@ -228,12 +257,54 @@ def _parse_dt(raw: str | None) -> datetime | None:
     return parsed
 
 
-def verify_license_key(key: str, server_id: str) -> tuple[dict | None, str | None]:
+_VERSION_CACHE: str | None = None
+
+
+def _integration_version() -> str:
+    """Return this integration's version from manifest.json.
+
+    Sent with every activation call so the licence server can see what each
+    site is running - useful for support, and for spotting an install that
+    stopped updating.
+    """
+    global _VERSION_CACHE  # noqa: PLW0603
+    if _VERSION_CACHE is None:
+        try:
+            import os
+
+            manifest = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "manifest.json"
+            )
+            with open(manifest, encoding="utf-8") as handle:
+                _VERSION_CACHE = str(json.load(handle).get("version", "unknown"))
+        except Exception:  # noqa: BLE001
+            _VERSION_CACHE = "unknown"
+    return _VERSION_CACHE
+
+
+def _client_timeout(seconds: int):
+    """Return an aiohttp timeout, or None if aiohttp is unavailable."""
+    try:
+        import aiohttp
+
+        return aiohttp.ClientTimeout(total=seconds)
+    except ImportError:  # pragma: no cover - aiohttp ships with HA
+        return None
+
+
+def verify_license_key(
+    key: str, server_id: str, now: datetime | None = None
+) -> tuple[dict | None, str | None]:
     """Verify a licence key against this install.
 
     Returns (payload, None) when the key is genuine, unexpired and issued
     for this product and Server ID, or (None, reason) otherwise. `reason`
     is a translation key from strings.json, not a user-facing sentence.
+
+    `now` lets the caller pass the clock-floored time (see
+    `ARHDLLicenseManager._effective_now`). With short-lived renewable keys
+    that matters: without it, winding the host clock backwards would extend
+    a key that has already run out.
     """
     if not _PUBLIC_KEY_HEX:
         _LOGGER.error(
@@ -282,7 +353,7 @@ def verify_license_key(key: str, server_id: str) -> tuple[dict | None, str | Non
         return None, "wrong_server"
 
     expires = _parse_dt(payload.get("expires_at"))
-    if expires is not None and datetime.now(timezone.utc) >= expires:
+    if expires is not None and (now or datetime.now(timezone.utc)) >= expires:
         return None, "expired"
 
     return payload, None
@@ -584,7 +655,9 @@ class ARHDLLicenseManager:
         stored_key = self._data.get("license_key")
 
         if stored_key:
-            payload, reason = verify_license_key(stored_key, server_id)
+            payload, reason = verify_license_key(
+                stored_key, server_id, now=self._effective_now()
+            )
             if payload is not None:
                 state = LicenseState(
                     status=STATUS_LICENSED,
@@ -658,7 +731,9 @@ class ARHDLLicenseManager:
         if self._tampered:
             return self.state, "tampered"
 
-        payload, reason = verify_license_key(key, self.server_id)
+        payload, reason = verify_license_key(
+            key, self.server_id, now=self._effective_now()
+        )
         if payload is None:
             return self.state, reason
 
@@ -671,6 +746,143 @@ class ARHDLLicenseManager:
         self._data.pop("license_key", None)
         await self._store.async_save(self._data)
         return self.evaluate()
+
+    # ----- online activation ----------------------------------------------
+    @property
+    def activation_url(self) -> str:
+        """Return the configured licence server base URL."""
+        return str(self._data.get("activation_url") or "").strip()
+
+    async def async_set_activation_url(self, url: str) -> None:
+        """Persist the licence server base URL (blank clears it)."""
+        url = (url or "").strip().rstrip("/")
+        if url:
+            self._data["activation_url"] = url
+        else:
+            self._data.pop("activation_url", None)
+        await self._store.async_save(self._data)
+
+    @property
+    def last_contact(self) -> str | None:
+        """Return when the licence server was last reached, if ever."""
+        return self._data.get("last_contact")
+
+    async def async_activate(
+        self, url: str | None = None
+    ) -> tuple[LicenseState, str | None]:
+        """Ask the licence server for a key for this Server ID.
+
+        Used both for the installer pressing "activate" and for the
+        background renewal - they are the same request, because a renewal
+        is just another issue for the same Server ID.
+
+        Returns (state, reason). `reason` is None on success, otherwise a
+        translation key: `pending_approval` when the Server ID has reached
+        the server but is not approved, `activation_refused` when the
+        server declined it outright, `cannot_reach_server` on any network
+        or protocol failure.
+        """
+        if self._tampered:
+            return self.state, "tampered"
+
+        base = (url or self.activation_url or "").strip().rstrip("/")
+        if not base:
+            return self.state, "no_activation_url"
+
+        try:
+            from homeassistant.helpers.aiohttp_client import (
+                async_get_clientsession,
+            )
+
+            session = async_get_clientsession(self.hass)
+            async with session.post(
+                base + ACTIVATE_PATH,
+                json={
+                    "server_id": self.server_id,
+                    "product": PRODUCT,
+                    "version": _integration_version(),
+                },
+                timeout=_client_timeout(ACTIVATION_TIMEOUT),
+            ) as response:
+                if response.status == 404:
+                    # Reached *something*, but not an activation endpoint.
+                    _LOGGER.warning(
+                        "No AR Smart Home activation endpoint at %s - check "
+                        "the licence server URL",
+                        base,
+                    )
+                    return self.state, "cannot_reach_server"
+                if response.status == 429:
+                    # Checked very recently. This is emphatically NOT a
+                    # refusal - an installer who presses the button twice
+                    # must not be told their licence was declined.
+                    return self.state, "checked_recently"
+                if response.status >= 500:
+                    _LOGGER.warning(
+                        "Licence server error %s from %s", response.status, base
+                    )
+                    return self.state, "cannot_reach_server"
+                body = await response.json(content_type=None)
+        except Exception as err:  # noqa: BLE001 - offline is the normal case
+            _LOGGER.debug("Licence activation call to %s failed: %s", base, err)
+            return self.state, "cannot_reach_server"
+
+        if not isinstance(body, dict):
+            return self.state, "cannot_reach_server"
+
+        # The server was reached; record that even when it says "not yet",
+        # so the status screen can show when contact last happened.
+        self._data["last_contact"] = datetime.now(timezone.utc).isoformat()
+
+        status = str(body.get("status", "")).lower()
+
+        if status == "issued":
+            key = str(body.get("license_key") or "")
+            payload, reason = verify_license_key(
+                key, self.server_id, now=self._effective_now()
+            )
+            if payload is None:
+                # Signed by the wrong key, for the wrong install, or already
+                # expired. Keep whatever is already stored.
+                _LOGGER.warning(
+                    "The licence server returned a key this install cannot "
+                    "use (%s)", reason
+                )
+                await self._store.async_save(self._data)
+                return self.state, reason or "invalid_key"
+
+            self._data["license_key"] = key.strip()
+            if base != self.activation_url:
+                self._data["activation_url"] = base
+            await self._store.async_save(self._data)
+            return self.evaluate(), None
+
+        await self._store.async_save(self._data)
+
+        if status == "pending":
+            state = LicenseState(
+                status=STATUS_PENDING,
+                server_id=self.server_id,
+                reason="pending_approval",
+            )
+            # Do not overwrite a working licence with "pending" - a renewal
+            # for an install awaiting a *renewal* approval keeps running on
+            # the key it already holds until that key expires.
+            if not self.state.active:
+                self._state = state
+            return self.state, "pending_approval"
+
+        return self.state, "activation_refused"
+
+    async def async_renew_if_due(self) -> None:
+        """Background renewal. Never raises, never blocks setup."""
+        if self._tampered or not self.activation_url:
+            return
+        # Nothing to renew for an install that has never activated; the
+        # installer has to make the first call deliberately.
+        if not self._data.get("license_key"):
+            return
+        await self.async_activate()
 
 
 # ---------------------------------------------------------------------------

@@ -54,6 +54,7 @@ from .const import (
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
     CONF_LICENSE_KEY,
+    CONF_LICENSE_URL,
     LICENSE_PORTAL_HOST,
     LICENSE_PORTAL_URL,
     CONF_LOCAL_IP,
@@ -119,6 +120,7 @@ from .const import (
 )
 from .licensing import (
     STATUS_LICENSED,
+    STATUS_PENDING,
     STATUS_TRIAL,
     TRIAL_DAYS,
     async_get_manager,
@@ -710,26 +712,49 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
-            if not key:
-                self._license_seen = True
-                return await self.async_step_user()
+            url = (user_input.get(CONF_LICENSE_URL) or "").strip()
 
-            _state, reason = await manager.async_set_key(key)
-            if reason is None:
+            # A pasted key always wins - it is the offline path, and an
+            # installer who went to the trouble of fetching one by hand
+            # should not have it overridden by a server round trip.
+            if key:
+                _state, reason = await manager.async_set_key(key)
+                if reason is None:
+                    if url:
+                        await manager.async_set_activation_url(url)
+                    self._license_seen = True
+                    return await self.async_step_user()
+                errors["base"] = reason
+            elif url:
+                await manager.async_set_activation_url(url)
+                _state, reason = await manager.async_activate(url)
+                if reason is None:
+                    self._license_seen = True
+                    return await self.async_step_user()
+                errors["base"] = reason
+            else:
+                # Neither supplied: carry on into the demo window.
                 self._license_seen = True
                 return await self.async_step_user()
-            errors["base"] = reason
 
         state = manager.state
         return self.async_show_form(
             step_id="license",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_LICENSE_URL,
+                        default=manager.activation_url or LICENSE_PORTAL_URL,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.URL
+                        )
+                    ),
                     vol.Optional(CONF_LICENSE_KEY, default=""): selector.TextSelector(
                         selector.TextSelectorConfig(
                             multiline=True, type=selector.TextSelectorType.TEXT
                         )
-                    )
+                    ),
                 }
             ),
             errors=errors,
@@ -918,17 +943,31 @@ class ARHDLOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
-            if not key:
-                return await self.async_step_init()
+            url = (user_input.get(CONF_LICENSE_URL) or "").strip()
 
-            _state, reason = await manager.async_set_key(key)
-            if reason is None:
-                # Saving options reloads the entry, which re-evaluates the
-                # licence and clears the repair issue.
-                return self.async_create_entry(
-                    title="", data=dict(self._entry.options)
-                )
-            errors["base"] = reason
+            if url != manager.activation_url:
+                await manager.async_set_activation_url(url)
+
+            if key:
+                _state, reason = await manager.async_set_key(key)
+                if reason is None:
+                    # Saving options reloads the entry, which re-evaluates
+                    # the licence and clears the repair issue.
+                    return self.async_create_entry(
+                        title="", data=dict(self._entry.options)
+                    )
+                errors["base"] = reason
+            elif url:
+                # No key typed but a URL present: treat Submit as
+                # "activate / renew now".
+                _state, reason = await manager.async_activate(url)
+                if reason is None:
+                    return self.async_create_entry(
+                        title="", data=dict(self._entry.options)
+                    )
+                errors["base"] = reason
+            else:
+                return await self.async_step_init()
 
         state = manager.state
         if state.status == STATUS_LICENSED:
@@ -937,18 +976,31 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
         elif state.status == STATUS_TRIAL:
             status_text = f"Demo - {state.trial_days_left} day(s) left"
+        elif state.status == STATUS_PENDING:
+            status_text = "Awaiting approval on the licence server"
         else:
             status_text = "Not licensed - entities are unavailable"
+
+        if manager.last_contact:
+            status_text += f" (last checked {manager.last_contact[:16].replace('T', ' ')})"
 
         return self.async_show_form(
             step_id="license",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_LICENSE_URL,
+                        default=manager.activation_url or LICENSE_PORTAL_URL,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.URL
+                        )
+                    ),
                     vol.Optional(CONF_LICENSE_KEY, default=""): selector.TextSelector(
                         selector.TextSelectorConfig(
                             multiline=True, type=selector.TextSelectorType.TEXT
                         )
-                    )
+                    ),
                 }
             ),
             errors=errors,
