@@ -21,7 +21,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .const import (
     ATTR_ADDRESS,
@@ -44,6 +44,7 @@ from .const import (
 from .gateway import ARHDLGateway
 from .licensing import (
     DATA_LICENSE,
+    RENEW_INTERVAL,
     SIGNAL_LICENSE_CHANGED,
     STATUS_LICENSED,
     STATUS_TRIAL,
@@ -181,6 +182,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_track_time_interval(
             hass, _recheck_license, LICENSE_RECHECK_INTERVAL
         )
+    )
+
+    # Background renewal against the licence server, when one is configured.
+    # Keys issued for online installs are short-lived and rolled forward
+    # here; a site that cannot reach the server keeps running on the key it
+    # already holds until that key expires, which is what makes the grace
+    # period work without a separate clock to tamper with.
+    async def _renew_license(_now) -> None:
+        await manager.async_renew_if_due()
+        _async_apply_license_state(hass)
+
+    entry.async_on_unload(
+        async_track_time_interval(hass, _renew_license, RENEW_INTERVAL)
+    )
+
+    # One attempt shortly after startup, so a site that was offline when it
+    # last tried catches up without waiting for the first interval.
+    async def _renew_soon(_event) -> None:
+        await manager.async_renew_if_due()
+        _async_apply_license_state(hass)
+
+    entry.async_on_unload(
+        async_call_later(hass, timedelta(minutes=2), _renew_soon)
     )
 
     return True

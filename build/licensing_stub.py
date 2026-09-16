@@ -23,6 +23,7 @@ import logging
 import platform
 import sys
 from dataclasses import dataclass
+from datetime import timedelta
 
 from homeassistant.core import HomeAssistant, callback
 
@@ -43,6 +44,12 @@ STATUS_INVALID = "invalid"
 STATUS_UNCONFIGURED = "unconfigured"
 STATUS_TAMPERED = "tampered"
 STATUS_UNSUPPORTED = "unsupported_platform"
+STATUS_PENDING = "pending_approval"
+
+# Mirrored from the real module so importers keep working on this platform.
+ACTIVATE_PATH = "/api/activation/activate"
+RENEW_INTERVAL = timedelta(hours=12)
+ACTIVATION_TIMEOUT = 15
 
 
 def _platform_tag() -> str:
@@ -111,6 +118,26 @@ class ARHDLLicenseManager:
         return self.state
 
     async def async_sync_anchor(self, entry=None) -> None:
+        """No-op."""
+
+    @property
+    def activation_url(self) -> str:
+        """No activation is possible on an unsupported platform."""
+        return ""
+
+    async def async_set_activation_url(self, url: str) -> None:
+        """No-op."""
+
+    @property
+    def last_contact(self) -> str | None:
+        """Never contacted."""
+        return None
+
+    async def async_activate(self, url: str | None = None):
+        """Refuse to activate."""
+        return self.state, "unsupported_platform"
+
+    async def async_renew_if_due(self) -> None:
         """No-op."""
 
     @property

@@ -40,6 +40,25 @@ CONF_LICENSE_KEY: Final = "license_key"
 LICENSE_PORTAL_HOST: Final = "activatelicense.arsmarthome.co.za"
 LICENSE_PORTAL_URL: Final = f"https://{LICENSE_PORTAL_HOST}"
 
+# The licence SERVER - a different host to the portal above, and the only
+# one that can issue. The portal only collects requests; it holds no signing
+# key and has no activation endpoint, so pointing automatic activation at it
+# just gets a 404/405. Keep these two apart:
+#
+#   LICENSE_PORTAL_*  -> where a person goes to ASK for a key (a web form)
+#   LICENSE_SERVER_*  -> where an install goes to FETCH its key (an API)
+LICENSE_SERVER_HOST: Final = "license.arsmarthome.co.za"
+LICENSE_SERVER_URL: Final = f"https://{LICENSE_SERVER_HOST}"
+
+# Licence server base URL used for automatic activation and renewal. Left
+# blank it falls back to LICENSE_PORTAL_URL; an installer can point it at
+# another host (a staging server, or a site-local mirror) from the licence
+# step. A wrong or hostile URL cannot grant anything: whatever it returns
+# still has to carry a signature from the private key that only the real
+# licence server holds, checked offline against the public key baked into
+# licensing.py.
+CONF_LICENSE_URL: Final = "license_url"
+
 # Devices stored inside the entry's options
 CONF_DEVICES: Final = "devices"
 CONF_DEVICE_TYPE: Final = "device_type"
