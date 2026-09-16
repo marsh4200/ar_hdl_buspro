@@ -804,22 +804,32 @@ class ARHDLLicenseManager:
                 },
                 timeout=_client_timeout(ACTIVATION_TIMEOUT),
             ) as response:
-                if response.status == 404:
-                    # Reached *something*, but not an activation endpoint.
-                    _LOGGER.warning(
-                        "No AR Smart Home activation endpoint at %s - check "
-                        "the licence server URL",
+                if response.status in (404, 405, 501):
+                    # Reached a server, but not one with an activation
+                    # endpoint - almost always the URL pointing at the
+                    # licence *portal* (which only collects requests) rather
+                    # than the licence server, or the server not having the
+                    # activation endpoint deployed yet.
+                    _LOGGER.error(
+                        "No AR Smart Home activation endpoint at %s%s (HTTP "
+                        "%s). That address answered, but it does not offer "
+                        "activation - check it points at the licence server, "
+                        "not the request portal",
                         base,
+                        ACTIVATE_PATH,
+                        response.status,
                     )
-                    return self.state, "cannot_reach_server"
+                    return self.state, "no_activation_endpoint"
                 if response.status == 429:
                     # Checked very recently. This is emphatically NOT a
                     # refusal - an installer who presses the button twice
                     # must not be told their licence was declined.
                     return self.state, "checked_recently"
-                if response.status >= 500:
+                if response.status != 200:
                     _LOGGER.warning(
-                        "Licence server error %s from %s", response.status, base
+                        "Licence server at %s answered HTTP %s",
+                        base,
+                        response.status,
                     )
                     return self.state, "cannot_reach_server"
                 body = await response.json(content_type=None)
@@ -872,7 +882,25 @@ class ARHDLLicenseManager:
                 self._state = state
             return self.state, "pending_approval"
 
-        return self.state, "activation_refused"
+        if status == "denied":
+            # The ONLY case that is a genuine refusal. Everything else that
+            # can go wrong on the way - wrong URL, portal instead of licence
+            # server, endpoint not deployed, proxy in the way - must not be
+            # reported to an installer as "your licence was declined", which
+            # sends them chasing a licensing problem that does not exist.
+            reason = str(body.get("reason") or "")
+            _LOGGER.warning(
+                "Licence server declined this install (%s)", reason or "no reason given"
+            )
+            return self.state, "activation_refused"
+
+        _LOGGER.error(
+            "Unexpected reply from the licence server at %s: %r. Expected a "
+            "status of issued, pending or denied",
+            base,
+            body,
+        )
+        return self.state, "cannot_reach_server"
 
     async def async_renew_if_due(self) -> None:
         """Background renewal. Never raises, never blocks setup."""

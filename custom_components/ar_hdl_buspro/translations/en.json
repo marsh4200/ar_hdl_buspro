@@ -38,11 +38,12 @@
       "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za.",
       "tampered": "This installation of AR HDL BUSPRO has been modified and is locked. Reinstall it from HACS to restore it.",
       "unsupported_platform": "This release has no licensing build for your Python version and processor architecture. Contact activatelicense.arsmarthome.co.za with the platform shown in the logs.",
-      "cannot_reach_server": "Could not reach the licence server. Check the address and this machine's internet access, or install a key by hand.",
+      "cannot_reach_server": "Could not reach the licence server. Check the address and this machine's internet access, or paste a licence key below instead.",
       "pending_approval": "This Server ID has been sent for approval. You'll be activated automatically once it's approved - or check back here.",
-      "activation_refused": "The licence server declined this Server ID. Contact activatelicense.arsmarthome.co.za.",
+      "activation_refused": "The licence server has this Server ID on record but will not issue for it - it may have been revoked or expired. Contact activatelicense.arsmarthome.co.za.",
       "no_activation_url": "Enter the licence server address, or paste a licence key.",
-      "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again."
+      "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
+      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead."
     },
     "abort": {
       "already_configured": "This gateway is already configured."
@@ -212,11 +213,12 @@
       "no_public_key": "This build has no licence public key compiled in. Contact activatelicense.arsmarthome.co.za.",
       "tampered": "This installation of AR HDL BUSPRO has been modified and is locked. Reinstall it from HACS to restore it.",
       "unsupported_platform": "This release has no licensing build for your Python version and processor architecture. Contact activatelicense.arsmarthome.co.za with the platform shown in the logs.",
-      "cannot_reach_server": "Could not reach the licence server. Check the address and this machine's internet access, or install a key by hand.",
+      "cannot_reach_server": "Could not reach the licence server. Check the address and this machine's internet access, or paste a licence key below instead.",
       "pending_approval": "This Server ID has been sent for approval. You'll be activated automatically once it's approved - or check back here.",
-      "activation_refused": "The licence server declined this Server ID. Contact activatelicense.arsmarthome.co.za.",
+      "activation_refused": "The licence server has this Server ID on record but will not issue for it - it may have been revoked or expired. Contact activatelicense.arsmarthome.co.za.",
       "no_activation_url": "Enter the licence server address, or paste a licence key.",
-      "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again."
+      "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
+      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",
