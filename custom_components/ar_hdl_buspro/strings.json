@@ -3,7 +3,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. If your Server ID has already been registered, your key is issued and installed straight away, and renews itself in the background.\n\n**No internet at this site, or not registered yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nLeave both untouched to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is installed from this integration's Configure menu.",
+        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. If a licence has already been issued for this Server ID, the key is installed straight away and keeps itself up to date.\n\n**No internet at this site, or no licence issued yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nLeave both untouched to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is installed from this integration's Configure menu.",
         "data": {
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"
@@ -53,7 +53,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\n**Status:** {status}\n\nSubmit with the licence server address filled in and the key box empty to activate or renew now. To install a key by hand, paste it below - that always takes precedence. Keys from [{portal_host}]({portal_url}).",
+        "description": "**Server ID:** `{server_id}`\n\n**Status:** {status}\n\nSubmit with the licence server address filled in and the key box empty to activate or check now. To install a key by hand, paste it below - that always takes precedence. Request a key at [{portal_host}]({portal_url}).",
         "data": {
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"

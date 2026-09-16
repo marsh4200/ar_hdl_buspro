@@ -57,6 +57,7 @@ from .const import (
     CONF_LICENSE_URL,
     LICENSE_PORTAL_HOST,
     LICENSE_PORTAL_URL,
+    LICENSE_SERVER_URL,
     CONF_LOCAL_IP,
     CONF_MOTION_BYTE_INDEX,
     CONF_MOTION_UV_SWITCH,
@@ -744,7 +745,7 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Optional(
                         CONF_LICENSE_URL,
-                        default=manager.activation_url or LICENSE_PORTAL_URL,
+                        default=manager.activation_url or LICENSE_SERVER_URL,
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.URL
@@ -764,6 +765,7 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 "trial_days": str(TRIAL_DAYS),
                 "portal_url": LICENSE_PORTAL_URL,
                 "portal_host": LICENSE_PORTAL_HOST,
+                "server_url": LICENSE_SERVER_URL,
             },
         )
 
@@ -990,7 +992,7 @@ class ARHDLOptionsFlow(OptionsFlow):
                 {
                     vol.Optional(
                         CONF_LICENSE_URL,
-                        default=manager.activation_url or LICENSE_PORTAL_URL,
+                        default=manager.activation_url or LICENSE_SERVER_URL,
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.URL
@@ -1009,6 +1011,7 @@ class ARHDLOptionsFlow(OptionsFlow):
                 "status": status_text,
                 "portal_url": LICENSE_PORTAL_URL,
                 "portal_host": LICENSE_PORTAL_HOST,
+                "server_url": LICENSE_SERVER_URL,
             },
         )
 
