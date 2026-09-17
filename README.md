@@ -6,7 +6,7 @@
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=marsh4200&repository=ar_hdl_buspro&category=integration)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub release](https://img.shields.io/github/v/release/marsh4200/ar_hdl_buspro)](https://github.com/marsh4200/ar_hdl_buspro/releases)
-[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
+
 
 Control an entire **HDL Buspro** installation from Home Assistant — lights, relays, curtains, floor heating, sensors and dry contacts — configured **entirely from the UI**. No YAML, no manual address hunting: point it at your gateway, press **Scan bus**, tick the devices you want, done.
 
@@ -411,6 +411,8 @@ If you find **AR HDL BUSPRO** useful:
 
 <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
 
+
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 ## Licensing
 
 AR HDL BUSPRO is proprietary, licensed software — see [LICENSE](LICENSE). It
