@@ -1511,6 +1511,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             "0x0134": DEVICE_HW_12IN1,        # SB_CMS_12in1
             "0x0135": DEVICE_HW_8IN1,         # SB_CMS_8in1 (same +20 temp bias)
             "0x0150": DEVICE_HW_SENSORS_IN_ONE,  # HDL_MSP07M
+            "0x0148": DEVICE_HW_SENSORS_IN_ONE,  # HDL-MSP07M.4C (confirmed on real hardware)
             # 0x0138 answers the sensors-in-one protocol (it is the family
             # that pushes the 0x1630 broadcast), so it polls 0x1604 rather
             # than the 8-in-1's 0x1645. Changeable per entity in the UI if a

@@ -375,7 +375,7 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
-    "0x0148": DEVICE_TYPE_SENSOR,             # sensor
+    "0x0148": DEVICE_TYPE_SENSOR,             # HDL-MSP07M.4C sensors-in-one
     "0x0187": DEVICE_TYPE_SENSOR,             # sensor
 }
 
@@ -386,6 +386,7 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
 # motion set, which is the safe subset -- every CMS sensor has those.
 SENSOR_HAS_HUMIDITY: Final = {
     "0x0150": True,    # HDL_MSP07M sensors-in-one
+    "0x0148": True,    # HDL-MSP07M.4C sensors-in-one
     "0x0138": False,   # temp / lux / motion only, confirmed on real hardware
     "0x0134": False,   # SB_CMS_12in1
     "0x0135": False,   # SB_CMS_8in1
@@ -421,7 +422,7 @@ HDL_TYPE_NAMES: Final = {
     "0x158A": "Relay module",
     "0x027E": "Dimmer module",
     "0x0138": "Sensor module (temperature, illuminance, motion)",
-    "0x0148": "Sensor module",
+    "0x0148": "Sensors-in-one (HDL-MSP07M.4C)",
     "0x0187": "Sensor module",
 }
 
