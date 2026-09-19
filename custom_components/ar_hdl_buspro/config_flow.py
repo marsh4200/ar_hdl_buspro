@@ -87,6 +87,7 @@ from .const import (
     DEFAULT_MOTION_BYTE_INDEX,
     DEFAULT_MOTION_UV_SWITCH,
     DEFAULT_SCAN_DURATION,
+    DEFAULT_MOTION_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TEMP_CHANNEL,
     DEFAULT_TEMP_OFFSET,
@@ -95,6 +96,7 @@ from .const import (
     DEVICE_HW_8IN1,
     DEVICE_HW_KINDS,
     DEVICE_HW_PANEL,
+    DEVICE_HW_PIR,
     DEVICE_HW_SENSORS_IN_ONE,
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
@@ -106,6 +108,7 @@ from .const import (
     DEVICE_TYPES,
     DOMAIN,
     HDL_DIMMER_TYPE_CODES,
+    HDL_DRY_CONTACT_ZONES,
     HDL_KEYPAD_TYPE_CODES,
     HDL_TYPE_NAMES,
     HDL_TYPE_TO_DEVICE_TYPE,
@@ -611,6 +614,50 @@ CHOICE_RESCAN = "rescan"
 CONF_GATEWAY_CHOICE = "gateway_choice"
 GATEWAY_DISCOVERY_TIMEOUT = 3.0
 
+
+
+def _disc_name(disc) -> str:
+    """Entity name for a discovered device: its HDL remark, else its address.
+
+    The remark is the name the installer typed into the HDL setup tool
+    (read with 0x000E during the scan), so imported entities come out as
+    "Lounge 7in1 Temperature" instead of "HDL 1.83 Temperature".
+    """
+    remark = getattr(disc, "remark", None)
+    return remark if remark else f"HDL {disc.address}"
+
+
+def _hw_kind_from_replies(disc) -> str:
+    """Pick a sensor profile from the protocols the device answered.
+
+    Used when the type code isn't in the built-in table -- the device told
+    us during the scan which read it answers, and that IS the profile.
+    """
+    ops = getattr(disc, "op_codes", set()) or set()
+    if "ReadSensorsInOneStatusResponse" in ops or "BroadcastSensorsInOneStatusResponse" in ops:
+        return DEVICE_HW_SENSORS_IN_ONE
+    if "ReadSensorStatusResponse" in ops:
+        return DEVICE_HW_GENERIC
+    if "ReadMotionSensorStatusResponse" in ops:
+        return DEVICE_HW_PIR
+    if "ReadTemperatureResponse" in ops:
+        return DEVICE_HW_PANEL
+    return DEVICE_HW_GENERIC
+
+
+def _has_humidity(disc) -> bool:
+    """Whether to create a humidity entity for a discovered multisensor.
+
+    The sensors-in-one reply carries humidity at payload[4], with 0xFF
+    meaning "no humidity element fitted". When the scan captured that reply
+    it is the answer; otherwise fall back to the per-code table.
+    """
+    payload = (getattr(disc, "payloads", {}) or {}).get(
+        "ReadSensorsInOneStatusResponse"
+    )
+    if payload and len(payload) > 4:
+        return payload[4] != 0xFF
+    return bool(SENSOR_HAS_HUMIDITY.get(disc.type_code, False))
 
 class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for AR HDL BUSPRO."""
@@ -1293,10 +1340,16 @@ class ARHDLOptionsFlow(OptionsFlow):
         if (
             "ReadSensorStatusResponse" in ops
             or "ReadSensorsInOneStatusResponse" in ops
+            or "ReadMotionSensorStatusResponse" in ops
         ):
             return DEVICE_TYPE_SENSOR
         if "ReadFloorHeatingStatusResponse" in ops:
             return DEVICE_TYPE_CLIMATE
+        # A panel that answers the channel-addressed temperature read but
+        # not floor heating: import its onboard temperature (the reference
+        # integration's "panel" profile: temperature only).
+        if "ReadTemperatureResponse" in ops:
+            return DEVICE_TYPE_SENSOR
         if "ReadDryContactStatusResponse" in ops:
             return DEVICE_TYPE_BINARY_SENSOR
         # Curtain modules answer the curtain-status probe (0xE3E3) or echo
@@ -1330,6 +1383,8 @@ class ARHDLOptionsFlow(OptionsFlow):
     def _discovery_label(self, disc, role: str, already: bool) -> str:
         """Build the checklist label for a discovered device."""
         parts = [disc.address, role]
+        if getattr(disc, "remark", None):
+            parts.append(f'"{disc.remark}"')
         if disc.type_code and disc.type_code != "0x0000":
             parts.append(disc.type_code)
         if disc.channel_count:
@@ -1415,6 +1470,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # entities. Import the full bundle (temperature + lux +
                     # motion) so the user isn't left hand-adding the rest.
                     added += self._import_sensor_bundle(disc, devices)
+                    continue
+                if dtype == DEVICE_TYPE_BINARY_SENSOR and (
+                    disc.type_code in HDL_DRY_CONTACT_ZONES
+                    or getattr(disc, "dry_contact_zones", None)
+                ):
+                    # Dry-contact input module: one entity per zone.
+                    added += self._import_dry_contact_zones(disc, devices)
                     continue
                 channel_device = dtype in (
                     DEVICE_TYPE_LIGHT,
@@ -1504,7 +1566,7 @@ class ARHDLOptionsFlow(OptionsFlow):
         re-scan never duplicates. Returns how many were added.
         """
         subnet, device = disc.subnet_id, disc.device_id
-        name = f"HDL {disc.address}"
+        name = _disc_name(disc)
         # Hardware kind from the type code; this drives payload decoding
         # (e.g. the 12in1's -20 temperature offset on auto broadcasts).
         hw_kind = {
@@ -1518,7 +1580,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             # given unit turns out to answer something else.
             "0x0138": DEVICE_HW_SENSORS_IN_ONE,
             "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
-        }.get(disc.type_code, DEVICE_HW_GENERIC)
+        }.get(disc.type_code) or _hw_kind_from_replies(disc)
         # Poll every 60s so readings arrive even when the sensor doesn't
         # broadcast on its own; broadcasts still update instantly.
         scan = 60
@@ -1533,12 +1595,21 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
 
         added = 0
-        sensor_kinds = [SENSOR_KIND_TEMPERATURE, SENSOR_KIND_ILLUMINANCE]
+        if hw_kind == DEVICE_HW_PANEL:
+            # Wall panel: onboard temperature only -- no lux, no PIR (the
+            # reference integration's panel profile). Lux/motion entities
+            # created here would sit unavailable forever.
+            sensor_kinds = [SENSOR_KIND_TEMPERATURE]
+        elif hw_kind == DEVICE_HW_PIR:
+            # Motion-only module.
+            sensor_kinds = []
+        else:
+            sensor_kinds = [SENSOR_KIND_TEMPERATURE, SENSOR_KIND_ILLUMINANCE]
         # Humidity comes from the type code, NOT from the hw kind. 0x0138
         # speaks the same sensors-in-one protocol as the MSP07M but has no
         # humidity element, so keying off the protocol created a permanently
         # unavailable humidity entity for it.
-        if SENSOR_HAS_HUMIDITY.get(disc.type_code, False):
+        if hw_kind not in (DEVICE_HW_PANEL, DEVICE_HW_PIR) and _has_humidity(disc):
             # Humidity is only ever carried by ReadSensorsInOneStatusResponse
             # (see SENSOR_KIND_HUMIDITY in const.py) -- the 12in1 hw kind
             # relies on BroadcastSensorStatusAutoResponse instead, which
@@ -1561,7 +1632,7 @@ class ARHDLOptionsFlow(OptionsFlow):
                 }
             )
             added += 1
-        if not have(
+        if hw_kind != DEVICE_HW_PANEL and not have(
             DEVICE_TYPE_BINARY_SENSOR, CONF_BINARY_KIND, BINARY_KIND_MOTION
         ):
             devices.append(
@@ -1573,7 +1644,53 @@ class ARHDLOptionsFlow(OptionsFlow):
                     CONF_DEVICE_ID: device,
                     CONF_BINARY_KIND: BINARY_KIND_MOTION,
                     CONF_SUB_NUMBER: 0,
-                    CONF_SCAN_INTERVAL: scan,
+                    # Same protocol profile as the sibling sensor entities.
+                    # Without it the motion entity fell back to "generic"
+                    # and polled 0x1645, which a 7-in-1 (sensors-in-one)
+                    # never answers -- motion then only moved when a sibling
+                    # entity's 60 s poll happened to come back.
+                    CONF_DEVICE_HW_KIND: hw_kind,
+                    CONF_SCAN_INTERVAL: DEFAULT_MOTION_SCAN_INTERVAL,
+                }
+            )
+            added += 1
+        return added
+
+    @staticmethod
+    def _import_dry_contact_zones(
+        disc, devices: list[dict[str, Any]]
+    ) -> int:
+        """Append one dry_contact binary sensor per zone of a dry-contact module.
+
+        Zones already configured for this (subnet, device) are skipped so a
+        re-scan only fills gaps. Returns how many were added.
+        """
+        subnet, device = disc.subnet_id, disc.device_id
+        existing = {
+            int(d.get(CONF_SUB_NUMBER, 0))
+            for d in devices
+            if d.get(CONF_SUBNET_ID) == subnet
+            and d.get(CONF_DEVICE_ID) == device
+            and d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_BINARY_SENSOR
+            and d.get(CONF_BINARY_KIND) == BINARY_KIND_DRY_CONTACT
+        }
+        added = 0
+        zones = HDL_DRY_CONTACT_ZONES.get(disc.type_code) or int(
+            getattr(disc, "dry_contact_zones", None) or 1
+        )
+        for zone in range(1, zones + 1):
+            if zone in existing:
+                continue
+            devices.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    CONF_DEVICE_TYPE: DEVICE_TYPE_BINARY_SENSOR,
+                    CONF_NAME: f"{_disc_name(disc)} zone {zone}",
+                    CONF_SUBNET_ID: subnet,
+                    CONF_DEVICE_ID: device,
+                    CONF_BINARY_KIND: BINARY_KIND_DRY_CONTACT,
+                    CONF_SUB_NUMBER: zone,
+                    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
                 }
             )
             added += 1
@@ -1590,9 +1707,9 @@ class ARHDLOptionsFlow(OptionsFlow):
         channel is supplied, the name is suffixed so per-channel entries are
         distinguishable.
         """
-        name = f"HDL {disc.address}"
+        name = _disc_name(disc)
         if channel is not None:
-            name = f"HDL {disc.address} ch{channel}"
+            name = f"{name} ch{channel}"
         base: dict[str, Any] = {
             "id": uuid.uuid4().hex,
             CONF_DEVICE_TYPE: dtype,

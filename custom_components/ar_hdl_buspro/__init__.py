@@ -30,6 +30,19 @@ from .const import (
     ATTR_SCENE_ADDRESS,
     ATTR_STATUS,
     ATTR_SWITCH_NUMBER,
+    BINARY_KIND_MOTION,
+    CONF_BINARY_KIND,
+    CONF_DEVICE_HW_KIND,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_TYPE,
+    CONF_DEVICES,
+    CONF_SCAN_INTERVAL,
+    CONF_SUBNET_ID,
+    DEFAULT_MOTION_SCAN_INTERVAL,
+    DEVICE_HW_GENERIC,
+    DEVICE_TYPE_BINARY_SENSOR,
+    DEVICE_TYPE_SENSOR,
+    LEGACY_BUNDLE_SCAN_INTERVAL,
     CONF_GATEWAY_HOST,
     CONF_GATEWAY_PORT,
     CONF_LOCAL_IP,
@@ -128,6 +141,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # the window cannot be restarted by clearing .storage alone.
     await manager.async_sync_anchor(entry)
     _async_apply_license_state(hass)
+
+    _async_repair_motion_entities(hass, entry)
 
     host = entry.data[CONF_GATEWAY_HOST]
     port = entry.data[CONF_GATEWAY_PORT]
@@ -276,6 +291,61 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # been unloaded by async_unload_entry. This hook exists for future
     # cleanup needs (cached calibration data, etc.).
     _LOGGER.debug("AR HDL BUSPRO entry %s removed", entry.entry_id)
+
+
+@callback
+def _async_repair_motion_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Give motion entities the protocol profile of their physical sensor.
+
+    Bus-scan imports before 5.0.5 tagged a multisensor's temperature / lux /
+    humidity entities with the sensor's hw kind (sensors_in_one for the
+    7-in-1, 8in1 for the 8-in-1) but left the motion entity untagged, so it
+    ran as "generic" and polled the wrong operate code. The reference buspro
+    integration never has this split: one model -> one profile, shared by
+    every entity on that sensor. This copies the sibling's hw kind onto each
+    untagged motion entity and moves an untouched 60 s import default to the
+    motion poll interval. Idempotent; runs before the update listener is
+    attached, so it does not trigger a reload.
+    """
+    devices = entry.options.get(CONF_DEVICES)
+    if not devices:
+        return
+
+    profile_by_addr: dict[tuple, str] = {}
+    for d in devices:
+        if d.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_SENSOR:
+            continue
+        kind = d.get(CONF_DEVICE_HW_KIND)
+        if kind and kind != DEVICE_HW_GENERIC:
+            profile_by_addr.setdefault(
+                (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID)), kind
+            )
+
+    changed = 0
+    new_devices = []
+    for d in devices:
+        if (
+            d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_BINARY_SENSOR
+            and d.get(CONF_BINARY_KIND) == BINARY_KIND_MOTION
+            and d.get(CONF_DEVICE_HW_KIND, DEVICE_HW_GENERIC) == DEVICE_HW_GENERIC
+        ):
+            kind = profile_by_addr.get((d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID)))
+            if kind:
+                d = dict(d)
+                d[CONF_DEVICE_HW_KIND] = kind
+                if int(d.get(CONF_SCAN_INTERVAL, 0)) == LEGACY_BUNDLE_SCAN_INTERVAL:
+                    d[CONF_SCAN_INTERVAL] = DEFAULT_MOTION_SCAN_INTERVAL
+                changed += 1
+        new_devices.append(d)
+
+    if changed:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_DEVICES: new_devices}
+        )
+        _LOGGER.info(
+            "AR HDL BUSPRO: matched %d motion entit(y/ies) to their sensor's profile",
+            changed,
+        )
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

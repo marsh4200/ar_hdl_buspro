@@ -78,6 +78,34 @@ class Device:
             return
         await self._buspro.network_interface.send_telegram(telegram)
 
+    # Seconds to wait for a SingleChannelControlResponse before resending a
+    # channel command once. Same value and single-retry policy as the
+    # reference buspro integration: a busy RS485 bus drops the odd frame,
+    # and a lost command otherwise leaves the load and HA out of step.
+    _ACK_TIMEOUT = 0.8
+
+    def _start_ack_watch(self, control) -> None:
+        """Resend `control` once if the channel doesn't confirm in time."""
+        self._awaiting_ack = True
+        expected = getattr(self, "_brightness", None)
+
+        async def _watch():
+            await asyncio.sleep(self._ACK_TIMEOUT)
+            if not getattr(self, "_awaiting_ack", False):
+                return
+            self._awaiting_ack = False
+            # A newer command or a status reply changed the level meanwhile.
+            if getattr(self, "_brightness", None) != expected:
+                return
+            try:
+                await control.send()
+            except Exception:  # noqa: BLE001
+                self._buspro.logger.debug(
+                    "Channel command resend failed for %s", self._device_address
+                )
+
+        asyncio.ensure_future(_watch(), loop=self._buspro.loop)
+
     def _call_device_updated(self) -> None:
         """Schedule device_updated callbacks on the running loop."""
         asyncio.ensure_future(self._device_updated(), loop=self._buspro.loop)

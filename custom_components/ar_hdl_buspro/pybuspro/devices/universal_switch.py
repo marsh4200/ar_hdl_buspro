@@ -37,6 +37,8 @@ class UniversalSwitch(Device):
 
     def _telegram_received_cb(self, telegram) -> None:
         if telegram.operate_code == OperateCode.UniversalSwitchControlResponse:
+            if len(telegram.payload) < 2:
+                return
             switch_number = telegram.payload[0]
             status = telegram.payload[1]
             if switch_number == self._switch_number:
@@ -44,7 +46,11 @@ class UniversalSwitch(Device):
                 self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfUniversalSwitchResponse:
-            if self._switch_number <= telegram.payload[0]:
+            # Reply layout is [switch_number, status]. The old "<=" test
+            # (inherited from upstream pybuspro, still in the reference
+            # integration) let a reply for switch 5 overwrite switches 1-5,
+            # so every UV switch on one module showed the last one read.
+            if len(telegram.payload) >= 2 and telegram.payload[0] == self._switch_number:
                 self._switch_status = telegram.payload[1]
                 self._got_initial_status = True
                 self._call_device_updated()
