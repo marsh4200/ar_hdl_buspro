@@ -274,8 +274,6 @@ def _sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
             # this exists mainly to pin which reply the entity accepts.
             vol.Optional(
                 CONF_TEMP_CHANNEL,
-        CONF_MOTION_UV_SWITCH,
-        CONF_MOTION_BYTE_INDEX,
                 default=defaults.get(CONF_TEMP_CHANNEL, DEFAULT_TEMP_CHANNEL),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
