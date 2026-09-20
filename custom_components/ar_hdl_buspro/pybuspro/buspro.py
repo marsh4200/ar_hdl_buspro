@@ -113,12 +113,20 @@ class Buspro:
         if self.callback_all_messages is not None:
             self.callback_all_messages(telegram)
 
+        # Every per-device handler decodes a *Response / *Broadcast frame,
+        # i.e. state the device reports about ITSELF, so only the sender's
+        # handlers may see it. Matching the target address too meant a reply
+        # sent TO a device was decoded as that device's own state: a panel,
+        # logic module or MRCU that polls another module received that
+        # module's channel levels / sensor readings as its own. (The
+        # reference buspro integration guards this for sensor temperature
+        # only; this closes it for every device type.)
+        source = telegram.source_address
+        if source is not None:
+            source = tuple(source)
         for cb in list(self._telegram_received_cbs):
             device_address = cb["device_address"]
-            if (
-                device_address == telegram.target_address
-                or device_address == telegram.source_address
-            ):
+            if device_address is not None and tuple(device_address) == source:
                 if telegram.operate_code is not OperateCode.TIME_IF_FROM_LOGIC_OR_SECURITY:
                     postfix = cb.get("postfix")
                     try:

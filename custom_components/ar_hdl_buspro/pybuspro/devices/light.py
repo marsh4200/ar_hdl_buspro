@@ -30,15 +30,19 @@ class Light(Device):
 
     def _telegram_received_cb(self, telegram) -> None:
         if telegram.operate_code == OperateCode.SingleChannelControlResponse:
+            if len(telegram.payload) < 3:
+                return
             channel = telegram.payload[0]
             brightness = telegram.payload[2]
             if channel == self._channel:
+                self._awaiting_ack = False
                 self._brightness = brightness
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
-            if self._channel <= telegram.payload[0]:
+            payload = telegram.payload
+            if payload and self._channel <= payload[0] and self._channel < len(payload):
                 self._brightness = telegram.payload[self._channel]
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
@@ -106,6 +110,7 @@ class Light(Device):
         scc.running_time_minutes = minutes
         scc.running_time_seconds = seconds
         await scc.send()
+        self._start_ack_watch(scc)
 
     def _set_previous_brightness(self, brightness: int) -> None:
         if self.supports_brightness and brightness > 0:

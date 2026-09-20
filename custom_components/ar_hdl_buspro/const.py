@@ -269,6 +269,18 @@ DEFAULT_TEMP_CHANNEL: Final = 1
 DEFAULT_MOTION_UV_SWITCH: Final = 0
 DEFAULT_MOTION_BYTE_INDEX: Final = 6
 DEFAULT_SCAN_INTERVAL: Final = 0
+# Poll interval for a multisensor's MOTION entity. The 7-in-1 / 8-in-1 do not
+# push a trip the moment it happens (their own broadcast is periodic), so the
+# motion entity asks for status itself. The reply carries temperature, lux,
+# humidity and motion together and is delivered to every entity at that
+# address, so this one poll keeps the whole sensor current -- the same
+# "one poller per physical sensor" arrangement the reference buspro
+# integration uses. Editable per entity (edit device -> scan interval).
+DEFAULT_MOTION_SCAN_INTERVAL: Final = 3
+# Scan interval the bus-scan import used to give every multisensor entity
+# (motion included). Only entries still at exactly this value are upgraded
+# to DEFAULT_MOTION_SCAN_INTERVAL on startup; anything hand-edited is left.
+LEGACY_BUNDLE_SCAN_INTERVAL: Final = 60
 
 # Bus discovery
 CONF_SCAN_DURATION: Final = "scan_duration"
@@ -302,6 +314,7 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x026D": DEVICE_TYPE_LIGHT,          # HDL_MDT0601 6ch dimmer (newer)
     "0x01AC": DEVICE_TYPE_SWITCH,         # SB_DN_R0816 relay
     "0x0077": DEVICE_TYPE_BINARY_SENSOR,  # SB_DRY_4Z dry contact
+    "0x0073": DEVICE_TYPE_BINARY_SENSOR,  # 4-zone dry contact input module (reported by @marsh4200)
     "0x0134": DEVICE_TYPE_SENSOR,         # SB_CMS_12in1 sensor
     "0x0135": DEVICE_TYPE_SENSOR,         # SB_CMS_8in1 sensor
     "0x0150": DEVICE_TYPE_SENSOR,         # HDL_MSP07M sensors-in-one
@@ -392,6 +405,16 @@ SENSOR_HAS_HUMIDITY: Final = {
     "0x0135": False,   # SB_CMS_8in1
 }
 
+# Zone count per dry-contact input module. On import, a module listed here
+# becomes one "dry_contact" binary sensor per zone (sub_number = zone), each
+# polled with ReadDryContactStatus (0x15CE) - instead of a single entity with
+# the default binary kind, which gave one dead "motion" sensor per module.
+HDL_DRY_CONTACT_ZONES: Final = {
+    "0x0073": 4,    # 4-zone dry contact input module
+    "0x0077": 4,    # SB_DRY_4Z
+    "0x0166": 24,   # HDL-MS24.232 (SB-DN-DRY-24Z)
+}
+
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
 # discovered devices read sensibly in the UI instead of "Unknown".
 HDL_TYPE_NAMES: Final = {
@@ -416,6 +439,7 @@ HDL_TYPE_NAMES: Final = {
     "0x0516": "IR emitter/receiver module (HDL-MIRC04.40)",
     "0x0517": "IR emitter/receiver module (HDL-MIRC04.40)",
     "0x0166": "Dry contact module (24 zone, HDL-MS24.232)",
+    "0x0073": "Dry contact input module (4 zone)",
     "0x0DCE": "Home control unit (HDL-MRCU, 18 relay + 4 dimmer ch)",
     "0x0890": "Granite Display panel (HDL-MPTL4C.48)",
     "0x164B": "Dimmer module",

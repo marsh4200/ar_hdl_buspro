@@ -121,6 +121,23 @@ class Sensor(Device):
         except Exception:  # noqa: BLE001 - diagnostics must never break decode
             pass
 
+    def _learn_sensors_in_one(self) -> None:
+        """Switch an untagged multisensor entity to the sensors-in-one profile.
+
+        Only a sensors-in-one module (7-in-1 / MSP07M family) sends the 0x1605
+        reply or the 0x1630 broadcast, so receiving one from this address is
+        proof of the model. An entity still on "generic" would otherwise keep
+        polling 0x1645, which that module never answers. This is the automatic
+        version of picking the model in the reference integration.
+        """
+        if (
+            self._device in (None, "generic")
+            and self._universal_switch_number is None
+            and self._channel_number is None
+            and self._switch_number is None
+        ):
+            self._device = "sensors_in_one"
+
     def _apply_motion_uv_switch(self, switch_number, status) -> bool:
         """Handle a universal-switch frame that actually carries motion.
 
@@ -242,6 +259,7 @@ class Sensor(Device):
         elif op == OperateCode.ReadSensorsInOneStatusResponse:
             if len(payload) < 10:
                 return
+            self._learn_sensors_in_one()
             # The polled sensors-in-one frame encodes temperature with a +20
             # offset (20 == 0 degC, so negatives fit an unsigned byte), unlike
             # the 0xE3E5 broadcast which carries the actual value -- which is
@@ -287,6 +305,7 @@ class Sensor(Device):
             # instead, so a couple more samples settle it.
             if not payload:
                 return
+            self._learn_sensors_in_one()
             self._store_temperature(payload[0], biased=True)
             # Lux and humidity follow the same uniform one-byte shift. That
             # shift is PROVEN at index 0 (45 -> 25 degC, matching the module's
@@ -398,6 +417,11 @@ class Sensor(Device):
                         self._current_temperature_precise = None
                 else:
                     self._current_temperature_precise = None
+                self._call_device_updated()
+
+        elif op == OperateCode.BroadcastLuminanceResponse:
+            if len(payload) >= 4:
+                self._brightness = (payload[2] << 8) | payload[3]
                 self._call_device_updated()
 
         elif op == OperateCode.ReadMotionSensorStatusResponse:

@@ -101,6 +101,10 @@ class OperateCode(Enum):
     ReadStatusOfCurtainSwitchResponse = b"\xE3\xE3"
 
     BroadcastTemperatureResponse = b"\xE3\xE5"
+    # Periodic illuminance push from sensors-in-one modules (7-in-1).
+    # payload = [?, 1, lux_hi, lux_lo, ?, ?] -- as decoded by the reference
+    # buspro integration.
+    BroadcastLuminanceResponse = b"\xE4\x41"
 
     # Channel-addressed temperature read used by the MPTL/panel family
     # (HDL-MPTL4C.48 "Granite Display", HDL-MPTLC43.46-A "Enviro", ...).
