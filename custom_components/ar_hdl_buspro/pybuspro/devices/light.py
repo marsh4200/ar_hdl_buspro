@@ -1,0 +1,117 @@
+"""Light device wrapper."""
+from __future__ import annotations
+
+from ..helpers.enums import OperateCode
+from ..helpers.generics import Generics
+from .control import _ReadStatusOfChannels, _SingleChannelControl
+from .device import Device
+
+
+class Light(Device):
+    """An HDL Buspro light channel."""
+
+    def __init__(
+        self,
+        buspro,
+        device_address,
+        channel_number: int,
+        name: str = "",
+        delay_read_current_state_seconds: int = 0,  # legacy param, unused
+    ) -> None:
+        """Initialize a Light wrapper."""
+        super().__init__(buspro, device_address, name)
+        self._buspro = buspro
+        self._device_address = device_address
+        self._channel = channel_number
+        self._brightness = 0
+        self._previous_brightness: int | None = None
+        self.register_telegram_received_cb(self._telegram_received_cb)
+        self._call_read_current_status_of_channels(run_from_init=True)
+
+    def _telegram_received_cb(self, telegram) -> None:
+        if telegram.operate_code == OperateCode.SingleChannelControlResponse:
+            if len(telegram.payload) < 3:
+                return
+            channel = telegram.payload[0]
+            brightness = telegram.payload[2]
+            if channel == self._channel:
+                self._awaiting_ack = False
+                self._brightness = brightness
+                self._set_previous_brightness(self._brightness)
+                self._got_initial_status = True
+                self._call_device_updated()
+        elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
+            payload = telegram.payload
+            if payload and self._channel <= payload[0] and self._channel < len(payload):
+                self._brightness = telegram.payload[self._channel]
+                self._set_previous_brightness(self._brightness)
+                self._got_initial_status = True
+                self._call_device_updated()
+        elif telegram.operate_code == OperateCode.SceneControlResponse:
+            self._call_read_current_status_of_channels()
+
+    async def set_on(self, running_time_seconds: int = 0) -> None:
+        """Turn the light on."""
+        await self._set(100, running_time_seconds)
+
+    async def set_off(self, running_time_seconds: int = 0) -> None:
+        """Turn the light off."""
+        await self._set(0, running_time_seconds)
+
+    async def set_brightness(self, intensity: int, running_time_seconds: int = 0) -> None:
+        """Set the light brightness (0–100)."""
+        await self._set(intensity, running_time_seconds)
+
+    async def read_status(self) -> None:
+        """Request a fresh read of this channel's current status.
+
+        A single on-demand request (no delay, no retry loop) -- used to
+        resync entity state right after the gateway link comes back (see
+        ARHDLBaseEntity._handle_gateway_availability in entity.py), not as
+        a periodic poll. See AirConditioner._call_read_current_status in
+        climate.py for why continuous/periodic polling was reverted on
+        this bus for IR-module channels; this only fires on a reconnect
+        event, never on a timer, so that history doesn't apply here.
+        """
+        reader = _ReadStatusOfChannels(self._buspro)
+        reader.subnet_id, reader.device_id = self._device_address
+        await reader.send()
+
+    @property
+    def device_identifier(self) -> str:
+        """Return a stable identifier."""
+        return f"{self._device_address}-{self._channel}"
+
+    @property
+    def supports_brightness(self) -> bool:
+        return True
+
+    @property
+    def previous_brightness(self):
+        return self._previous_brightness
+
+    @property
+    def current_brightness(self) -> int:
+        return self._brightness
+
+    @property
+    def is_on(self) -> bool:
+        return self._brightness != 0
+
+    async def _set(self, intensity: int, running_time_seconds: int) -> None:
+        self._brightness = intensity
+        self._set_previous_brightness(self._brightness)
+
+        minutes, seconds = Generics.calculate_minutes_seconds(running_time_seconds)
+        scc = _SingleChannelControl(self._buspro)
+        scc.subnet_id, scc.device_id = self._device_address
+        scc.channel_number = self._channel
+        scc.channel_level = intensity
+        scc.running_time_minutes = minutes
+        scc.running_time_seconds = seconds
+        await scc.send()
+        self._start_ack_watch(scc)
+
+    def _set_previous_brightness(self, brightness: int) -> None:
+        if self.supports_brightness and brightness > 0:
+            self._previous_brightness = brightness

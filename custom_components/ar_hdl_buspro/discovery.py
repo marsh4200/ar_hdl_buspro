@@ -1,0 +1,574 @@
+"""HDL Buspro bus discovery.
+
+The HDL bus has no "list yourself" command, but every telegram a device puts on
+the wire carries its own source subnet, device id and device type in the header,
+and reply telegrams carry useful detail (e.g. a channel-status reply states how
+many channels the device has). So discovery here is *passive harvesting with
+active provocation*:
+
+1. Hook the catch-all telegram callback so we see everything on the bus.
+2. Repeatedly broadcast a spread of read requests at 255.255 across the whole
+   listening window, to make every class of quiet device reply at least once.
+3. Record every unique (subnet, device) we hear, keeping the raw device-type
+   code, the operate codes it answered with, and the channel count when a
+   channel-status reply reveals it.
+
+The raw type code and operate codes are captured even for hardware we don't
+recognise, so unknown modules still surface and can be identified from what
+they replied with (and mapped later).
+"""
+
+# Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
+# All rights reserved. Proprietary and confidential.
+# Licensed software - see LICENSE in the repository root. Unauthorised
+# copying, redistribution, modification, or circumvention of the licence
+# check in licensing.py is prohibited.
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+
+from .const import (
+    HDL_DIMMER_TYPE_CODES,
+    HDL_DRY_CONTACT_ZONES,
+    HDL_KEYPAD_TYPE_CODES,
+    HDL_TYPE_TO_DEVICE_TYPE,
+)
+from .pybuspro.buspro import Buspro
+from .pybuspro.core.telegram import Telegram
+from .pybuspro.helpers.enums import OperateCode
+
+_LOGGER = logging.getLogger(__name__)
+
+# Address every HDL device on the bus listens to.
+_BROADCAST: tuple[int, int] = (255, 255)
+
+# Source addresses we should never treat as a real device:
+#   (200, 200) is pybuspro's own default sender id
+#   (0, 0)     is a null/unset address
+#   (255, 255) is the broadcast address itself
+_IGNORED_SOURCES = {(200, 200), (0, 0), (255, 255)}
+
+# Broadcast read requests used to provoke replies, spanning the common device
+# classes. operate_code may be an OperateCode enum or a raw 2-byte sequence
+# (build_send_buffer accepts both). A device that answers any of these is
+# discovered; the operate code it answers with also tells us what it is:
+#   0x0033 ReadStatusOfChannels    -> relays / dimmers reply 0x0034 (+ channel count)
+#   0x1645 ReadSensorStatus        -> sensors reply 0x1646
+#   0x1604 ReadSensorsInOneStatus  -> sensors-in-one reply 0x1605
+#   0x1944 ReadFloorHeatingStatus  -> floor heating / DLP reply 0x1945
+#   0x15CE ReadDryContactStatus    -> dry-contact modules reply 0x15CF
+#   0xE018 ReadStatusOfUniversalSwitch -> universal-switch modules reply 0xE019
+#   0xE3E2 ReadStatusOfCurtainSwitch   -> curtain modules reply 0xE3E3
+#   0x000E "read device info/type" -> canonical HDL discovery poke -> 0x000F
+_PROVOCATIONS: tuple[tuple[object, list[int]], ...] = (
+    (OperateCode.ReadStatusOfChannels, []),
+    (OperateCode.ReadSensorStatus, []),
+    (OperateCode.ReadSensorsInOneStatus, []),
+    (OperateCode.ReadFloorHeatingStatus, []),
+    (OperateCode.ReadDryContactStatus, [1, 1]),
+    (OperateCode.ReadStatusOfUniversalSwitch, [1]),
+    (OperateCode.ReadStatusOfCurtainSwitch, [1]),
+    (OperateCode.ReadStatusOfCurtainSwitch, [2]),
+    # Motion-only PIRs and temperature panels answer nothing above, so
+    # without these they are never heard and never offered for import.
+    (OperateCode.ReadMotionSensorStatus, []),
+    (OperateCode.ReadTemperature, [1]),
+    (b"\x00\x0e", []),
+)
+
+# Raw device-type bytes live at these offsets in the received UDP buffer.
+_TYPE_HI = 19
+_TYPE_LO = 20
+
+# How often to re-send the provocation round while listening, in seconds.
+_POLL_INTERVAL = 2.5
+# Gap between individual frames within one round, in seconds.
+_FRAME_GAP = 0.05
+# Directed channel-read follow-up: rounds, and listen time after each round.
+_DIRECTED_ROUNDS = 2
+_DIRECTED_LISTEN = 2.0
+# Hard ceiling for the whole directed phase, regardless of device count, so a
+# large bus can't make the scan run away. Public so callers (e.g. the config
+# flow's progress display) can size their own timeouts/estimates around it
+# instead of hardcoding a second copy of this number.
+DIRECTED_PHASE_MAX_SECONDS = 20.0
+_DIRECTED_MAX_SECONDS = DIRECTED_PHASE_MAX_SECONDS
+# Typical directed-phase duration on a normal-sized bus: two rounds, each
+# followed by a fixed listen pause, regardless of how many devices answered.
+# It only grows past this if there are enough devices that dispatching reads
+# to all of them eats into the round's listen pause (capped by the ceiling
+# above). Public for the same reason as DIRECTED_PHASE_MAX_SECONDS.
+DIRECTED_PHASE_TYPICAL_SECONDS = _DIRECTED_ROUNDS * _DIRECTED_LISTEN
+# Extra time (beyond the user's listen duration) that scan() may need for the
+# directed phase. The config flow's watchdog timeout must allow for this.
+# Identification phase: every device whose type code is NOT already in the
+# built-in tables is asked directly, one request per protocol, what it is.
+# Whatever it answers decides its profile, so a module nobody has recorded a
+# code for still imports correctly. Ceiling so a big unknown bus can't stall.
+IDENTIFY_PHASE_MAX_SECONDS = 30.0
+_IDENTIFY_LISTEN = 2.0
+# Dry-contact modules: zones asked for when the zone count isn't known.
+_DRY_CONTACT_MAX_ZONES = 24
+SCAN_TIMEOUT_MARGIN = DIRECTED_PHASE_MAX_SECONDS + IDENTIFY_PHASE_MAX_SECONDS + 5.0
+
+# Directed identity probes: (operate code, payload). A device only answers the
+# protocols it implements, so the set of replies is a fingerprint:
+#   0x1604 -> 0x1605  sensors-in-one (7-in-1 / MSP07M family)
+#   0x1645 -> 0x1646  CMS multisensor (8-in-1 / 12-in-1)
+#   0xDB00 -> 0xDB01  motion-only PIR
+#   0xE3E7 -> 0xE3E8  panel with onboard temperature (MPTL / Granite)
+#   0x1944 -> 0x1945  DLP / floor heating
+#   0x15CE -> 0x15CF  dry-contact input module
+#   0xE3E2 -> 0xE3E3  curtain module
+#   0x000E -> 0x000F  device remark (the name set in the HDL setup tool)
+_IDENTITY_PROBES: tuple[tuple[object, list[int]], ...] = (
+    (OperateCode.ReadSensorsInOneStatus, []),
+    (OperateCode.ReadSensorStatus, []),
+    (OperateCode.ReadMotionSensorStatus, []),
+    (OperateCode.ReadTemperature, [1]),
+    (OperateCode.ReadFloorHeatingStatus, []),
+    (OperateCode.ReadDryContactStatus, [1, 1]),
+    (OperateCode.ReadStatusOfCurtainSwitch, [1]),
+    (b"\x00\x0e", []),
+)
+
+# Remark reply operate code (not in the OperateCode enum, so it arrives raw).
+_REMARK_REPLY_OP = "0x000F"
+
+
+# Operate codes a keypad/panel *originates* when a button is pressed or when
+# it broadcasts state. Hearing these from a source is keypad evidence.
+_KEYPAD_COMMAND_OPS = {
+    "SingleChannelControl",
+    "SceneControl",
+    "UniversalSwitchControl",
+    "BroadcastStatusOfUniversalSwitch",
+}
+
+# Reply operate codes only a load/sensor device sends. Any of these from a
+# source rules out "pure keypad".
+_LOAD_RESPONSE_OPS = {
+    "ReadStatusOfChannelsResponse",
+    "SingleChannelControlResponse",
+    "ReadSensorStatusResponse",
+    "ReadSensorsInOneStatusResponse",
+    "BroadcastSensorStatusResponse",
+    "BroadcastSensorStatusAutoResponse",
+    "ReadFloorHeatingStatusResponse",
+    "ReadDryContactStatusResponse",
+    "ReadStatusOfUniversalSwitchResponse",
+    "ReadStatusOfCurtainSwitchResponse",
+    "CurtainSwitchControlResponse",
+}
+
+
+@dataclass
+class DiscoveredDevice:
+    """A single device heard on the bus during a scan."""
+
+    subnet_id: int
+    device_id: int
+    type_code: str  # e.g. "0x026D"
+    type_name: str  # friendly DeviceType name, or "Unknown"
+    channel_count: int | None = None  # learned from a channel-status reply
+    op_codes: set[str] = field(default_factory=set)  # operate codes heard from it
+    # True once any channel-status reply carried an intermediate level.
+    # Relays only ever report 0, 100 or 255 depending on firmware, so any
+    # other value is hard evidence the module is a dimmer (works for both
+    # 0-100 and 0-255 level scales).
+    dimmer_evidence: bool = False
+    # Last payload seen per reply operate code, so import can read details
+    # (e.g. whether a sensors-in-one reports humidity) without a type code.
+    payloads: dict[str, list[int]] = field(default_factory=dict)
+    # Device remark: the name the installer gave it in the HDL setup tool.
+    remark: str | None = None
+    # Highest dry-contact zone that answered a directed zone read.
+    dry_contact_zones: int | None = None
+
+    @property
+    def address(self) -> str:
+        """Return the bus address as 'subnet.device'."""
+        return f"{self.subnet_id}.{self.device_id}"
+
+    @property
+    def looks_like_keypad(self) -> bool:
+        """Return True when the traffic pattern says 'wall panel / keypad'.
+
+        Keypads originate control telegrams (single-channel, scene, universal
+        switch) toward other devices but never answer a channel-status read
+        themselves. So: command ops seen, no load-style replies, and no channel
+        count learned even after the directed read phase.
+        """
+        return (
+            self.channel_count is None
+            and bool(self.op_codes & _KEYPAD_COMMAND_OPS)
+            and not (self.op_codes & _LOAD_RESPONSE_OPS)
+        )
+
+    @property
+    def key(self) -> str:
+        """Return a stable selection key for the options-flow checklist."""
+        return f"{self.subnet_id}-{self.device_id}"
+
+    def summary(self) -> str:
+        """One-line summary for logs."""
+        chans = f"{self.channel_count}ch" if self.channel_count else "?ch"
+        name = f' "{self.remark}"' if self.remark else ""
+        ops = ",".join(sorted(self.op_codes)) or "none"
+        hints = []
+        if self.dimmer_evidence:
+            hints.append("dimmer")
+        if self.looks_like_keypad:
+            hints.append("keypad")
+        hint = f" [{'/'.join(hints)}]" if hints else ""
+        return (
+            f"{self.address}{name} type={self.type_code}({self.type_name}) "
+            f"{chans}{hint} replied=[{ops}]"
+        )
+
+
+class BusScanner:
+    """Harvest devices from an HDL Buspro bus using a live Buspro client."""
+
+    def __init__(self, buspro: Buspro) -> None:
+        """Initialize the scanner around an already-connected Buspro client."""
+        self._buspro = buspro
+        self._found: dict[tuple[int, int], DiscoveredDevice] = {}
+
+    # ----- telegram harvesting --------------------------------------------
+    def _on_telegram(self, telegram) -> None:
+        """Record the source and detail of any telegram seen during the scan."""
+        try:
+            # Only harvest telegrams that arrived from the configured gateway.
+            # The transport already enforces this when the host resolved, but
+            # the scan is where phantom devices hurt most, so guard here too:
+            # other HDL gateways / HDL software broadcast to *.255.255.255:6000
+            # and are heard across IP subnets on the same L2 segment.
+            allowed = getattr(self._buspro, "allowed_source_ips", None)
+            udp_addr = getattr(telegram, "udp_address", None)
+            if allowed and udp_addr and udp_addr[0] not in allowed:
+                _LOGGER.debug(
+                    "Scan ignoring telegram from foreign gateway %s", udp_addr[0]
+                )
+                return
+
+            src = getattr(telegram, "source_address", None)
+            if not src:
+                return
+            subnet, device = int(src[0]), int(src[1])
+            if (subnet, device) in _IGNORED_SOURCES:
+                return
+
+            type_code, type_name = self._extract_type(telegram)
+            dev = self._found.get((subnet, device))
+            if dev is None:
+                dev = DiscoveredDevice(
+                    subnet_id=subnet,
+                    device_id=device,
+                    type_code=type_code,
+                    type_name=type_name,
+                )
+                self._found[(subnet, device)] = dev
+            elif dev.type_name == "Unknown" and type_name != "Unknown":
+                # Upgrade if we previously only had an unknown type.
+                dev.type_code = type_code
+                dev.type_name = type_name
+
+            op_name = self._op_name(telegram)
+            if op_name:
+                dev.op_codes.add(op_name)
+                payload = getattr(telegram, "payload", None)
+                if payload:
+                    dev.payloads[op_name] = list(payload)
+
+            if op_name == _REMARK_REPLY_OP and not dev.remark:
+                dev.remark = self._decode_remark(
+                    getattr(telegram, "payload", None) or []
+                )
+
+            if op_name == "ReadDryContactStatusResponse":
+                payload = getattr(telegram, "payload", None) or []
+                if len(payload) >= 2:
+                    try:
+                        zone = int(payload[1])
+                    except (TypeError, ValueError):
+                        zone = 0
+                    if 1 <= zone <= _DRY_CONTACT_MAX_ZONES:
+                        dev.dry_contact_zones = max(
+                            dev.dry_contact_zones or 0, zone
+                        )
+
+            # A channel-status reply tells us how many channels the device has:
+            # payload[0] = channel count, payload[1..N] = per-channel levels.
+            if op_name == "ReadStatusOfChannelsResponse":
+                payload = getattr(telegram, "payload", None) or []
+                if payload:
+                    count = int(payload[0])
+                    if 1 <= count <= 64:
+                        dev.channel_count = max(dev.channel_count or 0, count)
+                    # payload[1..N] are per-channel levels. Relays report only
+                    # 0/100 (255 on some firmware); an intermediate value can
+                    # only come from a dimmer, so remember it.
+                    for raw in payload[1 : 1 + min(count, 64)]:
+                        try:
+                            level = int(raw)
+                        except (TypeError, ValueError):
+                            continue
+                        if 1 <= level <= 254 and level != 100:
+                            dev.dimmer_evidence = True
+                            break
+            # A SingleChannelControlResponse also carries the resulting level
+            # (payload: channel, success, level) - harvest it for the same
+            # dimmer evidence, since it fires whenever a keypad dims a light.
+            elif op_name == "SingleChannelControlResponse":
+                payload = getattr(telegram, "payload", None) or []
+                if len(payload) >= 3:
+                    try:
+                        level = int(payload[2])
+                    except (TypeError, ValueError):
+                        level = -1
+                    if 1 <= level <= 254 and level != 100:
+                        dev.dimmer_evidence = True
+            # Curtain replies (payload: curtain_number, status). The highest
+            # curtain number that answers tells us how many curtains the
+            # module drives, so import can split them into separate covers.
+            elif op_name in (
+                "ReadStatusOfCurtainSwitchResponse",
+                "CurtainSwitchControlResponse",
+            ):
+                payload = getattr(telegram, "payload", None) or []
+                if payload:
+                    try:
+                        curtain_no = int(payload[0])
+                    except (TypeError, ValueError):
+                        curtain_no = 0
+                    if 1 <= curtain_no <= 32:
+                        dev.channel_count = max(
+                            dev.channel_count or 0, curtain_no
+                        )
+        except Exception as err:  # noqa: BLE001 - never let parsing kill a scan
+            _LOGGER.debug("Scan telegram parse error: %s", err)
+
+    @staticmethod
+    def _decode_remark(payload) -> str | None:
+        """Decode a 0x000F remark reply to text, or None if it isn't text.
+
+        The remark is the free-text name set per device in the HDL setup
+        tool, null-padded. Only accepted if it is mostly printable ASCII, so
+        a firmware that answers 0x000E with something else (or a non-Latin
+        remark) just means no name, never garbage in the UI.
+        """
+        try:
+            raw = bytes(int(b) & 0xFF for b in payload)
+        except (TypeError, ValueError):
+            return None
+        text = raw.split(b"\x00", 1)[0].decode("latin-1", errors="ignore")
+        text = "".join(ch for ch in text if 32 <= ord(ch) < 127).strip()
+        if len(text) < 2 or sum(ch.isalnum() for ch in text) < 2:
+            return None
+        return text[:40]
+
+    @staticmethod
+    def _extract_type(telegram) -> tuple[str, str]:
+        """Pull the raw type code and a friendly name from a telegram."""
+        type_code = "0x0000"
+        udp = getattr(telegram, "udp_data", None)
+        if udp is not None and len(udp) > _TYPE_LO:
+            type_code = f"0x{udp[_TYPE_HI]:02X}{udp[_TYPE_LO]:02X}"
+        source_device_type = getattr(telegram, "source_device_type", None)
+        type_name = getattr(source_device_type, "name", None) or "Unknown"
+        return type_code, type_name
+
+    @staticmethod
+    def _op_name(telegram) -> str | None:
+        """Return the friendly operate-code name, or a raw hex string."""
+        oc = getattr(telegram, "operate_code", None)
+        name = getattr(oc, "name", None)
+        if name:
+            return name
+        udp = getattr(telegram, "udp_data", None)
+        if udp is not None and len(udp) > 22:
+            return f"0x{udp[21]:02X}{udp[22]:02X}"
+        return None
+
+    # ----- scan orchestration ---------------------------------------------
+    async def scan(self, duration: float = 15.0) -> list[DiscoveredDevice]:
+        """Run a discovery scan and return the devices found, sorted by address."""
+        buspro = self._buspro
+        if buspro is None or buspro.network_interface is None:
+            raise RuntimeError("gateway_unavailable")
+
+        duration = max(float(duration), 1.0)
+        previous_cb = buspro.callback_all_messages
+        buspro.register_telegram_received_all_messages_cb(self._on_telegram)
+        try:
+            # Phase 1 - broadcast discovery: poke the bus repeatedly across the
+            # whole window so every class of device replies or is overheard.
+            elapsed = 0.0
+            while elapsed < duration:
+                await self._broadcast_provocations()
+                step = min(_POLL_INTERVAL, duration - elapsed)
+                if step <= 0:
+                    break
+                await asyncio.sleep(step)
+                elapsed += step
+            # Phase 2 - directed channel reads: many relay/dimmer modules ignore
+            # a broadcast channel-status read and only answer one addressed to
+            # them directly. Ask each device we found for its channel status so
+            # the channel count comes back.
+            await self._directed_channel_reads()
+            # Phase 3 - identify anything the code tables don't cover.
+            await self._identify_unknown_devices()
+        finally:
+            # Restore the previous catch-all so normal operation is untouched.
+            buspro.callback_all_messages = previous_cb
+
+        found = sorted(
+            self._found.values(), key=lambda d: (d.subnet_id, d.device_id)
+        )
+        self._log_summary(found, duration)
+        return found
+
+    async def _broadcast_provocations(self) -> None:
+        """Send each provocation read to the broadcast address."""
+        ni = self._buspro.network_interface
+        if ni is None:
+            return
+        for operate_code, payload in _PROVOCATIONS:
+            telegram = Telegram()
+            telegram.target_address = _BROADCAST
+            telegram.operate_code = operate_code
+            telegram.payload = list(payload)
+            try:
+                await ni.send_telegram(telegram)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Provocation send failed (%s): %s", operate_code, err
+                )
+            await asyncio.sleep(_FRAME_GAP)
+
+    async def _directed_channel_reads(self) -> None:
+        """Ask each discovered device directly for its channel status.
+
+        Sent to the device's own address (not broadcast) because most relay and
+        dimmer modules only answer a directed ReadStatusOfChannels. The 0x0034
+        replies are harvested by the catch-all and populate channel counts.
+        """
+        ni = self._buspro.network_interface
+        if ni is None or not self._found:
+            return
+        addresses = [
+            (d.subnet_id, d.device_id) for d in list(self._found.values())
+        ]
+        deadline = time.monotonic() + _DIRECTED_MAX_SECONDS
+        for _round in range(_DIRECTED_ROUNDS):
+            if time.monotonic() >= deadline:
+                break
+            for subnet, device in addresses:
+                if time.monotonic() >= deadline:
+                    break
+                telegram = Telegram()
+                telegram.target_address = (subnet, device)
+                telegram.operate_code = OperateCode.ReadStatusOfChannels
+                telegram.payload = []
+                try:
+                    await ni.send_telegram(telegram)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Directed read to %s.%s failed: %s", subnet, device, err
+                    )
+                await asyncio.sleep(_FRAME_GAP)
+            # Give the modules time to answer before the next round / finishing.
+            await asyncio.sleep(
+                min(_DIRECTED_LISTEN, max(deadline - time.monotonic(), 0.0))
+            )
+
+    def _needs_identification(self, dev: DiscoveredDevice) -> bool:
+        """True if the type-code tables can't tell us what this device is."""
+        code = dev.type_code
+        if code in HDL_KEYPAD_TYPE_CODES or code in HDL_DIMMER_TYPE_CODES:
+            return False
+        if code in HDL_TYPE_TO_DEVICE_TYPE:
+            # Known type, but a dry-contact module of unknown size still
+            # needs its zones counted.
+            return False
+        # A channel module (relay/dimmer) is already identified by its
+        # channel-status reply; everything else gets probed.
+        return dev.channel_count is None
+
+    async def _send_directed(self, address, operate_code, payload) -> None:
+        ni = self._buspro.network_interface
+        if ni is None:
+            return
+        telegram = Telegram()
+        telegram.target_address = address
+        telegram.operate_code = operate_code
+        telegram.payload = list(payload)
+        try:
+            await ni.send_telegram(telegram)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Identify probe to %s failed: %s", address, err)
+        await asyncio.sleep(_FRAME_GAP)
+
+    async def _identify_unknown_devices(self) -> None:
+        """Ask each unidentified device directly which protocols it speaks.
+
+        Also asks every device for its remark (name), and counts the zones of
+        any dry-contact module whose size isn't in HDL_DRY_CONTACT_ZONES.
+        """
+        if self._buspro.network_interface is None or not self._found:
+            return
+        deadline = time.monotonic() + IDENTIFY_PHASE_MAX_SECONDS
+        devices = list(self._found.values())
+
+        for dev in devices:
+            if time.monotonic() >= deadline:
+                break
+            address = (dev.subnet_id, dev.device_id)
+            if self._needs_identification(dev):
+                for operate_code, payload in _IDENTITY_PROBES:
+                    if time.monotonic() >= deadline:
+                        break
+                    await self._send_directed(address, operate_code, payload)
+            elif not dev.remark:
+                await self._send_directed(address, b"\x00\x0e", [])
+        await asyncio.sleep(
+            min(_IDENTIFY_LISTEN, max(deadline - time.monotonic(), 0.0))
+        )
+
+        # Dry-contact modules of unknown size: read each zone; the highest
+        # zone number that answers is the module's zone count.
+        for dev in devices:
+            if "ReadDryContactStatusResponse" not in dev.op_codes:
+                continue
+            if dev.type_code in HDL_DRY_CONTACT_ZONES:
+                continue
+            address = (dev.subnet_id, dev.device_id)
+            for zone in range(2, _DRY_CONTACT_MAX_ZONES + 1):
+                if time.monotonic() >= deadline:
+                    break
+                await self._send_directed(
+                    address, OperateCode.ReadDryContactStatus, [1, zone]
+                )
+        await asyncio.sleep(
+            min(_IDENTIFY_LISTEN, max(deadline - time.monotonic(), 0.0))
+        )
+
+    def _log_summary(self, found: list[DiscoveredDevice], duration: float) -> None:
+        """Log a human-readable summary of the scan at INFO level."""
+        if not found:
+            _LOGGER.info(
+                "AR HDL BUSPRO bus scan (%.0fs): no devices responded. Check that the "
+                "gateway IP is correct, the Local IP field is blank, and Home "
+                "Assistant can receive UDP broadcasts on port 6000.",
+                duration,
+            )
+            return
+        _LOGGER.info(
+            "AR HDL BUSPRO bus scan (%.0fs): %d device(s) found:", duration, len(found)
+        )
+        for dev in found:
+            _LOGGER.info("  %s", dev.summary())

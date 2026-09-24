@@ -1,0 +1,586 @@
+"""Climate (floor heating) device wrapper."""
+from __future__ import annotations
+
+import asyncio
+
+from ..helpers.enums import (
+    OperateCode,
+    SuccessOrFailure,
+    TemperatureMode,
+    TemperatureType,
+)
+from ..helpers.generics import Generics
+from .control import _ControlFloorHeatingStatus, _GenericControl, _ReadFloorHeatingStatus
+from .device import Device
+
+
+class ControlFloorHeatingStatus:
+    """Container for floor-heating control fields (None means 'unchanged')."""
+
+    def __init__(self) -> None:
+        self.temperature_type = None
+        self.status = None
+        self.mode = None
+        self.normal_temperature = None
+        self.day_temperature = None
+        self.night_temperature = None
+        self.away_temperature = None
+
+
+class Climate(Device):
+    """HDL floor-heating panel wrapper."""
+
+    def __init__(self, buspro, device_address, name: str = "") -> None:
+        """Initialize the climate device."""
+        super().__init__(buspro, device_address, name)
+        self._buspro = buspro
+        self._device_address = device_address
+
+        self._temperature_type = None  # Celsius/Fahrenheit
+        self._status = None            # On/Off
+        self._mode = None              # 1..5
+        self._current_temperature = None
+        self._normal_temperature = None
+        self._day_temperature = None
+        self._night_temperature = None
+        self._away_temperature = None
+
+        self.register_telegram_received_cb(self._telegram_received_cb)
+        self._call_read_current_heating_status(run_from_init=True)
+
+    def _telegram_received_cb(self, telegram) -> None:
+        op = telegram.operate_code
+        payload = telegram.payload or []
+        if op == OperateCode.ReadFloorHeatingStatusResponse:
+            self._temperature_type = payload[0]
+            self._current_temperature = payload[1]
+            self._status = payload[2]
+            self._mode = payload[3]
+            self._normal_temperature = payload[4]
+            self._day_temperature = payload[5]
+            self._night_temperature = payload[6]
+            self._away_temperature = payload[7]
+            self._call_device_updated()
+
+        elif op == OperateCode.ControlFloorHeatingStatusResponse:
+            # payload[0] is the raw success byte (0xF8 = success); compare the
+            # int, not the enum member (bytes) -- the enum compare is never True.
+            success_or_fail = payload[0]
+            if success_or_fail == SuccessOrFailure.Success.value[0]:
+                self._temperature_type = payload[1]
+                self._status = payload[2]
+                self._mode = payload[3]
+                self._normal_temperature = payload[4]
+                self._day_temperature = payload[5]
+                self._night_temperature = payload[6]
+                self._away_temperature = payload[7]
+            self._call_device_updated()
+
+        elif op == OperateCode.BroadcastTemperatureResponse:
+            self._current_temperature = payload[1]
+            self._call_device_updated()
+
+    async def read_heating_status(self) -> None:
+        """Trigger a read of the current heating status."""
+        req = _ReadFloorHeatingStatus(self._buspro)
+        req.subnet_id, req.device_id = self._device_address
+        await req.send()
+
+    def _telegram_received_control_heating_status_cb(self, telegram, floor_heating_status) -> None:
+        """Two-step "merge then write" callback for control_heating_status."""
+        if telegram.operate_code != OperateCode.ReadFloorHeatingStatusResponse:
+            return
+
+        self.unregister_telegram_received_cb(
+            self._telegram_received_control_heating_status_cb, floor_heating_status
+        )
+
+        payload = telegram.payload
+        temperature_type = payload[0]
+        status = payload[2]
+        mode = payload[3]
+        normal_temperature = payload[4]
+        day_temperature = payload[5]
+        night_temperature = payload[6]
+        away_temperature = payload[7]
+
+        # Override fields the caller wants to change
+        for attr in (
+            "temperature_type",
+            "status",
+            "mode",
+            "normal_temperature",
+            "day_temperature",
+            "night_temperature",
+            "away_temperature",
+        ):
+            new_value = getattr(floor_heating_status, attr, None)
+            if new_value is not None:
+                if attr == "temperature_type":
+                    temperature_type = new_value
+                elif attr == "status":
+                    status = new_value
+                elif attr == "mode":
+                    mode = new_value
+                elif attr == "normal_temperature":
+                    normal_temperature = new_value
+                elif attr == "day_temperature":
+                    day_temperature = new_value
+                elif attr == "night_temperature":
+                    night_temperature = new_value
+                elif attr == "away_temperature":
+                    away_temperature = new_value
+
+        cfhs = _ControlFloorHeatingStatus(self._buspro)
+        cfhs.subnet_id, cfhs.device_id = self._device_address
+        cfhs.temperature_type = temperature_type
+        cfhs.status = status
+        cfhs.mode = mode
+        cfhs.normal_temperature = normal_temperature
+        cfhs.day_temperature = day_temperature
+        cfhs.night_temperature = night_temperature
+        cfhs.away_temperature = away_temperature
+
+        async def _send():
+            await cfhs.send()
+
+        asyncio.ensure_future(_send(), loop=self._buspro.loop)
+
+    async def control_heating_status(
+        self, floor_heating_status: ControlFloorHeatingStatus
+    ) -> None:
+        """Apply the partial floor-heating status (None fields untouched)."""
+        self.register_telegram_received_cb(
+            self._telegram_received_control_heating_status_cb, floor_heating_status
+        )
+        req = _ReadFloorHeatingStatus(self._buspro)
+        req.subnet_id, req.device_id = self._device_address
+        await req.send()
+
+    def _call_read_current_heating_status(self, run_from_init: bool = False) -> None:
+        async def _read():
+            if run_from_init:
+                await asyncio.sleep(5)
+            req = _ReadFloorHeatingStatus(self._buspro)
+            req.subnet_id, req.device_id = self._device_address
+            try:
+                await req.send()
+            except Exception:  # noqa: BLE001
+                self._buspro.logger.debug(
+                    "Initial climate read failed for %s", self._device_address
+                )
+
+        asyncio.ensure_future(_read(), loop=self._buspro.loop)
+
+    @property
+    def unit_of_measurement(self):
+        return Generics().get_enum_value(TemperatureType, self._temperature_type)
+
+    @property
+    def is_on(self) -> bool:
+        return self._status == 1
+
+    @property
+    def mode(self):
+        return self._mode
+
+    @property
+    def temperature(self):
+        return self._current_temperature
+
+    @property
+    def day_temperature(self):
+        return self._day_temperature
+
+    @property
+    def night_temperature(self):
+        return self._night_temperature
+
+    @property
+    def away_temperature(self):
+        return self._away_temperature
+
+    @property
+    def device_identifier(self) -> str:
+        return f"{self._device_address}"
+
+    @property
+    def target_temperature(self):
+        """Return the active setpoint based on current mode."""
+        if self._mode == TemperatureMode.Normal.value:
+            return self._normal_temperature
+        if self._mode == TemperatureMode.Day.value:
+            return self._day_temperature
+        if self._mode == TemperatureMode.Away.value:
+            return self._away_temperature
+        if self._mode == TemperatureMode.Night.value:
+            return self._night_temperature
+        return self._normal_temperature
+
+
+class AirConditioner(Device):
+    """HDL air conditioner wrapper, controlled through an IR emitter
+    module's live AC panel channels (e.g. HDL-MIRC04.40, GitHub issue #17).
+
+    Unlike Climate (a DLP floor-heating panel that owns its own bus
+    address), one IR module serves up to 4 AC units sharing the module's
+    address, distinguished within the payload by "HVAC No." (1-4).
+
+    Protocol notes. The mode/speed enum and full byte layout below were
+    originally reverse-engineered from live bus captures on issue #17
+    (see MODE_TO_BYTE/FAN_TO_BYTE comments), then independently confirmed
+    byte-for-byte against two further sources: caligo-mentis/smart-bus
+    (an unrelated open source HDL Buspro library,
+    github.com/caligo-mentis/smart-bus) whose AC.parse/AC.encode
+    functions document this same payload, and HDL's own official
+    "HDLBUS Pro operation codes" spec (Jan 2013), section 7 "AC control".
+    All three agree on every field below without exception:
+      - byte 0        = AC No. (HVAC No. in the module, called "AC No."
+        in the official spec)
+      - byte 1        = temperature unit (0 = C, 1 = F) -- not touched,
+        this integration always operates in whole degrees C
+      - byte 2        = current (room) temperature reading ("Now" in the
+        official spec)
+      - byte 3        = remembered setpoint for Cooling mode
+      - byte 4        = remembered setpoint for Heating mode
+      - byte 5        = remembered setpoint for Auto mode
+      - byte 6        = remembered setpoint for Dry mode
+        (bytes 3-6 are per-mode temperature memory the panel/app keeps so
+        switching modes doesn't lose your last setpoint for that mode --
+        not touched here, since we only ever set byte 11 directly)
+      - byte 7         = "current" mode (upper nibble) + fan speed (lower
+        nibble), i.e. (MODE_TO_BYTE[mode] << 4) | FAN_TO_BYTE[speed] --
+        this mirrors the *previous* observed status in real captures from
+        the HDL app rather than the new target, suggesting it's just an
+        informational echo, not something the module acts on. We set it
+        to mirror the new target instead of replicating that staleness.
+      - byte 8         = power (1 = on, 0 = off, called "AC status" in
+        the official spec)
+      - byte 9         = target mode ("Setup Mode"), see MODE_TO_BYTE
+      - byte 10        = target fan speed ("Setup Speed"), see FAN_TO_BYTE
+      - byte 11        = target temperature, whole degrees C ("Setup
+        Temperature" -- the official spec's table mislabels this row
+        "Current Mode" but gives it the same 0-30C/32-86F temperature
+        range as the other setpoint bytes and the position matches
+        smart-bus's setup.temperature exactly, so that's a labelling
+        error in HDL's own PDF, not a different field)
+      - byte 12        = sweep/swing (upper nibble = enabled, lower =
+        active) -- officially documented, but never observed as
+        anything but 0 in any capture from this reporter's unit, so not
+        exposed as a control yet; may not even be wired up on this
+        hardware. Left untouched -- a genuine future feature, not
+        something this class currently guesses at.
+
+    This class never fabricates values for bytes it doesn't set itself.
+    It only ever echoes back the last full payload actually observed on
+    the bus (from this module's own status broadcast, or a best-effort
+    startup read), changing just the confirmed field(s) a command asks to
+    change. Until a real payload has been observed, writes are refused
+    rather than guessed -- see _send_update().
+    """
+
+    # Mode <-> payload[9] ("Setup Mode"). Originally confirmed from a real
+    # narrated test on issue #17 (module 1.42, HVAC 3): the reporter
+    # cycled through every mode in a fixed order with wall-clock times
+    # ("test start 9:18pm ... test ended 9:31pm"), which we matched
+    # against the real outbound ControlACStatus command frames (source
+    # (1,60) -> target (1,42), not the broadcast *Response echoes) by
+    # their own timestamps -- 13 named actions against 13 captured
+    # command frames spanning 21:18:37 to 21:30:54 (~12m17s, matching
+    # "9:18-9:31pm" almost to the second), one pair of which was an exact
+    # duplicate (a retransmit, not a distinct action) which accounts for
+    # the reporter's own self-flagged uncertain step ("flipped alone to
+    # cool again from itself"). Independently confirmed exactly right by
+    # both caligo-mentis/smart-bus's AC.modes array and HDL's own
+    # official spec's "Setup Mode" row (see class docstring).
+    MODE_TO_BYTE = {"cool": 0, "heat": 1, "fan_only": 2, "auto": 3, "dry": 4}
+    BYTE_TO_MODE = {v: k for k, v in MODE_TO_BYTE.items()}
+
+    # Fan speed <-> payload[10] ("Setup Speed"). High/medium/low confirmed
+    # the same way (three explicit, isolated fan-speed button presses in
+    # the same test). "auto" = 0 was never actually observed changing in
+    # a real capture from this reporter's unit, but is now in FAN_TO_BYTE
+    # because it's confirmed by both independent sources above -- most
+    # decisively HDL's own official spec, not just another codebase.
+    FAN_TO_BYTE = {"auto": 0, "high": 1, "medium": 2, "low": 3}
+    BYTE_TO_FAN = {v: k for k, v in FAN_TO_BYTE.items()}
+
+    # Each mode except Fan keeps its OWN remembered target temperature --
+    # payload[3]=Cooling, [4]=Heating, [5]=Auto, [6]=Dry (official spec,
+    # see class docstring). payload[11] ("Setup Temperature") is what
+    # actually drives the physical unit for whichever mode is active, and
+    # earlier code always wrote temperature changes to payload[5] (Auto's
+    # slot) regardless of the AC's actual mode. That's harmless for the
+    # physical unit (payload[11] was always right) but explains a real
+    # bug a reporter found on issue #17: with the AC in Cool or Dry mode,
+    # a temperature change from one interface (this integration or the
+    # HDL app) reached the physical unit correctly but didn't show up on
+    # the OTHER interface -- because whichever one reads payload[3]/[6]
+    # for its own Cool/Dry-mode display saw a stale value, since only
+    # payload[5] (the wrong slot for those modes) was being updated. In
+    # Auto mode there was no bug, because payload[5] is the right slot
+    # there. Fan has no temperature at all, so it's absent here.
+    _TEMP_BYTE_FOR_MODE = {0: 3, 1: 4, 3: 5, 4: 6}  # cool/heat/auto/dry
+
+    def __init__(
+        self, buspro, device_address, hvac_number: int, name: str = ""
+    ) -> None:
+        """Initialize the air conditioner."""
+        super().__init__(buspro, device_address, name)
+        self._buspro = buspro
+        self._device_address = device_address
+        self._hvac_number = hvac_number
+        # Last full 13-int payload observed for this HVAC No., or None if
+        # nothing has been seen yet.
+        self._raw_payload: list[int] | None = None
+
+        self.register_telegram_received_cb(self._telegram_received_cb)
+        self._call_read_current_status(run_from_init=True)
+
+    def _telegram_received_cb(self, telegram) -> None:
+        if telegram.operate_code not in (
+            OperateCode.ControlACStatusResponse,
+            OperateCode.ReadACStatusResponse,
+        ):
+            return
+        payload = telegram.payload or []
+        # byte 0 of the payload is the HVAC No. this frame is about -- the
+        # IR module's single bus address serves up to 4 of them, so ignore
+        # frames for a different HVAC No. than this entity.
+        if len(payload) < 12 or payload[0] != self._hvac_number:
+            return
+        # A HVAC No. with no AC actually wired to it reports back as all
+        # 0xFF (255) -- confirmed from a real ReadACStatusResponse capture
+        # (e.g. [2, 0, 27, 22, 25, 25, 25, 32, 255, 255, 255, 255, 255]).
+        # Accepting that as real state would make this entity look
+        # available with a plausible-but-fake temperature, and would send
+        # 0xFF bytes onto the bus the moment someone tried to control it.
+        # Treat it as "nothing configured here" instead.
+        if all(b == 255 for b in payload[8:13]):
+            if self._raw_payload is not None:
+                # We previously had real data and now see the empty-slot
+                # sentinel -- surface this loudly, it likely means the
+                # configured HVAC No. is wrong for this module.
+                self._buspro.logger.warning(
+                    "AC %s HVAC %s now reports as unconfigured (all-0xFF) "
+                    "after previously showing real status -- check the "
+                    "HVAC No. for this entity is correct.",
+                    self._device_address,
+                    self._hvac_number,
+                )
+                self._raw_payload = None
+                self._call_device_updated()
+            else:
+                self._buspro.logger.debug(
+                    "AC %s HVAC %s reports as unconfigured (all-0xFF) -- "
+                    "no AC unit wired to this HVAC No. on this module.",
+                    self._device_address,
+                    self._hvac_number,
+                )
+            return
+        self._raw_payload = list(payload)
+        self._call_device_updated()
+
+    @property
+    def available(self) -> bool:
+        """Return True once a real payload has been observed on the bus."""
+        return self._raw_payload is not None
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._raw_payload) and self._raw_payload[8] == 1
+
+    @property
+    def target_temperature(self):
+        """Return the setpoint for the AC's current mode.
+
+        Reads whichever per-mode byte (see _TEMP_BYTE_FOR_MODE) matches
+        the AC's own current mode, not payload[11], so this always
+        agrees with what the HDL app itself displays for that mode --
+        see _TEMP_BYTE_FOR_MODE's comment for why that matters. Returns
+        None in Fan mode, which has no temperature.
+        """
+        if not self._raw_payload:
+            return None
+        temp_index = self._TEMP_BYTE_FOR_MODE.get(self._raw_payload[9])
+        if temp_index is None:
+            return None
+        return self._raw_payload[temp_index]
+
+    @property
+    def current_temperature(self):
+        """Room temperature reading, per byte 2 in the class docstring's
+        confirmed byte layout. Not independently verified against a known
+        actual room temperature on this reporter's unit, but the field
+        itself (and its offset) is confirmed, not guessed.
+        """
+        if not self._raw_payload:
+            return None
+        return self._raw_payload[2]
+
+    @property
+    def hvac_mode(self) -> str | None:
+        """Return the current mode as one of MODE_TO_BYTE's keys, or None
+        if the AC is off or no status has been observed yet."""
+        if not self._raw_payload or not self.is_on:
+            return None
+        return self.BYTE_TO_MODE.get(self._raw_payload[9])
+
+    @property
+    def fan_speed(self) -> str | None:
+        """Return the current fan speed as one of FAN_TO_BYTE's keys, or
+        None if the AC is off or no status has been observed yet."""
+        if not self._raw_payload or not self.is_on:
+            return None
+        return self.BYTE_TO_FAN.get(self._raw_payload[10])
+
+    async def read_status(self) -> None:
+        """Trigger a read of the current AC status."""
+        req = _GenericControl(self._buspro)
+        req.subnet_id, req.device_id = self._device_address
+        req.operate_code = OperateCode.ReadACStatus
+        req.payload = [self._hvac_number]
+        await req.send()
+
+    # How often to retry the startup read while no status has been observed
+    # yet. A single one-shot attempt is fragile -- it can race the gateway
+    # coming up, drop a packet, or (we suspect, but haven't confirmed) the
+    # module may simply not answer ReadACStatus for a channel nobody has
+    # ever operated. Retrying costs nothing (it's a tiny broadcast, and it
+    # stops the moment real status arrives, from this read or from anyone
+    # else operating the AC) and fixes the "entity never becomes available"
+    # case whenever the read *would* have worked eventually.
+    #
+    # A continuous version of this (polling every few seconds forever, not
+    # just until the first status) was tried in v4.3.5 as a backstop against
+    # a couple of specific IR-module channels not broadcasting status
+    # changes reliably. Real-world testing on those exact modules (issue
+    # #17) showed it backfired: those channels don't handle being asked for
+    # status that often, and started responding with the "unconfigured"
+    # sentinel instead of real data, making the entity flip unavailable --
+    # worse than the display-lag it was meant to fix. Reverted in v4.3.6;
+    # do not reintroduce continuous polling here without real evidence it's
+    # safe on the specific modules affected.
+    _READ_RETRY_SECONDS = 30
+
+    def _call_read_current_status(self, run_from_init: bool = False) -> None:
+        async def _read():
+            if run_from_init:
+                await asyncio.sleep(5)
+            while self._raw_payload is None:
+                try:
+                    await self.read_status()
+                except Exception:  # noqa: BLE001
+                    self._buspro.logger.debug(
+                        "AC status read failed for %s HVAC %s",
+                        self._device_address,
+                        self._hvac_number,
+                    )
+                await asyncio.sleep(self._READ_RETRY_SECONDS)
+            self._buspro.logger.debug(
+                "AC %s HVAC %s status observed, stopping read retries",
+                self._device_address,
+                self._hvac_number,
+            )
+
+        asyncio.ensure_future(_read(), loop=self._buspro.loop)
+
+    async def _send_update(self, **changes) -> None:
+        """Echo the last observed payload, changing only confirmed fields.
+
+        Refuses to send anything until a real payload has been observed --
+        there is no safe default for the unidentified bytes (see class
+        docstring), so guessing them risks triggering an unintended stored
+        IR code on real hardware.
+        """
+        if not self._raw_payload:
+            self._buspro.logger.warning(
+                "Cannot control AC %s HVAC %s yet: no status has been "
+                "observed on the bus. Retrying a status read now -- if "
+                "this keeps happening, operate this AC once from the HDL "
+                "app or a physical panel, which will also seed it.",
+                self._device_address,
+                self._hvac_number,
+            )
+            # Nudge a fresh read right away rather than only waiting for
+            # the next periodic retry -- if the module does answer reads,
+            # this shortens "try the command again in a bit" to seconds.
+            try:
+                await self.read_status()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
+        payload = list(self._raw_payload)
+        if "power" in changes:
+            payload[8] = changes["power"]
+        # Resolve the effective mode up front (even if this call doesn't
+        # change it) so a target_temperature change always lands in the
+        # right per-mode byte, regardless of call order below.
+        mode_byte = (
+            self.MODE_TO_BYTE[changes["hvac_mode"]]
+            if "hvac_mode" in changes
+            else payload[9]
+        )
+        if "target_temperature" in changes:
+            temperature = int(changes["target_temperature"])
+            temp_index = self._TEMP_BYTE_FOR_MODE.get(mode_byte)
+            if temp_index is not None:
+                payload[temp_index] = temperature
+            payload[11] = temperature
+        if "hvac_mode" in changes or "fan_speed" in changes:
+            fan_byte = (
+                self.FAN_TO_BYTE[changes["fan_speed"]]
+                if "fan_speed" in changes
+                else payload[10]
+            )
+            payload[9] = mode_byte
+            payload[10] = fan_byte
+            # Byte 7 mirrors mode+speed as nibbles (see class docstring) --
+            # only meaningful while on, per caligo-mentis/smart-bus's own
+            # encode(). We mirror the new target rather than replicating
+            # the staleness real captures show; it isn't acted on by the
+            # module either way, this is just keeping it well-formed.
+            if payload[8] == 1:
+                payload[7] = (mode_byte << 4) | fan_byte
+
+        ctrl = _GenericControl(self._buspro)
+        ctrl.subnet_id, ctrl.device_id = self._device_address
+        ctrl.operate_code = OperateCode.ControlACStatus
+        ctrl.payload = payload
+        await ctrl.send()
+
+        # Optimistically update local state; the module's own broadcast
+        # reply will confirm (or correct) it shortly after.
+        self._raw_payload = payload
+        self._call_device_updated()
+
+    async def turn_on(self) -> None:
+        """Turn the AC on (leaves mode/fan at their last real setting)."""
+        await self._send_update(power=1)
+
+    async def turn_off(self) -> None:
+        """Turn the AC off."""
+        await self._send_update(power=0)
+
+    async def set_target_temperature(self, temperature: int) -> None:
+        """Set the target temperature, in whole degrees Celsius."""
+        await self._send_update(target_temperature=temperature)
+
+    async def set_hvac_mode(self, mode: str) -> None:
+        """Set the HVAC mode -- one of MODE_TO_BYTE's keys ("cool",
+        "heat", "fan_only", "auto", "dry"), or "off" to turn the unit off.
+        """
+        if mode == "off":
+            await self._send_update(power=0)
+            return
+        if mode not in self.MODE_TO_BYTE:
+            raise ValueError(f"Unknown AC mode: {mode!r}")
+        await self._send_update(power=1, hvac_mode=mode)
+
+    async def set_fan_speed(self, speed: str) -> None:
+        """Set the fan speed -- one of FAN_TO_BYTE's keys ("low",
+        "medium", "high")."""
+        if speed not in self.FAN_TO_BYTE:
+            raise ValueError(f"Unknown AC fan speed: {speed!r}")
+        await self._send_update(fan_speed=speed)
