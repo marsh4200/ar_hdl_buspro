@@ -806,14 +806,21 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = reason
             elif url:
                 await manager.async_set_activation_url(url)
-                if not manager.has_contact:
-                    # Ask who is requesting before the first online request.
-                    self._pending_license_url = url
-                    return await self.async_step_license_contact()
+                # Already licensed on this install (e.g. adding another
+                # hub): nothing to request, carry straight on.
+                if manager.state.licensed:
+                    self._license_seen = True
+                    return await self.async_step_user()
+                # Check the server first - a licence may already be issued
+                # for this Server ID. Only ask for a name and email when it
+                # turns out to be a new request.
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     self._license_seen = True
                     return await self.async_step_user()
+                if reason == "pending_approval" and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 errors["base"] = reason
             else:
                 # Neither supplied: carry on into the demo window.
@@ -1076,16 +1083,17 @@ class ARHDLOptionsFlow(OptionsFlow):
                 errors["base"] = reason
             elif url:
                 # No key typed but a URL present: treat Submit as
-                # "activate / renew now". Ask who is requesting first if
-                # that was never recorded.
-                if not manager.has_contact:
-                    self._pending_license_url = url
-                    return await self.async_step_license_contact()
+                # "activate / renew now". The server is checked first; a
+                # name and email are only asked for when this turns out to
+                # be a new request awaiting approval.
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     return self.async_create_entry(
                         title="", data=dict(self._entry.options)
                     )
+                if reason == "pending_approval" and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 errors["base"] = reason
             else:
                 return await self.async_step_init()
