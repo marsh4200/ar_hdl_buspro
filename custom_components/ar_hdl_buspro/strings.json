@@ -3,11 +3,25 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. If a licence has already been issued for this Server ID, the key is installed straight away and keeps itself up to date.\n\n**No internet at this site, or no licence issued yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nLeave both untouched to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is installed from this integration's Configure menu.",
+        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. If a licence has already been issued for this Server ID, the key is installed straight away and keeps itself up to date.\n\n**No internet at this site, or no licence issued yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nTo finish setup without a licence, clear both boxes and submit - entities stay unavailable until a licence is activated or the trial is started from this integration's Configure menu.",
         "data": {
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"
         }
+      },
+      "license_menu": {
+        "title": "Licence",
+        "description": "**Server ID:** `{server_id}`\n\n**Status:** {status}\n\nActivate a licence for this install, or try AR HDL BUSPRO free for {trial_days} days first.",
+        "menu_options": {
+          "license": "Activate or request a licence",
+          "start_trial": "Start 2-day free trial",
+          "trial_continue": "Continue with the trial"
+        }
+      },
+      "start_trial": {
+        "title": "Start 2-day trial",
+        "description": "Everything works normally for {trial_days} days, until **{ends}**.\n\n**When the trial ends, every AR HDL BUSPRO entity becomes unavailable and no commands reach the HDL bus - automations and scripts that use them stop working.**\n\nThe trial can only be used once on this Home Assistant install. Your devices and settings are kept, and they come straight back once a licence is activated.",
+        "submit": "Start trial"
       },
       "license_contact": {
         "title": "Your details",
@@ -69,6 +83,19 @@
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"
         }
+      },
+      "license_menu": {
+        "title": "Licence",
+        "description": "**Server ID:** `{server_id}`\n\n**Status:** {status}\n\nActivate a licence for this install, or try AR HDL BUSPRO free for {trial_days} days first.",
+        "menu_options": {
+          "license": "Activate or request a licence",
+          "start_trial": "Start 2-day free trial"
+        }
+      },
+      "start_trial": {
+        "title": "Start 2-day trial",
+        "description": "Everything works normally for {trial_days} days, until **{ends}**.\n\n**When the trial ends, every AR HDL BUSPRO entity becomes unavailable and no commands reach the HDL bus - automations and scripts that use them stop working.**\n\nThe trial can only be used once on this Home Assistant install. Your devices and settings are kept, and they come straight back once a licence is activated.",
+        "submit": "Start trial"
       },
       "license_contact": {
         "title": "Your details",
@@ -412,6 +439,14 @@
     "license_inactive": {
       "title": "AR HDL BUSPRO is not licensed",
       "description": "The demo period has ended or the stored licence key is no longer valid, so all AR HDL BUSPRO entities are unavailable. Your devices and settings are untouched and come straight back once a key is entered.\n\nServer ID: `{server_id}`\n\nRequest a key at activatelicense.arsmarthome.co.za, then enter it under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
+    },
+    "license_trial_ended": {
+      "title": "AR HDL BUSPRO trial has ended",
+      "description": "The 2-day trial has ended, so all AR HDL BUSPRO entities are unavailable and no commands are sent to the HDL bus. Your devices and settings are untouched and come straight back once a licence is activated.\n\nServer ID: `{server_id}`\n\nActivate a licence under Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence."
+    },
+    "license_not_started": {
+      "title": "AR HDL BUSPRO is not licensed",
+      "description": "No licence is active and the 2-day trial has not been started, so all AR HDL BUSPRO entities are unavailable.\n\nServer ID: `{server_id}`\n\nGo to Settings > Devices & Services > AR HDL BUSPRO > Configure > Licence to start the trial or activate a licence."
     }
   }
 }

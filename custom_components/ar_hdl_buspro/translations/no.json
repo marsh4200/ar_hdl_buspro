@@ -25,6 +25,20 @@
           "contact_email": "E-post"
         },
         "submit": "Be om lisens"
+      },
+      "license_menu": {
+        "title": "Lisens",
+        "description": "**Server-ID:** `{server_id}`\n\n**Status:** {status}\n\nAktiver en lisens for denne installasjonen, eller prøv AR HDL BUSPRO gratis i {trial_days} dager først.",
+        "menu_options": {
+          "license": "Aktiver eller be om en lisens",
+          "start_trial": "Start 2-dagers gratis prøveperiode",
+          "trial_continue": "Fortsett med prøveperioden"
+        }
+      },
+      "start_trial": {
+        "title": "Start 2-dagers prøveperiode",
+        "description": "Alt fungerer som normalt i {trial_days} dager, frem til **{ends}**.\n\n**Når prøveperioden er over, blir alle AR HDL BUSPRO-entiteter utilgjengelige og ingen kommandoer sendes til HDL-bussen - automasjoner og skript som bruker dem slutter å virke.**\n\nPrøveperioden kan bare brukes én gang på denne Home Assistant-installasjonen. Enheter og innstillinger beholdes, og kommer tilbake så snart en lisens er aktivert.",
+        "submit": "Start prøveperiode"
       }
     },
     "error": {
@@ -172,6 +186,19 @@
           "contact_email": "E-post"
         },
         "submit": "Be om lisens"
+      },
+      "license_menu": {
+        "title": "Lisens",
+        "description": "**Server-ID:** `{server_id}`\n\n**Status:** {status}\n\nAktiver en lisens for denne installasjonen, eller prøv AR HDL BUSPRO gratis i {trial_days} dager først.",
+        "menu_options": {
+          "license": "Aktiver eller be om en lisens",
+          "start_trial": "Start 2-dagers gratis prøveperiode"
+        }
+      },
+      "start_trial": {
+        "title": "Start 2-dagers prøveperiode",
+        "description": "Alt fungerer som normalt i {trial_days} dager, frem til **{ends}**.\n\n**Når prøveperioden er over, blir alle AR HDL BUSPRO-entiteter utilgjengelige og ingen kommandoer sendes til HDL-bussen - automasjoner og skript som bruker dem slutter å virke.**\n\nPrøveperioden kan bare brukes én gang på denne Home Assistant-installasjonen. Enheter og innstillinger beholdes, og kommer tilbake så snart en lisens er aktivert.",
+        "submit": "Start prøveperiode"
       }
     },
     "progress": {
@@ -331,6 +358,16 @@
       "dry_contact": {
         "name": "Tørrkontakt"
       }
+    }
+  },
+  "issues": {
+    "license_trial_ended": {
+      "title": "Prøveperioden for AR HDL BUSPRO er over",
+      "description": "2-dagers prøveperioden er over, så alle AR HDL BUSPRO-entiteter er utilgjengelige og ingen kommandoer sendes til HDL-bussen. Enheter og innstillinger er uendret og kommer tilbake så snart en lisens er aktivert.\n\nServer-ID: `{server_id}`\n\nAktiver en lisens under Innstillinger > Enheter og tjenester > AR HDL BUSPRO > Konfigurer > Lisens."
+    },
+    "license_not_started": {
+      "title": "AR HDL BUSPRO er ikke lisensiert",
+      "description": "Ingen lisens er aktiv og 2-dagers prøveperioden er ikke startet, så alle AR HDL BUSPRO-entiteter er utilgjengelige.\n\nServer-ID: `{server_id}`\n\nGå til Innstillinger > Enheter og tjenester > AR HDL BUSPRO > Konfigurer > Lisens for å starte prøveperioden eller aktivere en lisens."
     }
   }
 }

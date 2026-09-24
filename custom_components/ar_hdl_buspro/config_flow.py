@@ -11,6 +11,7 @@ import re
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -24,6 +25,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.util import dt as dt_util
 
 from .const import (
     AC_HVAC_MODES,
@@ -128,6 +130,8 @@ from .licensing import (
     STATUS_LICENSED,
     STATUS_PENDING,
     STATUS_TRIAL,
+    STATUS_TRIAL_EXPIRED,
+    STATUS_TRIAL_NOT_STARTED,
     TRIAL_DAYS,
     async_get_manager,
 )
@@ -161,6 +165,36 @@ def _validate_contact(user_input: dict[str, Any]) -> tuple[str, str, dict[str, s
     if not _EMAIL_RE.match(email):
         errors[CONF_CONTACT_EMAIL] = "invalid_email"
     return name, email, errors
+
+
+def _fmt_local(when: datetime) -> str:
+    """Format a UTC datetime in HA's local time, e.g. 'Sat 26 Sep, 16:52'."""
+    return dt_util.as_local(when).strftime("%a %d %b, %H:%M")
+
+
+def _license_status_text(manager: Any) -> str:
+    """One-line licence status for the licence screens."""
+    state = manager.state
+    if state.status == STATUS_LICENSED:
+        text = f"Licensed to {state.client or 'unknown'}" + (
+            f", expires {state.expires_at[:10]}" if state.expires_at else ", perpetual"
+        )
+    elif state.status == STATUS_TRIAL:
+        ends = manager.trial_ends
+        text = f"Trial - {state.trial_days_left} day(s) left" + (
+            f", ends {_fmt_local(ends)}" if ends else ""
+        )
+    elif state.status == STATUS_TRIAL_EXPIRED:
+        text = "Trial ended - entities are unavailable"
+    elif state.status == STATUS_TRIAL_NOT_STARTED:
+        text = "Not licensed - start the trial or activate a licence"
+    elif state.status == STATUS_PENDING:
+        text = "Awaiting approval on the licence server"
+    else:
+        text = "Not licensed - entities are unavailable"
+    if manager.last_contact:
+        text += f" (last checked {manager.last_contact[:16].replace('T', ' ')})"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -720,7 +754,12 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
         # installer sees the Server ID up front. Re-entry for "Scan again"
         # skips it -- the flag is only cleared on a brand new flow.
         if not self._license_seen:
-            return await self.async_step_license()
+            manager = await async_get_manager(self.hass)
+            if manager.state.licensed:
+                # Already licensed (e.g. adding another hub): nothing to ask.
+                self._license_seen = True
+            else:
+                return await self.async_step_license_menu()
 
         if user_input is not None:
             choice = user_input[CONF_GATEWAY_CHOICE]
@@ -776,6 +815,53 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_license_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Licence choice: activate a licence, or start / continue the trial."""
+        manager = await async_get_manager(self.hass)
+        options = ["license"]
+        if manager.trial_available:
+            options.append("start_trial")
+        elif manager.state.status == STATUS_TRIAL:
+            options.append("trial_continue")
+        return self.async_show_menu(
+            step_id="license_menu",
+            menu_options=options,
+            description_placeholders={
+                "server_id": manager.server_id,
+                "status": _license_status_text(manager),
+                "trial_days": str(TRIAL_DAYS),
+            },
+        )
+
+    async def async_step_start_trial(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm and start the one-off trial, then carry on with setup."""
+        manager = await async_get_manager(self.hass)
+        if not manager.trial_available:
+            return await self.async_step_license_menu()
+        if user_input is not None:
+            await manager.async_start_trial()
+            self._license_seen = True
+            return await self.async_step_user()
+        return self.async_show_form(
+            step_id="start_trial",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "ends": _fmt_local(dt_util.utcnow() + timedelta(days=TRIAL_DAYS)),
+                "trial_days": str(TRIAL_DAYS),
+            },
+        )
+
+    async def async_step_trial_continue(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Trial already running on this install: carry on with setup."""
+        self._license_seen = True
+        return await self.async_step_user()
+
     async def async_step_license(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -823,7 +909,9 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                     return await self.async_step_license_contact()
                 errors["base"] = reason
             else:
-                # Neither supplied: carry on into the demo window.
+                # Neither supplied: carry on with setup. Entities stay
+                # unavailable unless a trial is running or a licence is
+                # activated later from Configure > Licence.
                 self._license_seen = True
                 return await self.async_step_user()
 
@@ -1062,6 +1150,13 @@ class ARHDLOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """View licence status / Server ID and enter or replace a key."""
         manager = await async_get_manager(self.hass)
+        # Trial never used on this install: offer it before the key form.
+        if (
+            user_input is None
+            and manager.trial_available
+            and not getattr(self, "_license_menu_shown", False)
+        ):
+            return await self.async_step_license_menu()
         errors: dict[str, str] = getattr(self, "_license_errors", {})
         self._license_errors: dict[str, str] = {}
 
@@ -1098,20 +1193,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             else:
                 return await self.async_step_init()
 
-        state = manager.state
-        if state.status == STATUS_LICENSED:
-            status_text = f"Licensed to {state.client or 'unknown'}" + (
-                f", expires {state.expires_at[:10]}" if state.expires_at else ", perpetual"
-            )
-        elif state.status == STATUS_TRIAL:
-            status_text = f"Demo - {state.trial_days_left} day(s) left"
-        elif state.status == STATUS_PENDING:
-            status_text = "Awaiting approval on the licence server"
-        else:
-            status_text = "Not licensed - entities are unavailable"
-
-        if manager.last_contact:
-            status_text += f" (last checked {manager.last_contact[:16].replace('T', ' ')})"
+        status_text = _license_status_text(manager)
 
         return self.async_show_form(
             step_id="license",
@@ -1139,6 +1221,44 @@ class ARHDLOptionsFlow(OptionsFlow):
                 "portal_url": LICENSE_PORTAL_URL,
                 "portal_host": LICENSE_PORTAL_HOST,
                 "server_url": LICENSE_SERVER_URL,
+            },
+        )
+
+    async def async_step_license_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Offer the one-off trial alongside the licence form."""
+        manager = await async_get_manager(self.hass)
+        self._license_menu_shown = True
+        options = ["license"]
+        if manager.trial_available:
+            options.append("start_trial")
+        return self.async_show_menu(
+            step_id="license_menu",
+            menu_options=options,
+            description_placeholders={
+                "server_id": manager.server_id,
+                "status": _license_status_text(manager),
+                "trial_days": str(TRIAL_DAYS),
+            },
+        )
+
+    async def async_step_start_trial(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm and start the one-off trial; saving reloads the entry."""
+        manager = await async_get_manager(self.hass)
+        if not manager.trial_available:
+            return await self.async_step_license()
+        if user_input is not None:
+            await manager.async_start_trial()
+            return self.async_create_entry(title="", data=dict(self._entry.options))
+        return self.async_show_form(
+            step_id="start_trial",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "ends": _fmt_local(dt_util.utcnow() + timedelta(days=TRIAL_DAYS)),
+                "trial_days": str(TRIAL_DAYS),
             },
         )
 

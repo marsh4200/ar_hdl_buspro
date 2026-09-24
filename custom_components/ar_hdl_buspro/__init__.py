@@ -22,6 +22,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ADDRESS,
@@ -61,6 +62,8 @@ from .licensing import (
     SIGNAL_LICENSE_CHANGED,
     STATUS_LICENSED,
     STATUS_TRIAL,
+    STATUS_TRIAL_EXPIRED,
+    STATUS_TRIAL_NOT_STARTED,
     async_get_manager,
 )
 
@@ -199,6 +202,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
 
+    # Lock at the exact moment the trial runs out rather than at the next
+    # hourly recheck: entities go unavailable and the send-path gate stops
+    # all bus traffic from that minute.
+    if manager.state.status == STATUS_TRIAL and manager.trial_ends is not None:
+        remaining = (manager.trial_ends - dt_util.utcnow()).total_seconds()
+        if remaining > 0:
+            entry.async_on_unload(
+                async_call_later(hass, remaining + 1, _recheck_license)
+            )
+
     # Background renewal against the licence server, when one is configured.
     # Keys issued for online installs are short-lived and rolled forward
     # here; a site that cannot reach the server keeps running on the key it
@@ -253,9 +266,11 @@ def _async_apply_license_state(hass: HomeAssistant) -> None:
             if state.status == STATUS_TRIAL
             else ir.IssueSeverity.ERROR
         ),
-        translation_key=(
-            "license_trial" if state.status == STATUS_TRIAL else "license_inactive"
-        ),
+        translation_key={
+            STATUS_TRIAL: "license_trial",
+            STATUS_TRIAL_EXPIRED: "license_trial_ended",
+            STATUS_TRIAL_NOT_STARTED: "license_not_started",
+        }.get(state.status, "license_inactive"),
         translation_placeholders={
             "server_id": state.server_id,
             "days_left": str(state.trial_days_left),

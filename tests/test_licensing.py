@@ -185,7 +185,18 @@ async def main():
     FAKE_DISK = {}
     hass = await fresh_hass()
     mgr, state = await load(hass)
-    check("fresh install is in trial", state.status == "trial", state.status)
+    check("fresh install waits for the trial to be started",
+          state.status == "trial_not_started" and not state.active, state.status)
+    check("fresh install mints no unlock token", mgr.unlock is None)
+    check("fresh install offers the trial", mgr.trial_available)
+    check("nothing anchored before the trial is started",
+          "trial_anchor" not in FAKE_DISK.get("ar_hdl_buspro.license", {}))
+    state = await mgr.async_start_trial()
+    await hass.drain()
+    check("start trial -> trial", state.status == "trial", state.status)
+    check("trial no longer offered once started", not mgr.trial_available)
+    check("trial end is 2 days out",
+          abs((mgr.trial_ends - datetime.now(timezone.utc)) - timedelta(days=2)) < timedelta(minutes=1))
     check("fresh trial has 2 days", state.trial_days_left == 2,
           str(state.trial_days_left))
     sid1 = mgr.server_id
@@ -221,11 +232,15 @@ async def main():
     mgr3, state3 = await load(hass3)
     check("both stores deleted -> trial still expired (entry anchor)",
           state3.status == "trial_expired", state3.status)
+    check("expired trial cannot be started again", not mgr3.trial_available)
+    s3b = await mgr3.async_start_trial()
+    check("start_trial after expiry stays expired", s3b.status == "trial_expired", s3b.status)
 
     # 5. Corrupting the timestamp locks rather than unlocks
     FAKE_DISK = {}
     hass4 = await fresh_hass()
     mgr4, s4 = await load(hass4)
+    s4 = await mgr4.async_start_trial(); await hass4.drain()
     check("baseline before corruption is trial", s4.status == "trial")
     FAKE_DISK["ar_hdl_buspro.license"]["trial_anchor"]["ts"] = "not-a-date"
     FAKE_DISK["ar_hdl_buspro.runtime"]["trial_anchor"]["ts"] = "not-a-date"
@@ -240,6 +255,7 @@ async def main():
     FAKE_DISK = {}
     hass6 = await fresh_hass()
     mgr6, _ = await load(hass6)
+    await mgr6.async_start_trial(); await hass6.drain()
     # Pretend the system has been up long enough to spend the window.
     future = datetime.now(timezone.utc) + timedelta(days=3)
     mgr6._anchor.high_water = future
@@ -249,6 +265,21 @@ async def main():
     _, s7 = await load(hass7)
     check("clock rollback -> window already spent",
           s7.status == "trial_expired", s7.status)
+
+    # 6b. Trial locks at the exact end moment, and the bus gate closes
+    FAKE_DISK = {}
+    hass6b = await fresh_hass()
+    mgr6b, _ = await load(hass6b)
+    await mgr6b.async_start_trial(); await hass6b.drain()
+    mgr6b._anchor.started = datetime.now(timezone.utc) - timedelta(days=2) + timedelta(seconds=2)
+    s6b = mgr6b.evaluate()
+    check("2s before the end -> still trial, commands allowed",
+          s6b.status == "trial" and mgr6b.unlock is not None, s6b.status)
+    await asyncio.sleep(2.5)
+    s6c = mgr6b.evaluate()
+    check("at the end -> trial_expired", s6c.status == "trial_expired", s6c.status)
+    check("at the end -> no unlock token (bus commands blocked)", mgr6b.unlock is None)
+    check("at the end -> entities inactive", not licensing.is_active(hass6b))
 
     # 7. Legacy pinned server id is preserved
     FAKE_DISK = {

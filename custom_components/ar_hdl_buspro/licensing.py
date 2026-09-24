@@ -129,6 +129,9 @@ STATUS_TRIAL_EXPIRED = "trial_expired"
 STATUS_LICENSE_EXPIRED = "license_expired"
 STATUS_INVALID = "invalid"
 STATUS_UNCONFIGURED = "unconfigured"
+# No licence and the 2-day trial has not been started yet. Locked until the
+# installer either activates a licence or presses "Start 2-day trial".
+STATUS_TRIAL_NOT_STARTED = "trial_not_started"
 STATUS_TAMPERED = "tampered"
 # Server ID reached the licence server but is not approved yet.
 STATUS_PENDING = "pending_approval"
@@ -478,6 +481,7 @@ class ARHDLLicenseManager:
         self._server_id: str = ""
         self._tampered: str | None = None
         self._last_hw_write: datetime | None = None
+        self._loaded = False
 
     # ----- lifecycle -------------------------------------------------------
     async def async_load(self) -> LicenseState:
@@ -498,6 +502,7 @@ class ARHDLLicenseManager:
 
         self._server_id = await self._async_resolve_server_id()
         self._anchor = await self._async_resolve_anchor()
+        self._loaded = True
 
         await self._async_persist_anchor(force=True)
         return self.evaluate()
@@ -532,7 +537,7 @@ class ARHDLLicenseManager:
             await self._store.async_save(self._data)
         return derived
 
-    async def _async_resolve_anchor(self) -> _Anchor:
+    async def _async_resolve_anchor(self) -> _Anchor | None:
         """Collect every stored anchor and reduce them to one.
 
         Earliest start wins and the latest high-water mark wins, so adding
@@ -561,10 +566,12 @@ class ARHDLLicenseManager:
         elif self._data.get("trial_started") is not None:
             candidates.append(_Anchor(started=_EPOCH, high_water=_EPOCH))
 
-        now = datetime.now(timezone.utc)
         if not candidates:
-            # Genuinely new install.
-            return _Anchor(started=now, high_water=now)
+            # Genuinely new install: the trial has not been started. It
+            # only begins when the installer presses "Start 2-day trial"
+            # (async_start_trial), and from then on is stored in all three
+            # places like before.
+            return None
 
         started = min(anchor.started for anchor in candidates)
         high_water = max(
@@ -701,6 +708,12 @@ class ARHDLLicenseManager:
 
     def _evaluate_trial(self, server_id: str) -> LicenseState:
         """Evaluate the 2-day demo window."""
+        if self._anchor is None and self._loaded and not self._tampered:
+            return LicenseState(
+                status=STATUS_TRIAL_NOT_STARTED,
+                server_id=server_id,
+                trial_days_left=0,
+            )
         if self._anchor is None:
             # Manager not loaded - fail closed rather than granting a window.
             return LicenseState(
@@ -720,6 +733,32 @@ class ARHDLLicenseManager:
         return LicenseState(
             status=STATUS_TRIAL, server_id=server_id, trial_days_left=days_left
         )
+
+    # ----- trial -----------------------------------------------------------
+    @property
+    def trial_available(self) -> bool:
+        """True when the 2-day trial has never been started on this install."""
+        return self._loaded and self._anchor is None and not self._tampered
+
+    @property
+    def trial_ends(self) -> datetime | None:
+        """When the trial ends (UTC), or None if it was never started."""
+        if self._anchor is None:
+            return None
+        return self._anchor.started + timedelta(days=TRIAL_DAYS)
+
+    async def async_start_trial(self) -> LicenseState:
+        """Start the one-off 2-day trial now.
+
+        Does nothing if a trial has ever been started on this install - the
+        anchor, once written, is kept in three places and never reset.
+        """
+        if not self.trial_available:
+            return self.evaluate()
+        now = datetime.now(timezone.utc)
+        self._anchor = _Anchor(started=now, high_water=now)
+        await self._async_persist_anchor(force=True)
+        return self.evaluate()
 
     # ----- mutation --------------------------------------------------------
     async def async_set_key(self, key: str) -> tuple[LicenseState, str | None]:
