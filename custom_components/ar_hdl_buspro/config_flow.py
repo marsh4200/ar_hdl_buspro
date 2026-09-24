@@ -53,6 +53,8 @@ from .const import (
     CONF_GATEWAY_HOST,
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
+    CONF_CONTACT_EMAIL,
+    CONF_CONTACT_NAME,
     CONF_LICENSE_KEY,
     CONF_LICENSE_URL,
     LICENSE_PORTAL_HOST,
@@ -131,6 +133,34 @@ from .licensing import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _contact_schema(name: str = "", email: str = "") -> vol.Schema:
+    """Name + email form shown before an online licence request."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_CONTACT_NAME, default=name): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            vol.Required(CONF_CONTACT_EMAIL, default=email): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.EMAIL)
+            ),
+        }
+    )
+
+
+def _validate_contact(user_input: dict[str, Any]) -> tuple[str, str, dict[str, str]]:
+    """Return (name, email, errors) from the contact form."""
+    name = (user_input.get(CONF_CONTACT_NAME) or "").strip()
+    email = (user_input.get(CONF_CONTACT_EMAIL) or "").strip()
+    errors: dict[str, str] = {}
+    if not name:
+        errors[CONF_CONTACT_NAME] = "contact_name_required"
+    if not _EMAIL_RE.match(email):
+        errors[CONF_CONTACT_EMAIL] = "invalid_email"
+    return name, email, errors
 
 
 # ---------------------------------------------------------------------------
@@ -667,6 +697,8 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_gateways: list[Any] = []
         self._prefill: dict[str, Any] = {}
         self._license_seen = False
+        self._pending_license_url = ""
+        self._license_errors: dict[str, str] = {}
 
     async def _async_run_gateway_discovery(self) -> None:
         """Probe UDP/6000 for HDL gateways on the local network."""
@@ -754,7 +786,8 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
         integration's Configure menu, without redoing any of the setup.
         """ % TRIAL_DAYS
         manager = await async_get_manager(self.hass)
-        errors: dict[str, str] = {}
+        errors: dict[str, str] = self._license_errors
+        self._license_errors = {}
 
         if user_input is not None:
             key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
@@ -773,6 +806,10 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = reason
             elif url:
                 await manager.async_set_activation_url(url)
+                if not manager.has_contact:
+                    # Ask who is requesting before the first online request.
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     self._license_seen = True
@@ -812,6 +849,38 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 "portal_host": LICENSE_PORTAL_HOST,
                 "server_url": LICENSE_SERVER_URL,
             },
+        )
+
+    async def async_step_license_contact(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect a name and email, then send the licence request."""
+        manager = await async_get_manager(self.hass)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            name, email, errors = _validate_contact(user_input)
+            if not errors:
+                await manager.async_set_contact(name, email)
+                _state, reason = await manager.async_activate(
+                    self._pending_license_url or None
+                )
+                if reason is None:
+                    self._license_seen = True
+                    return await self.async_step_user()
+                # Back to the licence screen with the result shown there
+                # (e.g. "sent for approval").
+                self._license_errors = {"base": reason}
+                return await self.async_step_license()
+
+        return self.async_show_form(
+            step_id="license_contact",
+            data_schema=_contact_schema(
+                (user_input or {}).get(CONF_CONTACT_NAME, manager.contact_name),
+                (user_input or {}).get(CONF_CONTACT_EMAIL, manager.contact_email),
+            ),
+            errors=errors,
+            description_placeholders={"server_id": manager.server_id},
         )
 
     async def async_step_manual(
@@ -986,7 +1055,8 @@ class ARHDLOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """View licence status / Server ID and enter or replace a key."""
         manager = await async_get_manager(self.hass)
-        errors: dict[str, str] = {}
+        errors: dict[str, str] = getattr(self, "_license_errors", {})
+        self._license_errors: dict[str, str] = {}
 
         if user_input is not None:
             key = (user_input.get(CONF_LICENSE_KEY) or "").strip()
@@ -1006,7 +1076,11 @@ class ARHDLOptionsFlow(OptionsFlow):
                 errors["base"] = reason
             elif url:
                 # No key typed but a URL present: treat Submit as
-                # "activate / renew now".
+                # "activate / renew now". Ask who is requesting first if
+                # that was never recorded.
+                if not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     return self.async_create_entry(
@@ -1058,6 +1132,37 @@ class ARHDLOptionsFlow(OptionsFlow):
                 "portal_host": LICENSE_PORTAL_HOST,
                 "server_url": LICENSE_SERVER_URL,
             },
+        )
+
+    async def async_step_license_contact(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect a name and email, then send the licence request."""
+        manager = await async_get_manager(self.hass)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            name, email, errors = _validate_contact(user_input)
+            if not errors:
+                await manager.async_set_contact(name, email)
+                _state, reason = await manager.async_activate(
+                    getattr(self, "_pending_license_url", "") or None
+                )
+                if reason is None:
+                    return self.async_create_entry(
+                        title="", data=dict(self._entry.options)
+                    )
+                self._license_errors = {"base": reason}
+                return await self.async_step_license()
+
+        return self.async_show_form(
+            step_id="license_contact",
+            data_schema=_contact_schema(
+                (user_input or {}).get(CONF_CONTACT_NAME, manager.contact_name),
+                (user_input or {}).get(CONF_CONTACT_EMAIL, manager.contact_email),
+            ),
+            errors=errors,
+            description_placeholders={"server_id": manager.server_id},
         )
 
     # ----- gateway settings -------------------------------------------------

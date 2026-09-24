@@ -9,6 +9,15 @@
           "license_key": "Licence key (optional)"
         }
       },
+      "license_contact": {
+        "title": "Your details",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.",
+        "data": {
+          "contact_name": "Name",
+          "contact_email": "Email"
+        },
+        "submit": "Request licence"
+      },
       "user": {
         "title": "AR HDL BUSPRO gateway",
         "description": "Found {count} HDL Buspro gateway(s) on your network by probing UDP port 6000. Pick one, or enter an address manually.",
@@ -43,7 +52,9 @@
       "activation_refused": "The licence server has this Server ID on record but will not issue for it - it may have been revoked or expired. Contact activatelicense.arsmarthome.co.za.",
       "no_activation_url": "Enter the licence server address, or paste a licence key.",
       "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
-      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead."
+      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead.",
+      "contact_name_required": "Enter a name.",
+      "invalid_email": "Enter a valid email address."
     },
     "abort": {
       "already_configured": "This gateway is already configured."
@@ -58,6 +69,15 @@
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"
         }
+      },
+      "license_contact": {
+        "title": "Your details",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.",
+        "data": {
+          "contact_name": "Name",
+          "contact_email": "Email"
+        },
+        "submit": "Request licence"
       },
       "init": {
         "title": "AR HDL BUSPRO configuration",
@@ -218,7 +238,9 @@
       "activation_refused": "The licence server has this Server ID on record but will not issue for it - it may have been revoked or expired. Contact activatelicense.arsmarthome.co.za.",
       "no_activation_url": "Enter the licence server address, or paste a licence key.",
       "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
-      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead."
+      "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead.",
+      "contact_name_required": "Enter a name.",
+      "invalid_email": "Enter a valid email address."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",

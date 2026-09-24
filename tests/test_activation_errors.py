@@ -141,6 +141,22 @@ async def main():
         check("429 -> checked_recently", reason=="checked_recently", str(reason))
         await rn.cleanup()
 
+        # --- requester name + email reach the server and persist ---
+        seen={}
+        async def cap(r):
+            seen.update(await r.json()); return web.json_response({"status":"pending"})
+        rn=await serve(cap,4108); mg=await mgr()
+        check("no contact recorded on a fresh install", not mg.has_contact)
+        await mg.async_set_contact("  Kruger Lodge ", "ops@example.co.za ")
+        st,reason=await mg.async_activate("http://127.0.0.1:4108")
+        check("request carries name + email",
+              seen.get("name")=="Kruger Lodge" and seen.get("email")=="ops@example.co.za"
+              and seen.get("server_id")==mg.server_id, json.dumps(seen))
+        check("contact persisted to storage",
+              any(d.get("contact_email")=="ops@example.co.za" for d in FAKE_DISK.values()
+                  if isinstance(d,dict)))
+        await rn.cleanup()
+
         # --- connection refused ---
         mg=await mgr()
         st,reason=await mg.async_activate("http://127.0.0.1:4199")

@@ -763,6 +763,27 @@ class ARHDLLicenseManager:
         await self._store.async_save(self._data)
 
     @property
+    def contact_name(self) -> str:
+        """Return the requester's name sent with activation requests."""
+        return str(self._data.get("contact_name") or "").strip()
+
+    @property
+    def contact_email(self) -> str:
+        """Return the requester's email sent with activation requests."""
+        return str(self._data.get("contact_email") or "").strip()
+
+    @property
+    def has_contact(self) -> bool:
+        """Return True once a name and email have been recorded."""
+        return bool(self.contact_name and self.contact_email)
+
+    async def async_set_contact(self, name: str, email: str) -> None:
+        """Persist the requester's name and email."""
+        self._data["contact_name"] = (name or "").strip()
+        self._data["contact_email"] = (email or "").strip()
+        await self._store.async_save(self._data)
+
+    @property
     def last_contact(self) -> str | None:
         """Return when the licence server was last reached, if ever."""
         return self._data.get("last_contact")
@@ -801,6 +822,8 @@ class ARHDLLicenseManager:
                     "server_id": self.server_id,
                     "product": PRODUCT,
                     "version": _integration_version(),
+                    "name": self.contact_name,
+                    "email": self.contact_email,
                 },
                 timeout=_client_timeout(ACTIVATION_TIMEOUT),
             ) as response:

@@ -16,13 +16,24 @@
           "gateway_port": "Gateway-port",
           "local_ip": "Lokal IP (valgfritt)"
         }
+      },
+      "license_contact": {
+        "title": "Dine opplysninger",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.",
+        "data": {
+          "contact_name": "Navn",
+          "contact_email": "E-post"
+        },
+        "submit": "Be om lisens"
       }
     },
     "error": {
       "cannot_connect": "Kunne ikke nå gatewayen på den oppgitte adressen.",
       "invalid_host": "Verten kunne ikke slås opp. Bruk gatewayens IP eller DNS-navn.",
       "invalid_port": "Porten må være mellom 1 og 65535.",
-      "unknown": "Uventet feil. Se logg for detaljer."
+      "unknown": "Uventet feil. Se logg for detaljer.",
+      "contact_name_required": "Skriv inn et navn.",
+      "invalid_email": "Skriv inn en gyldig e-postadresse."
     },
     "abort": {
       "already_configured": "Denne gatewayen er allerede konfigurert."
@@ -152,6 +163,15 @@
         "data": {
           "gateway_choice": "Gateway"
         }
+      },
+      "license_contact": {
+        "title": "Dine opplysninger",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.",
+        "data": {
+          "contact_name": "Navn",
+          "contact_email": "E-post"
+        },
+        "submit": "Be om lisens"
       }
     },
     "progress": {
@@ -163,7 +183,9 @@
       "invalid_host": "Verten kunne ikke slås opp. Bruk gatewayens IP eller DNS-navn.",
       "invalid_port": "Porten må være mellom 1 og 65535.",
       "unknown": "Uventet feil. Se logg for detaljer.",
-      "scan_failed": "Bussskanningen mislyktes. Se loggene for detaljer."
+      "scan_failed": "Bussskanningen mislyktes. Se loggene for detaljer.",
+      "contact_name_required": "Skriv inn et navn.",
+      "invalid_email": "Skriv inn en gyldig e-postadresse."
     },
     "abort": {
       "no_devices": "Ingen enheter er konfigurert ennå.",

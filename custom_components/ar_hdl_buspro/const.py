@@ -59,6 +59,11 @@ LICENSE_SERVER_URL: Final = f"https://{LICENSE_SERVER_HOST}"
 # licensing.py.
 CONF_LICENSE_URL: Final = "license_url"
 
+# Contact details collected before an online licence request, so the
+# licence server's pending queue shows who asked and where to reply.
+CONF_CONTACT_NAME: Final = "contact_name"
+CONF_CONTACT_EMAIL: Final = "contact_email"
+
 # Devices stored inside the entry's options
 CONF_DEVICES: Final = "devices"
 CONF_DEVICE_TYPE: Final = "device_type"
