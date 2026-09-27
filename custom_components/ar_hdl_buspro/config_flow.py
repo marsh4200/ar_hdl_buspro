@@ -33,6 +33,7 @@ from .const import (
     BINARY_KIND_UNIVERSAL_SWITCH,
     BINARY_KINDS,
     CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
     CLIMATE_KINDS,
     CLIMATE_PRESETS,
@@ -480,11 +481,22 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
             # module's 4 live AC channels this entity targets. Subnet/Device
             # above are the IR module's own address, not the AC unit's.
             # Ignored for a DLP panel.
+            # Touch-panel AC (climate_kind = ac_panel) uses the same field for
+            # the panel's AC slot; Subnet/Device are then the panel's address.
             vol.Optional(
                 CONF_HVAC_NUMBER, default=defaults.get(CONF_HVAC_NUMBER, 1)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1, max=4, mode=selector.NumberSelectorMode.BOX
+                    min=1, max=8, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            # Touch-panel AC only: the panel's own temperature-sensor channel
+            # (0xE3E7), used for the room temperature. 0 = don't read one.
+            vol.Optional(
+                CONF_TEMP_CHANNEL, default=defaults.get(CONF_TEMP_CHANNEL, 1)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=8, mode=selector.NumberSelectorMode.BOX
                 )
             ),
             # AC via IR module only. Which HVAC modes this specific unit
@@ -601,7 +613,8 @@ def _device_summary(device: dict[str, Any]) -> str:
     if (
         ch is None
         and dtype == DEVICE_TYPE_CLIMATE
-        and device.get(CONF_CLIMATE_KIND) == CLIMATE_KIND_AC_IR
+        and device.get(CONF_CLIMATE_KIND)
+        in (CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL)
     ):
         # Several AC entities can share one IR module's address, only
         # distinguished by HVAC No. -- show it so the device list (and

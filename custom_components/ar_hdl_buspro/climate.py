@@ -29,6 +29,7 @@ from . import ARHDLData
 from .const import (
     AC_HVAC_MODES,
     CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_AC_PANEL,
     CONF_AC_HVAC_MODES,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
@@ -41,8 +42,10 @@ from .const import (
     CONF_RELAY_DEVICE,
     CONF_RELAY_SUBNET,
     CONF_SUBNET_ID,
+    CONF_TEMP_CHANNEL,
     DEVICE_TYPE_CLIMATE,
     DOMAIN,
+    PANEL_AC_HVAC_MODES,
     PRESET_AWAY,
     PRESET_HOME,
     PRESET_NONE,
@@ -53,6 +56,7 @@ from .gateway import ARHDLGateway
 from .pybuspro.devices.climate import AirConditioner as PyBusproAirConditioner
 from .pybuspro.devices.climate import Climate as PyBusproClimate
 from .pybuspro.devices.climate import ControlFloorHeatingStatus
+from .pybuspro.devices.panel_ac import PanelAirConditioner
 from .pybuspro.devices.sensor import Sensor as PyBusproSensor
 from .pybuspro.helpers.enums import OnOffStatus
 
@@ -99,8 +103,11 @@ async def async_setup_entry(
     for device_cfg in devices:
         if device_cfg.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_CLIMATE:
             continue
-        if device_cfg.get(CONF_CLIMATE_KIND) == CLIMATE_KIND_AC_IR:
+        kind = device_cfg.get(CONF_CLIMATE_KIND)
+        if kind == CLIMATE_KIND_AC_IR:
             entities.append(ARHDLAcClimate(entry, data.gateway, device_cfg))
+        elif kind == CLIMATE_KIND_AC_PANEL:
+            entities.append(ARHDLPanelAcClimate(entry, data.gateway, device_cfg))
         else:
             entities.append(ARHDLDlpClimate(entry, data.gateway, device_cfg))
 
@@ -410,6 +417,147 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set target temperature."""
+        temperature = kwargs.get(ATTR_TEMPERATURE)
+        if temperature is None:
+            return
+        await self._ac.set_target_temperature(int(temperature))
+
+
+class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
+    """An air conditioner driven from a touch panel's AC page.
+
+    HDL Enviro / Granite family panels (e.g. HDL-MPTL4C.48). Subnet/Device
+    are the panel's address, HVAC No. is the panel's AC slot. Power,
+    Cool/Heat mode, per-mode setpoint and fan (auto/low/medium/high) are
+    exposed; swing and setpoint limits are not mapped yet. See
+    pybuspro/devices/panel_ac.py for the protocol.
+    """
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1
+    # Panel limits are not mapped yet; a normal split-unit range.
+    _attr_min_temp = 16
+    _attr_max_temp = 30
+    _attr_fan_modes = [FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        gateway: ARHDLGateway,
+        device_cfg: dict[str, Any],
+    ) -> None:
+        """Initialize the panel AC."""
+        super().__init__(entry, gateway, device_cfg)
+
+        subnet = int(device_cfg[CONF_SUBNET_ID])
+        device = int(device_cfg[CONF_DEVICE_ID])
+        ac_channel = int(device_cfg.get(CONF_HVAC_NUMBER, 1))
+        temp_channel = int(device_cfg.get(CONF_TEMP_CHANNEL, 1) or 0)
+
+        self._ac = PanelAirConditioner(
+            gateway.hdl,
+            (subnet, device),
+            ac_channel,
+            temperature_channel=temp_channel,
+            name=device_cfg.get(CONF_NAME, ""),
+        )
+        self._resync_device = self._ac
+
+        configured = device_cfg.get(CONF_AC_HVAC_MODES, PANEL_AC_HVAC_MODES)
+        modes = [m for m in PANEL_AC_HVAC_MODES if m in configured] or list(
+            PANEL_AC_HVAC_MODES
+        )
+        self._attr_hvac_modes = [HVACMode.OFF] + [
+            AC_MODE_TO_HA_HVAC_MODE[m] for m in modes
+        ]
+
+        self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
+        self._attr_name = None
+        self._attr_supported_features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Register update callbacks."""
+        await super().async_added_to_hass()
+
+        async def _after_update(_device) -> None:
+            self.async_write_ha_state()
+
+        self._ac.register_device_updated_cb(_after_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop the panel's background reads."""
+        self._ac.stop()
+        await super().async_will_remove_from_hass()
+
+    # ----- state ----------------------------------------------------------
+    @property
+    def available(self) -> bool:
+        """Unavailable until the panel has reported this slot's power."""
+        return super().available and self._ac.available
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self._ac.current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self._ac.target_temperature
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        if not self._ac.is_on:
+            return HVACMode.OFF
+        return AC_MODE_TO_HA_HVAC_MODE.get(self._ac.hvac_mode, HVACMode.COOL)
+
+    @property
+    def hvac_action(self) -> HVACAction:
+        # The panel reports what it asked for, not whether the compressor
+        # is running, so this is the requested action.
+        if not self._ac.is_on:
+            return HVACAction.OFF
+        return AC_MODE_TO_HVAC_ACTION.get(self._ac.hvac_mode, HVACAction.IDLE)
+
+    @property
+    def fan_mode(self) -> str | None:
+        return self._ac.fan_speed
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "cool_target_temperature": self._ac.cool_target_temperature,
+            "heat_target_temperature": self._ac.heat_target_temperature,
+        }
+
+    # ----- commands -------------------------------------------------------
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if hvac_mode == HVACMode.OFF:
+            await self._ac.turn_off()
+            return
+        mode = HA_HVAC_MODE_TO_AC_MODE.get(hvac_mode)
+        if mode not in PANEL_AC_HVAC_MODES:
+            _LOGGER.warning("Unsupported panel AC mode: %s", hvac_mode)
+            return
+        await self._ac.set_hvac_mode(mode)
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        if fan_mode not in (FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH):
+            _LOGGER.warning("Unsupported fan mode: %s", fan_mode)
+            return
+        await self._ac.set_fan_speed(fan_mode)
+
+    async def async_turn_on(self) -> None:
+        await self._ac.turn_on()
+
+    async def async_turn_off(self) -> None:
+        await self._ac.turn_off()
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
             return

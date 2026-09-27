@@ -141,15 +141,15 @@
           "temperature_offset": "Temperature offset",
           "device_hw_kind": "Hardware variant",
           "climate_kind": "Climate protocol",
-          "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
-          "ac_hvac_modes": "AC HVAC modes to offer (AC via IR module only)",
+          "hvac_number": "HVAC No. (IR module 1-4) / panel AC slot (touch panel)",
+          "ac_hvac_modes": "AC HVAC modes to offer (touch panel: Cool/Heat only)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
           "relay_channel": "Relay channel (optional)",
           "motion_uv_switch": "Motion push switch no. (0 = off; try 201 on CMS multisensors)",
           "motion_byte_index": "Motion byte index in 0x1630 broadcast (-1 = off)",
-          "temperature_channel": "Temperature channel (touch-panel hardware only)",
+          "temperature_channel": "Temperature channel (touch panel sensors & panel AC; 0 = none)",
           "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
           "cover_mode": "Curtain hardware",
           "curtain_number": "Curtain number (curtain module mode)",
@@ -182,15 +182,15 @@
           "temperature_offset": "Temperature offset",
           "device_hw_kind": "Hardware variant",
           "climate_kind": "Climate protocol",
-          "hvac_number": "HVAC No. (AC via IR module only, 1-4)",
-          "ac_hvac_modes": "AC HVAC modes to offer (AC via IR module only)",
+          "hvac_number": "HVAC No. (IR module 1-4) / panel AC slot (touch panel)",
+          "ac_hvac_modes": "AC HVAC modes to offer (touch panel: Cool/Heat only)",
           "preset_modes": "Climate preset modes",
           "relay_subnet": "Relay subnet ID (optional)",
           "relay_device": "Relay device ID (optional)",
           "relay_channel": "Relay channel (optional)",
           "motion_uv_switch": "Motion push switch no. (0 = off; try 201 on CMS multisensors)",
           "motion_byte_index": "Motion byte index in 0x1630 broadcast (-1 = off)",
-          "temperature_channel": "Temperature channel (touch-panel hardware only)",
+          "temperature_channel": "Temperature channel (touch panel sensors & panel AC; 0 = none)",
           "temperature_fahrenheit": "Sensor reports Fahrenheit (convert to °C)",
           "cover_mode": "Curtain hardware",
           "curtain_number": "Curtain number (curtain module mode)",
@@ -306,7 +306,8 @@
     "climate_kind": {
       "options": {
         "dlp": "DLP panel (floor heating / thermostat)",
-        "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)"
+        "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)",
+        "ac_panel": "Air conditioner via touch panel (HDL Enviro / Granite)"
       }
     },
     "ac_hvac_mode": {
