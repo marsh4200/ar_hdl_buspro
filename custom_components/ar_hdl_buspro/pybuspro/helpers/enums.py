@@ -160,6 +160,14 @@ class OperateCode(Enum):
     ControlACStatus = b"\x19\x3A"
     ControlACStatusResponse = b"\x19\x3B"
 
+    # Touch-panel AC page (HDL Enviro / Granite family). One field per frame:
+    # [field, value, ac_channel]; read request is [field, ch, ch]. See
+    # pybuspro/devices/panel_ac.py for the field map and provenance.
+    ControlPanelAC = b"\xE3\xD8"
+    ControlPanelACResponse = b"\xE3\xD9"
+    ReadPanelAC = b"\xE3\xDA"
+    ReadPanelACResponse = b"\xE3\xDB"
+
     ReadDryContactStatus = b"\x15\xCE"
     ReadDryContactStatusResponse = b"\x15\xCF"
 

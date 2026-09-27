@@ -32,6 +32,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
   - [Re-scanning is always safe](#re-scanning-is-always-safe)
 - [Adding and editing devices by hand](#adding-and-editing-devices-by-hand)
 - [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module)
+- [Air conditioning via a touch panel](#-air-conditioning-via-a-touch-panel)
 - [Recognised HDL type codes](#recognised-hdl-type-codes)
 - [Services](#services)
 - [How the connection works](#how-the-connection-works)
@@ -319,6 +320,24 @@ If a unit doesn't have every mode (a cooling-only split, say, with no Heat), ope
 
 > This byte-level protocol was reverse-engineered from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) and independently cross-checked against HDL's own published AC control specification, so it should hold for any HDL AC-via-IR-module setup — but it's newer and less travelled than the rest of this integration. If something doesn't behave as expected on your hardware, please open an issue with your `ar_hdl_buspro.telegram` debug log.
 
+## 🌡️ Air Conditioning via a Touch Panel
+
+HDL touch panels with an AC page (**HDL-MPTL4C.48 Granite Display**, **HDL-MPTLC43.46-A Enviro** and the same family) can be controlled directly: power, Cool/Heat, fan speed and target temperature, with the room temperature taken from the panel's own sensor. Changes made on the panel's screen show up in Home Assistant straight away.
+
+Add it by hand:
+
+1. **Configure → Add a device → Climate**
+2. Fill in the **panel's** subnet/device address
+3. Set **Climate protocol** to *Air conditioner via touch panel*
+4. Set **HVAC No.** to the panel's AC slot (AC 1 on the panel = 1, AC 2 = 2, …)
+5. Leave **Temperature channel** at `1` (the panel's built-in sensor), or `0` for no room temperature
+
+**Supported modes:** Cool, Heat. **Supported fan speeds:** Auto, Low, Medium, High. **Setpoint range:** 16–30 °C.
+
+**Not supported yet:** swing, and the panel's own setpoint limits. The entity stays unavailable until the panel has answered once, and it never shows a state the panel hasn't reported.
+
+> The panel protocol is mapped from live bus captures on an Enviro panel. Power has been tested end to end from Home Assistant; mode, setpoint and fan follow the same captured frame layout but are newer. If something doesn't behave as expected, please open an issue with your `ar_hdl_buspro.telegram` debug log.
+
 ## 📖 Recognised HDL Type Codes
 
 Codes already pinned in the classification table. Anything not listed still gets discovered — it classifies from its replies, or falls back to an editable switch.
@@ -329,12 +348,12 @@ Codes already pinned in the classification table. Anything not listed still gets
 | `0x0086` / `0x0095` / `0x009C` | Climate | DLP / DLP2 panels |
 | `0x0890` | Climate | HDL-MPTL4C.48 Granite Display touch panel |
 | `0x0260` / `0x026D` / `0x0269` | Light (dimmer) | DT0601 / MDT0601 6-ch dimmers |
-| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0141`, `0x0457`, `0x084D`, `0x1209`, `0x120B`, `0x238C`, `0x239C`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit, 18 relay + 4 dimmer ch) imports as 22 switch channels — re-tag the 4 dimmer channels to light by hand afterward |
+| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0141`, `0x0457`, `0x1209`, `0x120B`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit, 18 relay + 4 dimmer ch) imports as 22 switch channels — re-tag the 4 dimmer channels to light by hand afterward |
 | `0x25E5` / `0x25E8` / `0x02C9` | **Cover** | Curtain modules (`0x02C9` = HDL-MW02.431 2-ch) |
 | `0x0077` / `0x0166` | Binary sensor | SB_DRY_4Z dry contact / HDL-MS24.232 24-zone dry contact |
 | `0x0134` / `0x0135` / `0x0150` | Sensor bundle | 12-in-1 / 8-in-1 / MSP07M |
 | `0x0516` / `0x0517` | Universal switch | HDL-MIRC04.40 IR emitter/receiver module |
-| `0x012B`, `0x00AF`, `0x08DB`, `0x080D` | Keypad | Wall panels (labelled, not imported) |
+| `0x012B`, `0x00AF`, `0x08DB`, `0x080D`, `0x084D`, `0x239C`, `0x238C` | Keypad | Wall keypads and DLP panels (labelled, not imported) |
 
 Found a code that isn't here? The scan log prints every device's type code — open an ["Unrecognised device / type code"](issues/new?template=unsupported_device.yml) issue with the code and what the hardware is, and it gets added.
 

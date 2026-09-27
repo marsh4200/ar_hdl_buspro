@@ -17,6 +17,7 @@ from homeassistant.helpers.entity import Entity
 
 from .const import (
     CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
@@ -56,6 +57,7 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
 _CLIMATE_KIND_LABELS: dict[str, str] = {
     CLIMATE_KIND_DLP: "Climate – Floor Heating",
     CLIMATE_KIND_AC_IR: "Climate – AC via IR Module",
+    CLIMATE_KIND_AC_PANEL: "Climate – AC via Touch Panel",
 }
 
 

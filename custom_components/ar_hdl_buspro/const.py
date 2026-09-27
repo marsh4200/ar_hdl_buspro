@@ -126,7 +126,13 @@ CONF_RELAY_CHANNEL: Final = "relay_channel"
 CONF_CLIMATE_KIND: Final = "climate_kind"
 CLIMATE_KIND_DLP: Final = "dlp"
 CLIMATE_KIND_AC_IR: Final = "ac_ir"
-CLIMATE_KINDS: Final = [CLIMATE_KIND_DLP, CLIMATE_KIND_AC_IR]
+# AC driven from a touch panel's AC page (HDL Enviro / Granite family, e.g.
+# HDL-MPTL4C.48 0x0890). Subnet/Device are the PANEL's address, HVAC No. is
+# the panel's AC slot, temperature_channel is the panel's own sensor channel.
+CLIMATE_KIND_AC_PANEL: Final = "ac_panel"
+CLIMATE_KINDS: Final = [CLIMATE_KIND_DLP, CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL]
+# Modes a panel AC slot can actually select (field 6: 0 cool, 1 heat).
+PANEL_AC_HVAC_MODES: Final = ["cool", "heat"]
 # "HVAC No." (1-4): which of the IR module's live AC channels this entity
 # targets. Only meaningful when CONF_CLIMATE_KIND is CLIMATE_KIND_AC_IR.
 CONF_HVAC_NUMBER: Final = "hvac_number"
@@ -332,13 +338,10 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0141": DEVICE_TYPE_SWITCH,         # relay module
     "0x0457": DEVICE_TYPE_SWITCH,         # relay module
     "0x01C1": DEVICE_TYPE_SWITCH,         # relay module
-    "0x084D": DEVICE_TYPE_SWITCH,         # relay module
-    "0x239C": DEVICE_TYPE_SWITCH,         # relay module
     "0x01C2": DEVICE_TYPE_SWITCH,         # 16ch relay module
     "0x01BD": DEVICE_TYPE_SWITCH,         # 8ch relay module
     "0x01BF": DEVICE_TYPE_SWITCH,         # 4ch relay module
     "0x1209": DEVICE_TYPE_SWITCH,         # relay/mix module
-    "0x238C": DEVICE_TYPE_SWITCH,         # relay/mix module
     "0x0269": DEVICE_TYPE_LIGHT,          # 6ch dimmer module
     "0x25E5": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
     "0x25E8": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
@@ -427,13 +430,13 @@ HDL_TYPE_NAMES: Final = {
     "0x0141": "Relay module",
     "0x0457": "Relay module",
     "0x01C1": "Relay module",
-    "0x084D": "Relay module",
-    "0x239C": "Relay module",
+    "0x084D": "Wall keypad",
+    "0x239C": "Wall keypad",
     "0x01C2": "Relay module (16ch)",
     "0x01BD": "Relay module (8ch)",
     "0x01BF": "Relay module (4ch)",
     "0x1209": "Relay module",
-    "0x238C": "Relay module",
+    "0x238C": "DLP panel",
     "0x0269": "Dimmer module (6ch)",
     "0x25E5": "Curtain module",
     "0x25E8": "Curtain module",
@@ -470,6 +473,9 @@ HDL_KEYPAD_TYPE_CODES: Final = {
     "0x00AF",  # wall keypad
     "0x08DB",  # wall keypad
     "0x080D",  # wall keypad
+    "0x084D",  # wall keypad (was mis-mapped as a relay module)
+    "0x239C",  # wall keypad (was mis-mapped as a relay module)
+    "0x238C",  # DLP panel (was mis-mapped as a relay/mix module)
 }
 
 # Type codes known to be dimmer modules. The scanner also detects dimmers from
