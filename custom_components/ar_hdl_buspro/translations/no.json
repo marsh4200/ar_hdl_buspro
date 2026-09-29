@@ -19,7 +19,7 @@
       },
       "license_contact": {
         "title": "Dine opplysninger",
-        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.",
         "data": {
           "contact_name": "Navn",
           "contact_email": "E-post"
@@ -166,7 +166,7 @@
       },
       "license_contact": {
         "title": "Dine opplysninger",
-        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.",
         "data": {
           "contact_name": "Navn",
           "contact_email": "E-post"

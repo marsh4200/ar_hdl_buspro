@@ -11,7 +11,7 @@
       },
       "license_contact": {
         "title": "Your details",
-        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.",
         "data": {
           "contact_name": "Name",
           "contact_email": "Email"
@@ -72,7 +72,7 @@
       },
       "license_contact": {
         "title": "Your details",
-        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.",
         "data": {
           "contact_name": "Name",
           "contact_email": "Email"
