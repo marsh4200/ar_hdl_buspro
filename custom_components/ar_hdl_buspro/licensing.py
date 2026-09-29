@@ -890,6 +890,28 @@ class ARHDLLicenseManager:
             await self._store.async_save(self._data)
             return self.evaluate(), None
 
+        # From here on the licence server was reached and gave a definite
+        # answer that is NOT "here is your key". The server is the source of
+        # truth for whether a licence exists, so a key held locally is only
+        # kept while the server still stands behind it:
+        #
+        #   * "pending" - no licence on record for this Server ID (the row
+        #     was deleted on the server, or was never issued), and
+        #   * "denied"  - the licence was revoked or has expired there.
+        #
+        # Either way the stored key is dropped and the install falls back to
+        # its (long since spent) demo window, i.e. locks. Network failures,
+        # 4xx/5xx and throttling never reach this point, so a site that is
+        # simply offline keeps running on the key it holds.
+        if status in ("pending", "denied") and self._data.get("license_key"):
+            _LOGGER.warning(
+                "The licence server no longer holds a licence for this "
+                "install (%s). Removing the stored key",
+                status,
+            )
+            self._data.pop("license_key", None)
+            self.evaluate()
+
         await self._store.async_save(self._data)
 
         if status == "pending":
@@ -898,9 +920,9 @@ class ARHDLLicenseManager:
                 server_id=self.server_id,
                 reason="pending_approval",
             )
-            # Do not overwrite a working licence with "pending" - a renewal
-            # for an install awaiting a *renewal* approval keeps running on
-            # the key it already holds until that key expires.
+            # Any stored key was dropped above. Only an install still inside
+            # its demo window stays active here; everything else shows as
+            # awaiting approval.
             if not self.state.active:
                 self._state = state
             return self.state, "pending_approval"

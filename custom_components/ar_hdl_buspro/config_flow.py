@@ -819,16 +819,22 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = reason
             elif url:
                 await manager.async_set_activation_url(url)
-                # Already licensed on this install (e.g. adding another
-                # hub): nothing to request, carry straight on.
-                if manager.state.licensed:
-                    self._license_seen = True
-                    return await self.async_step_user()
-                # Check the server first - a licence may already be issued
-                # for this Server ID. Only ask for a name and email when it
-                # turns out to be a new request.
+                # Always ask the server, even when a key is already stored
+                # (e.g. the integration was removed and re-added): the server
+                # decides whether that licence still exists, and a deleted or
+                # revoked one clears the stored key. Only ask for a name and
+                # email when it turns out to be a new request.
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
+                    self._license_seen = True
+                    return await self.async_step_user()
+                # Server unreachable or throttled, not a "no": an install
+                # that still holds a valid key carries on offline.
+                if manager.state.licensed and reason in (
+                    "cannot_reach_server",
+                    "checked_recently",
+                    "no_activation_endpoint",
+                ):
                     self._license_seen = True
                     return await self.async_step_user()
                 if reason == "pending_approval" and not manager.has_contact:

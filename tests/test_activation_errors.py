@@ -56,6 +56,32 @@ sys.modules.update(m)
 sys.path.insert(0,PKG)
 import licensing
 
+# Test signing key, so a genuine stored licence can be set up per case.
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+PRIV=Ed25519PrivateKey.generate()
+licensing._PUBLIC_KEY_HEX=PRIV.public_key().public_bytes(
+    encoding=serialization.Encoding.Raw,format=serialization.PublicFormat.Raw).hex()
+def _b64u(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")
+def mint(server_id):
+    raw=json.dumps({"client":"Test Lodge","expires_at":None,
+        "issued_at":datetime.now(timezone.utc).isoformat(),"license_id":"LIC-1",
+        "product":"ar_hdl_buspro","server_id":server_id},
+        separators=(",",":"),sort_keys=True).encode()
+    return f"WIQL1.{_b64u(raw)}.{_b64u(PRIV.sign(raw))}"
+
+async def licensed_mgr():
+    """A manager holding a valid perpetual key, demo window long spent."""
+    mg=await mgr()
+    old={"sid":mg.server_id,"ts":"2020-01-01T00:00:00+00:00","hw":"2020-01-01T00:00:00+00:00"}
+    mg._anchor=licensing._read_anchor(old,mg.server_id)
+    st,err=await mg.async_set_key(mint(mg.server_id))
+    assert err is None and st.licensed, err
+    return mg
+
+def stored_key():
+    return (FAKE_DISK.get(licensing.STORAGE_KEY) or {}).get("license_key")
+
 R=[]
 def check(n,c,d=""):
     R.append((n,bool(c))); print(f"[{'PASS' if c else 'FAIL'}] {n}"+(f"  -- {d}" if d else ""))
@@ -156,6 +182,32 @@ async def main():
               any(d.get("contact_email")=="ops@example.co.za" for d in FAKE_DISK.values()
                   if isinstance(d,dict)))
         await rn.cleanup()
+
+        # --- licence DELETED on the server: stored key must be dropped ---
+        rn=await serve(pend,4109); mg=await licensed_mgr()
+        st,reason=await mg.async_activate("http://127.0.0.1:4109")
+        check("deleted on server (pending) -> stored key removed, install locked",
+              reason=="pending_approval" and not mg.state.active and not stored_key(),
+              f"{reason} {mg.state.status}")
+        await rn.cleanup()
+
+        # --- licence REVOKED on the server: stored key must be dropped ---
+        rn=await serve(den,4110); mg=await licensed_mgr()
+        st,reason=await mg.async_activate("http://127.0.0.1:4110")
+        check("revoked on server (denied) -> stored key removed, install locked",
+              reason=="activation_refused" and not mg.state.active and not stored_key(),
+              f"{reason} {mg.state.status}")
+        await rn.cleanup()
+
+        # --- offline / plumbing errors must NOT drop a working key ---
+        for port,h,label in ((4111,boom,"500"),(4112,busy,"429"),(4113,nf,"404")):
+            rn=await serve(h,port); mg=await licensed_mgr()
+            await mg.async_activate(f"http://127.0.0.1:{port}")
+            check(f"{label} keeps the stored key", mg.state.licensed and stored_key())
+            await rn.cleanup()
+        mg=await licensed_mgr()
+        await mg.async_activate("http://127.0.0.1:4198")
+        check("offline keeps the stored key", mg.state.licensed and stored_key())
 
         # --- connection refused ---
         mg=await mgr()
