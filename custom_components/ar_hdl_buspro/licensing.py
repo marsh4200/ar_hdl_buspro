@@ -482,7 +482,13 @@ class ARHDLLicenseManager:
     # ----- lifecycle -------------------------------------------------------
     async def async_load(self) -> LicenseState:
         """Load (or create) stored licence data and evaluate it."""
-        self._tampered = _integrity_failure()
+        # Both helpers read files from disk, so they run in the executor -
+        # Home Assistant flags file I/O done on the event loop. The version
+        # is read here once and cached for every later activation call.
+        self._tampered = await self.hass.async_add_executor_job(
+            _integrity_failure
+        )
+        await self.hass.async_add_executor_job(_integration_version)
         if self._tampered:
             _LOGGER.error(
                 "AR HDL BUSPRO integrity check failed for %s: this build has "
@@ -816,12 +822,17 @@ class ARHDLLicenseManager:
             )
 
             session = async_get_clientsession(self.hass)
+            # Cached by async_load; the executor hop only matters if it was
+            # somehow not, and keeps the manifest read off the event loop.
+            version = await self.hass.async_add_executor_job(
+                _integration_version
+            )
             async with session.post(
                 base + ACTIVATE_PATH,
                 json={
                     "server_id": self.server_id,
                     "product": PRODUCT,
-                    "version": _integration_version(),
+                    "version": version,
                     "name": self.contact_name,
                     "email": self.contact_email,
                 },
