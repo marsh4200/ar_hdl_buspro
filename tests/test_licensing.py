@@ -53,6 +53,11 @@ class HomeAssistant:
         self._tasks.append(task)
         return task
 
+    async def async_add_executor_job(self, func, *args):
+        return await asyncio.get_running_loop().run_in_executor(
+            None, func, *args
+        )
+
     async def drain(self):
         while self._tasks:
             pending = self._tasks

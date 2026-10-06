@@ -25,6 +25,8 @@ class HomeAssistant:
     def __init__(s): s.data={}; s.config_entries=EM(); s._t=[]
     def async_create_task(s,c):
         t=asyncio.ensure_future(c); s._t.append(t); return t
+    async def async_add_executor_job(s,f,*a):
+        return await asyncio.get_running_loop().run_in_executor(None,f,*a)
     async def drain(s):
         while s._t:
             p,s._t=s._t,[]; await asyncio.gather(*p,return_exceptions=True)
