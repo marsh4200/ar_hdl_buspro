@@ -779,6 +779,11 @@ class ARHDLLicenseManager:
         return str(self._data.get("contact_email") or "").strip()
 
     @property
+    def has_stored_key(self) -> bool:
+        """True once this install holds a licence key (any state)."""
+        return bool(self._data.get("license_key"))
+
+    @property
     def has_contact(self) -> bool:
         """Return True once a name and email have been recorded."""
         return bool(self.contact_name and self.contact_email)
@@ -815,6 +820,14 @@ class ARHDLLicenseManager:
         base = (url or self.activation_url or "").strip().rstrip("/")
         if not base:
             return self.state, "no_activation_url"
+
+        # A NEW licence request must carry who it is for. Without this, an
+        # installer who submitted the licence screen and then backed out of
+        # the name/email step left an anonymous request on the server. An
+        # install that already holds a key (renewal / re-check) may still
+        # ask without one.
+        if not self._data.get("license_key") and not self.has_contact:
+            return self.state, "contact_required"
 
         try:
             from homeassistant.helpers.aiohttp_client import (

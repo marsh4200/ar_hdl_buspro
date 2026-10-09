@@ -3,7 +3,7 @@
     "step": {
       "license": {
         "title": "Licence",
-        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. If a licence has already been issued for this Server ID, the key is installed straight away and keeps itself up to date.\n\n**No internet at this site, or no licence issued yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nLeave both untouched to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is installed from this integration's Configure menu.",
+        "description": "**Server ID:** `{server_id}`\n\n**Automatic activation** - leave the licence server address below as it is and submit. You'll be asked for a name and email first; no request is sent without them. If a licence has already been issued for this Server ID, the key is installed straight away and keeps itself up to date.\n\n**No internet at this site, or no licence issued yet?** Go to [{portal_host}]({portal_url}), enter the Server ID above, and paste the key you receive into the box below.\n\nLeave both untouched to run the {trial_days}-day demo - everything works normally, and after that entities stay unavailable until a key is installed from this integration's Configure menu.",
         "data": {
           "license_url": "Licence server address",
           "license_key": "Licence key (optional)"
@@ -11,7 +11,7 @@
       },
       "license_contact": {
         "title": "Your details",
-        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.\n\n**No licence is requested until you enter your name and email and press Submit.** If you go back without submitting, nothing is sent.",
         "data": {
           "contact_name": "Name",
           "contact_email": "Email"
@@ -54,7 +54,8 @@
       "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
       "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead.",
       "contact_name_required": "Enter a name.",
-      "invalid_email": "Enter a valid email address."
+      "invalid_email": "Enter a valid email address.",
+      "contact_required": "Enter a name and email first - no licence is requested without them."
     },
     "abort": {
       "already_configured": "This gateway is already configured."
@@ -72,7 +73,7 @@
       },
       "license_contact": {
         "title": "Your details",
-        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.",
+        "description": "So we know who this licence is for and can let you know when it's been activated, please give us a name and an email address.\n\nThese are sent to the licence server with your Server ID `{server_id}` and are only used to contact you about this licence.\n\n**Please note:** licences can take from 30 minutes to 24 hours to be activated.\n\n**No licence is requested until you enter your name and email and press Submit.** If you go back without submitting, nothing is sent.",
         "data": {
           "contact_name": "Name",
           "contact_email": "Email"
@@ -248,7 +249,8 @@
       "checked_recently": "This install checked with the licence server moments ago. Wait about a minute and try again.",
       "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead.",
       "contact_name_required": "Enter a name.",
-      "invalid_email": "Enter a valid email address."
+      "invalid_email": "Enter a valid email address.",
+      "contact_required": "Enter a name and email first - no licence is requested without them."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",

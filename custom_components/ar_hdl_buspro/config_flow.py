@@ -1143,6 +1143,11 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = reason
             elif url:
                 await manager.async_set_activation_url(url)
+                # A brand-new request: ask for a name and email FIRST. No
+                # licence request reaches the server until they are given.
+                if not manager.has_stored_key and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 # Always ask the server, even when a key is already stored
                 # (e.g. the integration was removed and re-added): the server
                 # decides whether that licence still exists, and a deleted or
@@ -1161,7 +1166,9 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 ):
                     self._license_seen = True
                     return await self.async_step_user()
-                if reason == "pending_approval" and not manager.has_contact:
+                if reason == "contact_required" or (
+                    reason == "pending_approval" and not manager.has_contact
+                ):
                     self._pending_license_url = url
                     return await self.async_step_license_contact()
                 errors["base"] = reason
@@ -1426,15 +1433,21 @@ class ARHDLOptionsFlow(OptionsFlow):
                 errors["base"] = reason
             elif url:
                 # No key typed but a URL present: treat Submit as
-                # "activate / renew now". The server is checked first; a
-                # name and email are only asked for when this turns out to
-                # be a new request awaiting approval.
+                # "activate / renew now". A brand-new request asks for a
+                # name and email FIRST - nothing reaches the server until
+                # they are given. An install that already holds a key is
+                # checked with the server straight away.
+                if not manager.has_stored_key and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     return self.async_create_entry(
                         title="", data=dict(self._entry.options)
                     )
-                if reason == "pending_approval" and not manager.has_contact:
+                if reason == "contact_required" or (
+                    reason == "pending_approval" and not manager.has_contact
+                ):
                     self._pending_license_url = url
                     return await self.async_step_license_contact()
                 errors["base"] = reason

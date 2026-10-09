@@ -97,11 +97,15 @@ async def serve(handler, port, method="post", path="/api/activation/activate"):
     await web.TCPSite(runner,"127.0.0.1",port).start()
     return runner
 
-async def mgr():
+async def mgr(contact=True):
+    """A fresh, unlicensed install. A new licence request needs a name and
+    email, so by default the requester has filled them in."""
     global FAKE_DISK
     FAKE_DISK={}
     h=HomeAssistant(); h.config_entries.entries.append(FE("e0"))
     mg=licensing.ARHDLLicenseManager(h); await mg.async_load(); await h.drain()
+    if contact:
+        await mg.async_set_contact("Test Site", "test@example.co.za")
     return mg
 
 async def main():
@@ -173,8 +177,13 @@ async def main():
         seen={}
         async def cap(r):
             seen.update(await r.json()); return web.json_response({"status":"pending"})
-        rn=await serve(cap,4108); mg=await mgr()
+        rn=await serve(cap,4108); mg=await mgr(contact=False)
         check("no contact recorded on a fresh install", not mg.has_contact)
+        # --- no name/email: NO request may leave the install ---
+        seen.clear()
+        st,reason=await mg.async_activate("http://127.0.0.1:4108")
+        check("fresh install without name/email -> contact_required, server not contacted",
+              reason=="contact_required" and not seen, f"{reason} {seen}")
         await mg.async_set_contact("  Kruger Lodge ", "ops@example.co.za ")
         st,reason=await mg.async_activate("http://127.0.0.1:4108")
         check("request carries name + email",
@@ -183,6 +192,13 @@ async def main():
         check("contact persisted to storage",
               any(d.get("contact_email")=="ops@example.co.za" for d in FAKE_DISK.values()
                   if isinstance(d,dict)))
+        await rn.cleanup()
+
+        # --- an install that already holds a key may still check in ---
+        seen.clear()
+        rn=await serve(cap,4114); mg=await licensed_mgr()
+        st,reason=await mg.async_activate("http://127.0.0.1:4114")
+        check("licensed install without name/email can still renew", bool(seen), json.dumps(seen))
         await rn.cleanup()
 
         # --- licence DELETED on the server: stored key must be dropped ---
