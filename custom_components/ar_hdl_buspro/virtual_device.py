@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 
 from .pybuspro.core.telegram import Telegram
@@ -40,6 +41,11 @@ _LOGGER = logging.getLogger(__name__)
 # HDL universal-switch status bytes (the HDL software writes 255 for ON).
 UV_ON = 255
 UV_OFF = 0
+
+# A keypad that doesn't see the reply it expects sends the same command
+# again; a repeat of the same press inside this window is acknowledged but
+# not toggled a second time.
+REPEAT_WINDOW = 1.5
 
 
 class VirtualKeypadResponder:
@@ -56,6 +62,7 @@ class VirtualKeypadResponder:
         self._fire_event = fire_event
         self._states: dict[int, bool] = {}
         self._listeners: dict[int, list[Callable[[bool, tuple | None], None]]] = {}
+        self._last_press: dict[tuple, float] = {}
 
     # ----- state ----------------------------------------------------------
     def state(self, number: int) -> bool:
@@ -100,15 +107,27 @@ class VirtualKeypadResponder:
 
         if op == OperateCode.UniversalSwitchControl and len(payload) >= 2:
             number, status = int(payload[0]), int(payload[1])
-            # A press toggles (see module docstring for why the status byte
-            # is not used to decide on/off).
-            on = not self.state(number)
-            # Acknowledge first: the keypad is waiting for it.
+            # Acknowledge first, echoing exactly what the keypad sent: a
+            # reply that differs from its own command makes it resend, and
+            # each resend would toggle again (seen as a "momentary" button).
+            # The button LED is set to the real state separately.
             self._send(
                 source,
                 OperateCode.UniversalSwitchControlResponse,
-                [number, UV_ON if on else UV_OFF],
+                [number, status],
             )
+            key = (source, number)
+            now = time.monotonic()
+            last = self._last_press.get(key)
+            self._last_press[key] = now
+            if last is not None and now - last < REPEAT_WINDOW:
+                _LOGGER.debug(
+                    "Ignoring repeat of universal switch %s from %s", number, source
+                )
+                return
+            # A press toggles (see module docstring for why the status byte
+            # is not used to decide on/off).
+            on = not self.state(number)
             button = int(payload[4]) if len(payload) >= 5 and payload[4] else None
             self._update(number, on, source)
             if self._fire_event is not None:
