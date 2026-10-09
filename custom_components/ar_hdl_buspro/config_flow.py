@@ -54,6 +54,7 @@ from .const import (
     CONF_GATEWAY_HOST,
     CONF_GATEWAY_PORT,
     CONF_HVAC_NUMBER,
+    CONF_KEYPAD_LEDS,
     CONF_CONTACT_EMAIL,
     CONF_CONTACT_NAME,
     CONF_LICENSE_KEY,
@@ -119,6 +120,7 @@ from .const import (
     HDL_TYPE_NAMES,
     HDL_TYPE_TO_DEVICE_TYPE,
     MAX_SCAN_DURATION,
+    WIRELESS_RELAY_PANEL_CODES,
     MIN_SCAN_DURATION,
     PRESET_NONE,
     ROLE_KEYPAD,
@@ -141,6 +143,11 @@ from .classify import (
     panel_has_humidity,
     rcu_plan,
     role_from_functions,
+)
+from .keypad_led import (
+    TARGET_TYPE_SINGLE_CHANNEL,
+    format_keypad_leds,
+    parse_keypad_leds,
 )
 from .licensing import (
     STATUS_LICENSED,
@@ -235,6 +242,15 @@ def _common_address_fields(defaults: dict[str, Any]) -> dict:
     }
 
 
+def _keypad_led_field(defaults: dict[str, Any]) -> dict:
+    """Keypad buttons whose LED should follow this relay/light."""
+    return {
+        vol.Optional(
+            CONF_KEYPAD_LEDS, default=defaults.get(CONF_KEYPAD_LEDS, "") or ""
+        ): selector.TextSelector(),
+    }
+
+
 def _light_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
@@ -257,6 +273,7 @@ def _light_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=0, max=3600, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            **_keypad_led_field(defaults),
         }
     )
 
@@ -272,6 +289,7 @@ def _switch_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=255, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            **_keypad_led_field(defaults),
         }
     )
 
@@ -615,6 +633,11 @@ def _normalize_device_input(
                 out[field] = int(out[field])
             except (TypeError, ValueError):
                 pass
+    if CONF_KEYPAD_LEDS in out:
+        # Store a clean "s.d:b, ..." string; anything unparseable is dropped.
+        out[CONF_KEYPAD_LEDS] = format_keypad_leds(
+            parse_keypad_leds(out[CONF_KEYPAD_LEDS])
+        )
     return out
 
 
@@ -741,6 +764,70 @@ def _disc_channel_count(disc, dtype: str = DEVICE_TYPE_SWITCH) -> int | None:
     """Number of channels that would be imported (labels, compatibility)."""
     plan = _disc_channel_plan(disc, dtype)
     return len(plan) if plan else None
+
+
+def _keypad_links(results) -> tuple[dict, set]:
+    """Relay channel -> keypad buttons, from the keypads' own programming.
+
+    Returns ({(subnet, device, channel): {(kp_subnet, kp_device, button)}},
+    {addresses of keypads whose buttons were read}).
+    """
+    links: dict[tuple[int, int, int], set[tuple[int, int, int]]] = {}
+    read: set[tuple[int, int]] = set()
+    for disc in results:
+        targets = getattr(disc, "button_targets", None) or {}
+        if targets:
+            read.add((disc.subnet_id, disc.device_id))
+        for button, by_no in targets.items():
+            for ttype, subnet, device, channel, _level in by_no.values():
+                if ttype != TARGET_TYPE_SINGLE_CHANNEL or not 1 <= channel <= 255:
+                    continue
+                links.setdefault((subnet, device, channel), set()).add(
+                    (disc.subnet_id, disc.device_id, int(button))
+                )
+    return links, read
+
+
+def _apply_keypad_links(devices: list, results) -> int:
+    """Write keypad LED links onto relay/light entries. Returns how many changed.
+
+    Links found by reading a keypad replace earlier links to that same
+    keypad (its programming is the truth); links to keypads not read in
+    this scan, including ones typed by hand, are kept. A relay on a
+    wireless panel whose buttons couldn't be read falls back to the
+    same-numbered button. Entries are replaced, never mutated in place.
+    """
+    links, read = _keypad_links(results)
+    wireless_unread = {
+        (d.subnet_id, d.device_id)
+        for d in results
+        if d.type_code in WIRELESS_RELAY_PANEL_CODES
+        and (d.subnet_id, d.device_id) not in read
+    }
+    changed = 0
+    for index, dev in enumerate(devices):
+        if dev.get(CONF_DEVICE_TYPE) not in (DEVICE_TYPE_SWITCH, DEVICE_TYPE_LIGHT):
+            continue
+        try:
+            subnet = int(dev.get(CONF_SUBNET_ID))
+            device = int(dev.get(CONF_DEVICE_ID))
+            channel = int(dev.get(CONF_CHANNEL, 0))
+        except (TypeError, ValueError):
+            continue
+        old_text = dev.get(CONF_KEYPAD_LEDS, "") or ""
+        kept = {
+            link
+            for link in parse_keypad_leds(old_text)
+            if (link[0], link[1]) not in read
+        }
+        new = kept | links.get((subnet, device, channel), set())
+        if not new and (subnet, device) in wireless_unread and channel >= 1:
+            new = {(subnet, device, channel)}
+        new_text = format_keypad_leds(new)
+        if new_text != old_text:
+            devices[index] = {**dev, CONF_KEYPAD_LEDS: new_text}
+            changed += 1
+    return changed
 
 
 def _disc_zones(disc) -> int | None:
@@ -1781,6 +1868,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # Granite / 4" touch panels also carry onboard
                     # temperature (and humidity on most): import those too.
                     added += self._import_sensor_bundle(disc, devices)
+            linked = _apply_keypad_links(devices, results)
+            if linked:
+                _LOGGER.info(
+                    "AR HDL BUSPRO import: keypad LED links updated on %d "
+                    "relay/light entr(y/ies)",
+                    linked,
+                )
             if skipped_keypads:
                 _LOGGER.info(
                     "AR HDL BUSPRO import: skipped %d keypad/gateway/logic "

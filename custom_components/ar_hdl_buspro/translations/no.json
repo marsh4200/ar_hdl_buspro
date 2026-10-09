@@ -111,7 +111,11 @@
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
-          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
+          "keypad_leds": "Tastatur-LED-knapper"
+        },
+        "data_description": {
+          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
         }
       },
       "edit_device": {
@@ -147,7 +151,11 @@
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
-          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
+          "keypad_leds": "Tastatur-LED-knapper"
+        },
+        "data_description": {
+          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
         }
       },
       "remove_device": {

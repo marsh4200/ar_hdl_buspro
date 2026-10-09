@@ -156,7 +156,11 @@
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
-          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
+          "keypad_leds": "Keypad LED buttons"
+        },
+        "data_description": {
+          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
         }
       },
       "edit_device": {
@@ -198,7 +202,11 @@
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
-          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
+          "keypad_leds": "Keypad LED buttons"
+        },
+        "data_description": {
+          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
         }
       },
       "remove_device": {

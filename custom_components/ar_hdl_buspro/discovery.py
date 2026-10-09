@@ -37,8 +37,16 @@ from .const import (
     HDL_KEYPAD_TYPE_CODES,
     HDL_NO_ENTITY_ROLES,
     HDL_TYPE_TO_DEVICE_TYPE,
+    WIRELESS_RELAY_PANEL_CODES,
 )
-from .classify import function_summary, parse_module_reply
+from .classify import (
+    PANEL_FAMILIES,
+    catalog_entry,
+    catalog_family,
+    function_summary,
+    parse_module_reply,
+    triples,
+)
 from .pybuspro.buspro import Buspro
 from .pybuspro.core.telegram import Telegram
 from .pybuspro.helpers.enums import OperateCode
@@ -115,7 +123,19 @@ IDENTIFY_PHASE_MAX_SECONDS = 30.0
 _IDENTIFY_LISTEN = 2.0
 # Dry-contact modules: zones asked for when the zone count isn't known.
 _DRY_CONTACT_MAX_ZONES = 24
-SCAN_TIMEOUT_MARGIN = DIRECTED_PHASE_MAX_SECONDS + IDENTIFY_PHASE_MAX_SECONDS + 5.0
+# Keypad phase: read each keypad's button programming (0xE000 -> 0xE001) so
+# relays can be linked to the buttons that drive them (keypad LED sync).
+KEYPAD_PHASE_MAX_SECONDS = 25.0
+_KEYPAD_LISTEN = 1.5
+_KEYPAD_MAX_TARGETS = 4      # targets read per button (stops early when empty)
+_KEYPAD_DEFAULT_BUTTONS = 8  # when neither the device nor the catalogue says
+_KEYPAD_MAX_BUTTONS = 32
+SCAN_TIMEOUT_MARGIN = (
+    DIRECTED_PHASE_MAX_SECONDS
+    + IDENTIFY_PHASE_MAX_SECONDS
+    + KEYPAD_PHASE_MAX_SECONDS
+    + 5.0
+)
 
 # Directed identity probes: (operate code, payload). A device only answers the
 # protocols it implements, so the set of replies is a fingerprint:
@@ -151,6 +171,11 @@ _REMARK_REPLY_OP = "0x000F"
 _MODULE_READ_OP = b"\xe5\x48"
 _MODULE_REPLY_OP = "0xE549"
 _MODULE_EXCLUDE_MAX = 32
+
+# Read a keypad button's target: request [button, target_no]; reply payload
+# [button, target_no, type, subnet, device, param1, param2, param3, param4].
+_BUTTON_TARGET_READ_OP = b"\xe0\x00"
+_BUTTON_TARGET_REPLY_OP = "0xE001"
 
 
 # Operate codes a keypad/panel *originates* when a button is pressed or when
@@ -204,6 +229,11 @@ class DiscoveredDevice:
     # The device's own function list from its 0xE549 reply, flat
     # (big, small, count) triples. None if it never answered 0xE548.
     self_functions: list[int] | None = None
+    # Keypad button programming read from the device:
+    # {button: {target_no: (type, subnet, device, param1, param2)}}.
+    button_targets: dict[int, dict[int, tuple[int, int, int, int, int]]] = field(
+        default_factory=dict
+    )
 
     @property
     def address(self) -> str:
@@ -242,6 +272,14 @@ class DiscoveredDevice:
             hints.append("keypad")
         hint = f" [{'/'.join(hints)}]" if hints else ""
         reported = ""
+        links = [
+            f"b{button}->{t[1]}.{t[2]}/{t[3]}"
+            for button, targets in sorted(self.button_targets.items())
+            for _no, t in sorted(targets.items())
+            if t[0] == 89
+        ]
+        if links:
+            reported += f" buttons=[{', '.join(links)}]"
         if self.self_functions:
             reported = f" self-reported=[{function_summary(self.self_functions) or self.self_functions}]"
         return (
@@ -311,6 +349,19 @@ class BusScanner:
                 dev.remark = self._decode_remark(
                     getattr(telegram, "payload", None) or []
                 )
+
+            if op_name == _BUTTON_TARGET_REPLY_OP:
+                payload = list(getattr(telegram, "payload", None) or [])
+                if len(payload) >= 7:
+                    button, target_no = int(payload[0]), int(payload[1])
+                    if 1 <= button <= 255 and 1 <= target_no <= 255:
+                        dev.button_targets.setdefault(button, {})[target_no] = (
+                            int(payload[2]),
+                            int(payload[3]),
+                            int(payload[4]),
+                            int(payload[5]),
+                            int(payload[6]),
+                        )
 
             if op_name == _MODULE_REPLY_OP:
                 remark, functions = parse_module_reply(
@@ -454,6 +505,8 @@ class BusScanner:
             await self._directed_channel_reads()
             # Phase 3 - identify anything the code tables don't cover.
             await self._identify_unknown_devices()
+            # Phase 4 - read keypad button programming (keypad LED sync).
+            await self._read_keypad_buttons()
         finally:
             # Restore the previous catch-all so normal operation is untouched.
             buspro.callback_all_messages = previous_cb
@@ -626,6 +679,69 @@ class BusScanner:
         await asyncio.sleep(
             min(_IDENTIFY_LISTEN, max(deadline - time.monotonic(), 0.0))
         )
+
+    @staticmethod
+    def _is_keypad_candidate(dev: DiscoveredDevice) -> bool:
+        """Devices whose buttons may drive relays: keypads and panels."""
+        code = dev.type_code
+        if code in HDL_NO_ENTITY_ROLES:
+            return False
+        if code in HDL_KEYPAD_TYPE_CODES or code in WIRELESS_RELAY_PANEL_CODES:
+            return True
+        if catalog_family(code) in PANEL_FAMILIES:
+            return True
+        if any(b == 4 and s == 1 for b, s, _c in triples(dev.self_functions)):
+            return True
+        return dev.looks_like_keypad
+
+    @staticmethod
+    def _button_count(dev: DiscoveredDevice) -> int:
+        entry = catalog_entry(dev.type_code)
+        for funcs in (dev.self_functions, entry[3] if entry else None):
+            count = sum(c for b, s, c in triples(funcs) if b == 4 and s == 1)
+            if count:
+                return min(count, _KEYPAD_MAX_BUTTONS)
+        return _KEYPAD_DEFAULT_BUTTONS
+
+    async def _read_keypad_buttons(self) -> None:
+        """Read each keypad's button targets, round by round.
+
+        Round 1 asks every button for its first target; each later round
+        only asks buttons whose previous target came back in use, so empty
+        buttons cost one frame. Keypads that never answer cost one round.
+        """
+        if self._buspro.network_interface is None:
+            return
+        keypads = [d for d in self._found.values() if self._is_keypad_candidate(d)]
+        if not keypads:
+            return
+        deadline = time.monotonic() + KEYPAD_PHASE_MAX_SECONDS
+        pending = [
+            (dev, button)
+            for dev in keypads
+            for button in range(1, self._button_count(dev) + 1)
+        ]
+        for target_no in range(1, _KEYPAD_MAX_TARGETS + 1):
+            if not pending or time.monotonic() >= deadline:
+                break
+            for dev, button in pending:
+                if time.monotonic() >= deadline:
+                    break
+                await self._send_directed(
+                    (dev.subnet_id, dev.device_id),
+                    _BUTTON_TARGET_READ_OP,
+                    [button, target_no],
+                )
+            await asyncio.sleep(
+                min(_KEYPAD_LISTEN, max(deadline - time.monotonic(), 0.0))
+            )
+            # Next round: buttons whose target in this round is in use.
+            pending = [
+                (dev, button)
+                for dev, button in pending
+                if dev.button_targets.get(button, {}).get(target_no, (0,))[0]
+                not in (0, 255)
+            ]
 
     def _log_summary(self, found: list[DiscoveredDevice], duration: float) -> None:
         """Log a human-readable summary of the scan at INFO level."""

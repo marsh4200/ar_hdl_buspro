@@ -301,6 +301,9 @@ CONF_SPLIT_CHANNELS: Final = "split_channels"
 # on the scan-results screen are remembered and always classify as dimmable
 # lights on future scans - no code change needed for new dimmer hardware.
 CONF_DIMMER_CODES: Final = "dimmer_type_codes"
+# Keypad buttons whose LED follows a relay/light entity, as text:
+# "subnet.device:button, ..." (filled in by the bus scan, editable by hand).
+CONF_KEYPAD_LEDS: Final = "keypad_leds"
 DEFAULT_SCAN_DURATION: Final = 15  # seconds to listen on the bus
 MIN_SCAN_DURATION: Final = 3
 MAX_SCAN_DURATION: Final = 60
@@ -438,6 +441,11 @@ HDL_TYPE_CHANNEL_COUNT: Final = {
     "0x13C2": 3,    # wireless relay panel (also sold with 1 relay - see above)
     "0x1589": 1,    # 1ch relay
 }
+
+# Buspro wireless wall panels with relays built in behind the buttons. On
+# import, a relay on one of these whose button programming could not be read
+# is linked to the same-numbered button for keypad LED sync.
+WIRELESS_RELAY_PANEL_CODES: Final = frozenset({"0x1391", "0x13C2", "0x13C3"})
 
 # Codes where ONE type code covers several relay counts, so the pinned count
 # above is only a fallback: if the device describes itself during the scan

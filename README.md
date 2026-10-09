@@ -338,6 +338,19 @@ Add it by hand:
 
 > The panel protocol is mapped from live bus captures on an Enviro panel. Power has been tested end to end from Home Assistant; mode, setpoint and fan follow the same captured frame layout but are newer. If something doesn't behave as expected, please open an issue with your `ar_hdl_buspro.telegram` debug log.
 
+## 💡 Keypad LED Sync
+
+An HDL keypad's button LED shows the button's own state, so when a relay is switched from Home Assistant (or by another keypad or logic) the keypad that normally drives it isn't told, and its LED goes out of step.
+
+AR HDL BUSPRO keeps them in step automatically:
+
+- **The bus scan reads each keypad's button programming** (wired keypads and Buspro wireless panels) and links every button that switches a relay or dimmer channel to that entity, exactly as programmed in the HDL software.
+- **Whenever the channel changes**, from Home Assistant or anywhere else on the bus, the linked buttons' LEDs are set to match.
+- Works for keypads driving a separate relay module and for wireless panels with built-in relays. A wireless panel that can't be read falls back to button N = relay N.
+- Links show on each relay/light under **Edit device → Keypad LED buttons** as `subnet.device:button` (e.g. `2.1:2, 1.50:4`) and can be changed by hand.
+
+After updating, run one **bus scan** and press submit to create the links for devices you already have.
+
 ## 📖 Recognised HDL Type Codes
 
 Codes already pinned in the classification table. Anything not listed is still identified automatically: hardware that describes itself on the bus reports its own type and channel count during the scan, and the rest is looked up in a built-in catalogue of ~1,800 HDL type codes (model, device family and channel layout). Only if neither knows the device does it classify from its replies, or fall back to an editable switch.

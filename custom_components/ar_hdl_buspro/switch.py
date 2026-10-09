@@ -21,6 +21,7 @@ from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
+    CONF_KEYPAD_LEDS,
     CONF_NAME,
     CONF_SUB_NUMBER,
     CONF_SUBNET_ID,
@@ -30,6 +31,7 @@ from .const import (
 )
 from .entity import ARHDLBaseEntity, build_device_info, build_unique_id
 from .gateway import ARHDLGateway
+from .keypad_led import KeypadLedSync
 from .pybuspro.devices.switch import Switch as PyBusproSwitch
 from .pybuspro.devices.universal_switch import UniversalSwitch as PyBusproUniversalSwitch
 
@@ -76,6 +78,8 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
         self._switch = PyBusproSwitch(
             gateway.hdl, (subnet, device), channel, device_cfg.get(CONF_NAME, "")
         )
+        # Keypad buttons whose LED should follow this relay (keypad_led.py).
+        self._led_sync = KeypadLedSync(gateway.hdl, device_cfg.get(CONF_KEYPAD_LEDS))
         # Lets ARHDLBaseEntity re-read this channel once after a reconnect
         # (see _handle_gateway_availability in entity.py).
         self._resync_device = self._switch
@@ -93,6 +97,10 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
 
         async def _after_update(_device) -> None:
             self.async_write_ha_state()
+            # The relay changed on the bus (another keypad, logic, a status
+            # read): bring linked keypad LEDs along. Only sends on a change.
+            if self._led_sync.active:
+                await self._led_sync.push(self.is_on)
 
         self._switch.register_device_updated_cb(_after_update)
 
@@ -104,10 +112,12 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self._switch.set_on()
+        await self._led_sync.push(True, force=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self._switch.set_off()
+        await self._led_sync.push(False, force=True)
 
 
 class ARHDLUniversalSwitch(ARHDLBaseEntity, SwitchEntity):

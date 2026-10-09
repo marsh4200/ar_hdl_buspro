@@ -26,6 +26,7 @@ from .const import (
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
     CONF_DIMMABLE,
+    CONF_KEYPAD_LEDS,
     CONF_NAME,
     CONF_RUNNING_TIME,
     CONF_SUBNET_ID,
@@ -35,6 +36,7 @@ from .const import (
 )
 from .entity import ARHDLBaseEntity, build_device_info, build_unique_id
 from .gateway import ARHDLGateway
+from .keypad_led import KeypadLedSync
 from .pybuspro.devices.light import Light as PyBusproLight
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,6 +89,8 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
         self._light = PyBusproLight(
             gateway.hdl, (subnet, device), channel, device_cfg.get(CONF_NAME, "")
         )
+        # Keypad buttons whose LED should follow this light (keypad_led.py).
+        self._led_sync = KeypadLedSync(gateway.hdl, device_cfg.get(CONF_KEYPAD_LEDS))
         # Lets ARHDLBaseEntity re-read this channel once after a reconnect,
         # instead of showing whatever it was doing before the link dropped
         # (see _handle_gateway_availability in entity.py).
@@ -116,6 +120,9 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
 
         async def _after_update(_device) -> None:
             self.async_write_ha_state()
+            # The channel changed on the bus: bring linked keypad LEDs along.
+            if self._led_sync.active:
+                await self._led_sync.push(self.is_on)
 
         self._light.register_device_updated_cb(_after_update)
 
@@ -152,7 +159,9 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
             brightness_pct = self._light.previous_brightness
 
         await self._light.set_brightness(brightness_pct, self._running_time)
+        await self._led_sync.push(brightness_pct > 0, force=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         await self._light.set_off(self._running_time)
+        await self._led_sync.push(False, force=True)
