@@ -573,6 +573,8 @@ Reproduce the problem (or run a bus scan), then download the log from **Settings
 
 Updating never changes devices you've already set up: names, entities and settings stay exactly as they are. New identification only applies to new scans and imports.
 
+When a new version is released, Home Assistant may show **"AR HDL BUSPRO x.y.z is available"** under **Settings**. Nothing has been changed on your system; it's a reminder to update through HACS, and it disappears by itself once the new version is installed.
+
 To bring an existing install up to date:
 
 1. Update through HACS and restart Home Assistant.

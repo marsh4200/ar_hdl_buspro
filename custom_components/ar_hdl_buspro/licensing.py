@@ -73,6 +73,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -280,6 +281,33 @@ def _integration_version() -> str:
         except Exception:  # noqa: BLE001
             _VERSION_CACHE = "unknown"
     return _VERSION_CACHE
+
+
+def _version_tuple(value) -> tuple | None:
+    """'5.0.12' / 'v5.0.12' -> (5, 0, 12); None if it is not a version."""
+    text = str(value or "").strip().lstrip("vV")
+    if not text:
+        return None
+    parts: list[int] = []
+    for piece in re.split(r"[.+\-]", text):
+        match = re.match(r"\d+", piece)
+        if not match:
+            break
+        parts.append(int(match.group()))
+    return tuple(parts) or None
+
+
+def is_newer_version(candidate, current) -> bool:
+    """True only when `candidate` is a strictly newer version than `current`.
+
+    Anything that does not parse counts as "not newer", so a malformed
+    notice can never nag an install.
+    """
+    new, have = _version_tuple(candidate), _version_tuple(current)
+    if new is None or have is None:
+        return False
+    width = max(len(new), len(have))
+    return new + (0,) * (width - len(new)) > have + (0,) * (width - len(have))
 
 
 def _client_timeout(seconds: int):
@@ -795,6 +823,38 @@ class ARHDLLicenseManager:
         await self._store.async_save(self._data)
 
     @property
+    def update_notice(self) -> dict[str, str] | None:
+        """A newer version the licence server says is out, or None.
+
+        Sent by the server with a check-in reply when the operator has
+        published an update notice. Only returned while that version is
+        newer than the one running here, so it goes away on its own once
+        the install is updated through HACS.
+        """
+        notice = self._data.get("update_notice")
+        if not isinstance(notice, dict):
+            return None
+        version = str(notice.get("version") or "")
+        if not is_newer_version(version, _integration_version()):
+            return None
+        return {"version": version, "message": str(notice.get("message") or "")}
+
+    def _take_update_notice(self, body: dict) -> None:
+        """Remember (or forget) the update notice from a check-in reply.
+
+        Only called once the server has actually answered, so an install
+        that is offline keeps whatever it was last told.
+        """
+        notice = body.get("update")
+        if isinstance(notice, dict) and notice.get("version"):
+            self._data["update_notice"] = {
+                "version": str(notice.get("version"))[:32],
+                "message": str(notice.get("message") or "")[:500],
+            }
+        else:
+            self._data.pop("update_notice", None)
+
+    @property
     def last_contact(self) -> str | None:
         """Return when the licence server was last reached, if ever."""
         return self._data.get("last_contact")
@@ -890,6 +950,7 @@ class ARHDLLicenseManager:
         # The server was reached; record that even when it says "not yet",
         # so the status screen can show when contact last happened.
         self._data["last_contact"] = datetime.now(timezone.utc).isoformat()
+        self._take_update_notice(body)
 
         status = str(body.get("status", "")).lower()
 

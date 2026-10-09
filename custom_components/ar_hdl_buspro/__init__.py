@@ -61,6 +61,7 @@ from .licensing import (
     SIGNAL_LICENSE_CHANGED,
     STATUS_LICENSED,
     STATUS_TRIAL,
+    _integration_version,
     async_get_manager,
 )
 
@@ -82,6 +83,8 @@ class ARHDLData:
 # availability has to move without waiting for a restart.
 LICENSE_RECHECK_INTERVAL = timedelta(hours=1)
 LICENSE_ISSUE_ID = "license_inactive"
+UPDATE_ISSUE_ID = "update_available"
+UPDATE_INFO_URL = "https://github.com/marsh4200/ar_hdl_buspro/releases"
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +242,8 @@ def _async_apply_license_state(hass: HomeAssistant) -> None:
     state = manager.evaluate()
     async_dispatcher_send(hass, SIGNAL_LICENSE_CHANGED, state.active)
 
+    _async_apply_update_notice(hass, manager)
+
     if state.status == STATUS_LICENSED:
         ir.async_delete_issue(hass, DOMAIN, LICENSE_ISSUE_ID)
         return
@@ -261,6 +266,36 @@ def _async_apply_license_state(hass: HomeAssistant) -> None:
             "days_left": str(state.trial_days_left),
         },
         learn_more_url="https://activatelicense.arsmarthome.co.za",
+    )
+
+
+@callback
+def _async_apply_update_notice(hass: HomeAssistant, manager) -> None:
+    """Show "a new version is available" under Settings, or clear it.
+
+    The notice comes from AR Smart Home with the regular licence check-in.
+    It changes nothing on this install: it only points the owner at HACS,
+    and disappears once the running version is the announced one or newer.
+    """
+    notice = manager.update_notice
+    if not notice:
+        ir.async_delete_issue(hass, DOMAIN, UPDATE_ISSUE_ID)
+        return
+    message = notice.get("message") or ""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        UPDATE_ISSUE_ID,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=UPDATE_ISSUE_ID,
+        translation_placeholders={
+            "version": notice["version"],
+            "current": _integration_version(),
+            "message": f"\n\n{message}" if message else "",
+        },
+        learn_more_url=UPDATE_INFO_URL,
     )
 
 

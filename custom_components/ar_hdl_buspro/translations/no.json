@@ -343,5 +343,11 @@
         "name": "Tørrkontakt"
       }
     }
+  },
+  "issues": {
+    "update_available": {
+      "title": "AR HDL BUSPRO {version} er tilgjengelig",
+      "description": "En ny versjon av AR HDL BUSPRO er ute. Denne installasjonen kjører {current}.{message}\n\nIngenting er endret på dette systemet. For å oppdatere, åpne HACS, finn AR HDL BUSPRO og velg Oppdater, og start deretter Home Assistant på nytt. Hvis HACS ikke viser oppdateringen ennå, åpne AR HDL BUSPRO i HACS og velg Oppdater informasjon fra ⋮-menyen.\n\nDette varselet forsvinner av seg selv når {version} er installert."
+    }
   }
 }

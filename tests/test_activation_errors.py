@@ -227,6 +227,38 @@ async def main():
         await mg.async_activate("http://127.0.0.1:4198")
         check("offline keeps the stored key", mg.state.licensed and stored_key())
 
+        # --- update notice from the licence server ---
+        cur = licensing._integration_version()
+        parts = [int(x) for x in cur.split(".")]
+        newer = ".".join(str(x) for x in parts[:-1] + [parts[-1] + 1])
+        reply = {"body": {"status": "pending", "update": {"version": newer, "message": "Keypad fixes"}}}
+        async def upd(r): return web.json_response(reply["body"])
+        rn=await serve(upd,4115); mg=await mgr()
+        await mg.async_activate("http://127.0.0.1:4115")
+        n = mg.update_notice
+        check("newer version notice is shown", n == {"version": newer, "message": "Keypad fixes"}, str(n))
+        reply["body"] = {"status": "pending", "update": {"version": cur}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("notice for the running version shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": "1.0.0"}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("notice for an older version shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": "garbage"}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("malformed notice shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": newer}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        await mg.async_activate("http://127.0.0.1:4198")
+        check("offline keeps the last notice", (mg.update_notice or {}).get("version") == newer, str(mg.update_notice))
+        reply["body"] = {"status": "pending"}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("withdrawn on the server -> notice cleared", mg.update_notice is None, str(mg.update_notice))
+        await rn.cleanup()
+        check("is_newer_version basics",
+              licensing.is_newer_version("5.0.12", "5.0.11") and licensing.is_newer_version("v5.1", "5.0.11")
+              and not licensing.is_newer_version("5.0.11", "5.0.11") and not licensing.is_newer_version("5.0.10", "5.0.11")
+              and not licensing.is_newer_version("", "5.0.11") and not licensing.is_newer_version("5.0.12", "unknown"))
+
         # --- connection refused ---
         mg=await mgr()
         st,reason=await mg.async_activate("http://127.0.0.1:4199")
