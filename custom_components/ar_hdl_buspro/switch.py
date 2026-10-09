@@ -7,6 +7,7 @@
 # check in licensing.py is prohibited.
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -38,6 +39,10 @@ from .pybuspro.devices.switch import Switch as PyBusproSwitch
 from .pybuspro.devices.universal_switch import UniversalSwitch as PyBusproUniversalSwitch
 
 _LOGGER = logging.getLogger(__name__)
+
+# Seconds after a keypad press at which the button LED is (re)set: after the
+# keypad has finished applying its own LED state for the press.
+KEYPAD_PRESS_LED_DELAYS = (0.5, 1.0)
 
 
 async def async_setup_entry(
@@ -236,11 +241,20 @@ class ARHDLKeypadButton(ARHDLBaseEntity, SwitchEntity, RestoreEntity):
             self.async_write_ha_state()
             if source is not None and self._led_sync.active:
                 # Pressed on a keypad: set every linked button LED - the
-                # pressing one included, since a keypad that sends a fixed
-                # status may have lit its LED the wrong way round.
-                self.hass.async_create_task(self._led_sync.push(on, force=True))
+                # pressing one included. A keypad that sends a fixed status
+                # sets its own LED from that status while it finishes the
+                # press, overwriting anything sent at the same instant, so
+                # the LED is set shortly AFTER the press (twice, to be sure).
+                self.hass.async_create_task(self._push_led_after_press(on))
 
         self.async_on_remove(self._virtual.add_listener(self._number, _changed))
+
+    async def _push_led_after_press(self, on: bool) -> None:
+        for delay in KEYPAD_PRESS_LED_DELAYS:
+            await asyncio.sleep(delay)
+            if self._virtual.state(self._number) is not on:
+                return  # pressed again meanwhile; that press sets the LED
+            await self._led_sync.push(on, force=True)
 
     @property
     def is_on(self) -> bool:
