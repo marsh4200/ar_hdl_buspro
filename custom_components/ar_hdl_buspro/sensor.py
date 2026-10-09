@@ -126,6 +126,11 @@ class ARHDLSensor(ARHDLBaseEntity, SensorEntity):
             device=legacy_device_kind,
             name=device_cfg.get(CONF_NAME, ""),
             temperature_channel=self._temp_channel,
+            # Panels report humidity on a different read than temperature.
+            read_humidity=(
+                self._sensor_kind == SENSOR_KIND_HUMIDITY
+                and self._hw_kind == "panel"
+            ),
         )
 
         # Entity metadata

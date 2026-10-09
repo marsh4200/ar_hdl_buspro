@@ -317,8 +317,12 @@ MAX_SCAN_DURATION: Final = 60
 # pybuspro/helpers/enums.py; extend this table as new modules are identified
 # on real installations.
 HDL_TYPE_TO_DEVICE_TYPE: Final = {
-    "0x0011": DEVICE_TYPE_CLIMATE,        # SB_DN_6B0_10v heating relay
-    "0x0086": DEVICE_TYPE_CLIMATE,        # SB_DLP2 panel
+    # 0x0011 is a 6-channel 0-10V dimmer on both HDL (HDL-MRDA06) and
+    # Smart-Bus (SB-DN-6B0-10v, "6 x 0-10V") - it was mis-mapped as climate.
+    "0x0011": DEVICE_TYPE_LIGHT,          # HDL-MRDA06 / SB-DN-6B0-10v 6ch 0-10V dimmer
+    # 0x0086 is NOT pinned: HDL uses it for the HDL-MTS04.20 4-channel
+    # temperature sensor, Smart-Bus for its DLP2 panel. The scan decides from
+    # what the device answers (floor-heating reply -> climate, else sensor).
     "0x0095": DEVICE_TYPE_CLIMATE,        # SB_DLP panel
     "0x009C": DEVICE_TYPE_CLIMATE,        # SB_DLP v2 panel
     "0x0260": DEVICE_TYPE_LIGHT,          # SB_DN_DT0601 6ch dimmer
@@ -334,14 +338,16 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     # the 12-in-1 and 8-in-1 above.
     "0x0138": DEVICE_TYPE_SENSOR,         # CMS sensor (temp / lux / motion)
     # ARSmartHome site relay modules (identified on a live bus).
-    "0x120B": DEVICE_TYPE_SWITCH,         # relay module
-    "0x0141": DEVICE_TYPE_SWITCH,         # relay module
-    "0x0457": DEVICE_TYPE_SWITCH,         # relay module
+    # 0x120B / 0x1209 (HDL-MBUS01IP.431 IP gateways), 0x0141 (HDL-MS12.2C
+    # 12-in-1 sensor) and 0x0457 (HDL-MCLog.431 logic module) used to be
+    # pinned here as relays. HDL's own device database says otherwise, so
+    # they are no longer pinned: the HDL catalogue classifies them, and a
+    # unit that really answers a channel-status read still imports as a
+    # switch. Already-imported entities are not touched.
     "0x01C1": DEVICE_TYPE_SWITCH,         # relay module
     "0x01C2": DEVICE_TYPE_SWITCH,         # 16ch relay module
     "0x01BD": DEVICE_TYPE_SWITCH,         # 8ch relay module
     "0x01BF": DEVICE_TYPE_SWITCH,         # 4ch relay module
-    "0x1209": DEVICE_TYPE_SWITCH,         # relay/mix module
     "0x0269": DEVICE_TYPE_LIGHT,          # 6ch dimmer module
     "0x25E5": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
     "0x25E8": DEVICE_TYPE_COVER,          # curtain module (ARSmartHome site)
@@ -350,8 +356,8 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x0517": DEVICE_TYPE_UNIVERSAL_SWITCH,  # HDL-MIRC04.40 IR module (4x universal switch)
     "0x0166": DEVICE_TYPE_BINARY_SENSOR,     # HDL-MS24.232 (SB-DN-DRY-24Z) 24-zone dry contact module (issue #11)
     "0x0DCE": DEVICE_TYPE_SWITCH,            # HDL-MRCU home control unit, 18 relay + 4 dimmer ch (issue #10) -
-                                              # imports as switch channels; re-tag the 4 dimmer channels to
-                                              # "light" afterwards via the edit-device screen.
+                                              # imports channels 1-17 and 22 as switches and 18-21 as dimmable
+                                              # lights (HDL's own fixed RCU layout, see classify.rcu_plan).
     "0x0890": DEVICE_TYPE_CLIMATE,            # HDL-MPTL4C.48 Granite Display touch panel (issue #13) - has a
                                                # built-in temperature sensor and drives HVAC/floor heating, like
                                                # the DLP panels above; was falling through to switch since it had
@@ -398,7 +404,47 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x0148": DEVICE_TYPE_SENSOR,             # HDL-MSP07M.4C sensors-in-one
     "0x0187": DEVICE_TYPE_SENSOR,             # sensor
+    # Buspro WIRELESS wall panels with relays built in behind the buttons
+    # (reported by @marsh4200 from real hardware). Unlike the wired keypads in
+    # HDL_KEYPAD_TYPE_CODES these DO have controllable channels, so they are
+    # pinned here as relay devices: a pinned code wins before the traffic
+    # heuristic, which would otherwise be free to flag a panel as "keypad:
+    # buttons only, no entities" because it also originates button telegrams.
+    # Relay count per panel lives in HDL_TYPE_CHANNEL_COUNT below.
+    "0x1391": DEVICE_TYPE_SWITCH,             # wireless relay panel, 3 relays
+    "0x13C3": DEVICE_TYPE_SWITCH,             # wireless relay panel, 3 relays
+    # 0x13C2 is ONE code shared by a 3-relay and a 1-relay version of the same
+    # wireless panel, and the two cannot be told apart on the bus. Confirmed
+    # against a live capture of one of each (200.26 = 3 relays, 200.22 = 1):
+    # neither answers ReadStatusOfChannels (0x0033), a firmware read (0xEFFD)
+    # or a channel-remark read (0xF00E), and BOTH acknowledge a
+    # SingleChannelControl for channels 1-4 as successful, fitted or not. So it
+    # imports as the larger variant (3); on a 1-relay panel, delete the two
+    # unused channels afterwards.
+    "0x13C2": DEVICE_TYPE_SWITCH,             # wireless relay panel, 3 or 1 relays
+    "0x1589": DEVICE_TYPE_SWITCH,             # 1ch relay
 }
+
+# Relay/channel count per type code, for hardware where the count is confirmed
+# and the bus scan can't be relied on to learn it. The scan only learns a count
+# from a ReadStatusOfChannelsResponse (0x0034); a device that never produces a
+# usable one imported as a single switch on channel 1, losing the rest of its
+# relays. A count listed here is authoritative and beats whatever the scan
+# heard - on a panel the scan can just as easily over-report, since these have
+# more buttons than relays and the extra buttons have nothing behind them.
+HDL_TYPE_CHANNEL_COUNT: Final = {
+    "0x1391": 3,    # wireless relay panel
+    "0x13C3": 3,    # wireless relay panel
+    "0x13C2": 3,    # wireless relay panel (also sold with 1 relay - see above)
+    "0x1589": 1,    # 1ch relay
+}
+
+# Codes where ONE type code covers several relay counts, so the pinned count
+# above is only a fallback: if the device describes itself during the scan
+# (0xE549 reply to the 0xE548 module read), its own count wins.
+HDL_AMBIGUOUS_COUNT_CODES: Final = frozenset({
+    "0x13C2",  # wireless panel sold with 1 or 3 relays
+})
 
 # Which readings a discovered multi-sensor actually has, by type code.
 # Humidity is the one that must not be assumed: an entity created for a
@@ -426,16 +472,17 @@ HDL_DRY_CONTACT_ZONES: Final = {
 # Friendly names for type codes that aren't in the vendored DeviceType enum, so
 # discovered devices read sensibly in the UI instead of "Unknown".
 HDL_TYPE_NAMES: Final = {
-    "0x120B": "Relay module",
-    "0x0141": "Relay module",
-    "0x0457": "Relay module",
+    "0x0011": "6ch 0-10V dimmer (HDL-MRDA06)",
+    "0x120B": "IP gateway (HDL-MBUS01IP.431)",
+    "0x1209": "IP gateway (HDL-MBUS01IP.431)",
+    "0x0141": "12-in-1 sensor (HDL-MS12.2C)",
+    "0x0457": "Logic module (HDL-MCLog.431)",
     "0x01C1": "Relay module",
     "0x084D": "Wall keypad",
     "0x239C": "Wall keypad",
     "0x01C2": "Relay module (16ch)",
     "0x01BD": "Relay module (8ch)",
     "0x01BF": "Relay module (4ch)",
-    "0x1209": "Relay module",
     "0x238C": "DLP panel",
     "0x0269": "Dimmer module (6ch)",
     "0x25E5": "Curtain module",
@@ -456,6 +503,13 @@ HDL_TYPE_NAMES: Final = {
     "0x0138": "Sensor module (temperature, illuminance, motion)",
     "0x0148": "Sensors-in-one (HDL-MSP07M.4C)",
     "0x0187": "Sensor module",
+    "0x1391": "Wireless relay panel (3 relays)",
+    "0x13C3": "Wireless relay panel (3 relays)",
+    "0x13C2": "Wireless relay panel (up to 3 relays)",
+    "0x1589": "Relay (1ch)",
+    "0x02F5": "Mesh gateway",
+    "0x0455": "Logic module",
+    "0x08CA": "Granite Display keypad",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
@@ -476,6 +530,17 @@ HDL_KEYPAD_TYPE_CODES: Final = {
     "0x084D",  # wall keypad (was mis-mapped as a relay module)
     "0x239C",  # wall keypad (was mis-mapped as a relay module)
     "0x238C",  # DLP panel (was mis-mapped as a relay/mix module)
+    "0x08CA",  # Granite Display keypad
+}
+
+# Bus infrastructure: devices that are heard on a scan but have nothing to
+# control or read, so they create no entities. Maps the type code to the role
+# shown in the scan list. Like keypads they are labelled and left out of
+# import - without an entry here they fell through to "switch" and importing
+# one created a dead switch entity.
+HDL_NO_ENTITY_ROLES: Final = {
+    "0x02F5": "gateway",  # wireless mesh gateway
+    "0x0455": "logic",    # logic module
 }
 
 # Type codes known to be dimmer modules. The scanner also detects dimmers from
@@ -486,6 +551,7 @@ HDL_DIMMER_TYPE_CODES: Final = {
     "0x0260",  # SB_DN_DT0601 6ch dimmer
     "0x026D",  # HDL_MDT0601 6ch dimmer (newer)
     "0x0269",  # 6ch dimmer module (ARSmartHome site, MDT0601 family)
+    "0x0011",  # HDL-MRDA06 / SB-DN-6B0-10v 6ch 0-10V dimmer
     "0x164B",  # dimmer module
     "0x027E",  # dimmer module
 }

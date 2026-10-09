@@ -112,7 +112,10 @@ from .const import (
     DOMAIN,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
+    HDL_AMBIGUOUS_COUNT_CODES,
     HDL_KEYPAD_TYPE_CODES,
+    HDL_NO_ENTITY_ROLES,
+    HDL_TYPE_CHANNEL_COUNT,
     HDL_TYPE_NAMES,
     HDL_TYPE_TO_DEVICE_TYPE,
     MAX_SCAN_DURATION,
@@ -124,6 +127,20 @@ from .const import (
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KINDS,
+)
+from .classify import (
+    FAMILY_HW_KIND,
+    FAMILY_ROLE,
+    PANEL_FAMILIES,
+    catalog_entry,
+    catalog_family,
+    catalog_name,
+    channel_plan_from_functions,
+    dry_contact_zones,
+    function_summary,
+    panel_has_humidity,
+    rcu_plan,
+    role_from_functions,
 )
 from .licensing import (
     STATUS_LICENSED,
@@ -666,6 +683,75 @@ def _disc_name(disc) -> str:
     """
     remark = getattr(disc, "remark", None)
     return remark if remark else f"HDL {disc.address}"
+
+
+def _disc_channel_plan(disc, dtype: str) -> list[tuple[int, str]] | None:
+    """Channel -> entity type list for a light/switch/cover import.
+
+    Highest first:
+      1. HDL_TYPE_CHANNEL_COUNT (field-confirmed), except for codes in
+         HDL_AMBIGUOUS_COUNT_CODES, where one code covers several relay
+         counts and the device's own report is better when it gives one;
+      2. the device's 0xE549 self-description;
+      3. HDL's fixed 22-channel RCU layout (relays + dimmers 18-21);
+      4. the channel count the scan learned from a status reply;
+      5. the HDL catalogue's function list for the type code.
+    A plan whose channels are all one kind takes the import type (so a pin
+    or a user dimmer code still decides light vs switch); a genuinely mixed
+    module keeps its per-channel types.
+    """
+    if dtype not in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SWITCH, DEVICE_TYPE_COVER):
+        return None
+    code = disc.type_code
+    want = "cover" if dtype == DEVICE_TYPE_COVER else "switch"
+
+    def uniform(count: int) -> list[tuple[int, str]]:
+        return [(ch, dtype) for ch in range(1, count + 1)]
+
+    def normalise(plan):
+        if not plan:
+            return None
+        if len({kind for _ch, kind in plan}) == 1:
+            return [(ch, dtype) for ch, _kind in plan]
+        return plan
+
+    pinned = HDL_TYPE_CHANNEL_COUNT.get(code)
+    if pinned and code not in HDL_AMBIGUOUS_COUNT_CODES:
+        return uniform(pinned)
+    own = normalise(
+        channel_plan_from_functions(getattr(disc, "self_functions", None), want)
+    )
+    if own:
+        return own
+    if pinned:
+        return uniform(pinned)
+    if dtype != DEVICE_TYPE_COVER:
+        fixed = normalise(rcu_plan(code))
+        if fixed:
+            return fixed
+    if disc.channel_count:
+        return uniform(disc.channel_count)
+    entry = catalog_entry(code)
+    if entry:
+        return normalise(channel_plan_from_functions(entry[3], want))
+    return None
+
+
+def _disc_channel_count(disc, dtype: str = DEVICE_TYPE_SWITCH) -> int | None:
+    """Number of channels that would be imported (labels, compatibility)."""
+    plan = _disc_channel_plan(disc, dtype)
+    return len(plan) if plan else None
+
+
+def _disc_zones(disc) -> int | None:
+    """Dry-contact zone count: pin > self-report > scan > catalogue."""
+    entry = catalog_entry(disc.type_code)
+    return (
+        HDL_DRY_CONTACT_ZONES.get(disc.type_code)
+        or dry_contact_zones(getattr(disc, "self_functions", None))
+        or getattr(disc, "dry_contact_zones", None)
+        or (dry_contact_zones(entry[3]) if entry else None)
+    )
 
 
 def _hw_kind_from_replies(disc) -> str:
@@ -1462,11 +1548,48 @@ class ARHDLOptionsFlow(OptionsFlow):
             or disc.type_code in dimmer_codes
         ):
             return DEVICE_TYPE_LIGHT
+        # Gateways / logic modules: nothing to control, never imported.
+        no_entity_role = HDL_NO_ENTITY_ROLES.get(disc.type_code)
+        if no_entity_role is not None:
+            return no_entity_role
         known = HDL_TYPE_TO_DEVICE_TYPE.get(disc.type_code)
         if known is not None:
             return known
 
         ops = disc.op_codes
+        # Hard evidence the device has load channels: it answered a channel
+        # status read with a count. Beats the catalogue, which only knows
+        # what HDL sells under that code (and Smart-Bus reuses some codes).
+        has_channels = bool(disc.channel_count) and (
+            "ReadStatusOfChannelsResponse" in ops
+        )
+
+        # The device's own description of itself (0xE549), then HDL's
+        # catalogue for the type code. Panels still defer to what the panel
+        # answered: floor heating -> climate, onboard temperature -> sensor.
+        family = catalog_family(disc.type_code)
+        own_role = role_from_functions(getattr(disc, "self_functions", None))
+        cat_role = FAMILY_ROLE.get(family)
+        for role in (own_role, cat_role):
+            if role is None:
+                continue
+            if role == ROLE_KEYPAD:
+                if "ReadFloorHeatingStatusResponse" in ops:
+                    return DEVICE_TYPE_CLIMATE
+                if "ReadTemperatureResponse" in ops:
+                    return DEVICE_TYPE_SENSOR
+                if has_channels:
+                    break
+                return ROLE_KEYPAD
+            if role in ("gateway", "logic", DEVICE_TYPE_SENSOR):
+                if has_channels:
+                    break
+                if role == DEVICE_TYPE_SENSOR and family in PANEL_FAMILIES:
+                    break
+                if role == DEVICE_TYPE_SENSOR and "ReadFloorHeatingStatusResponse" in ops:
+                    return DEVICE_TYPE_CLIMATE
+                return role
+            return role
         if (
             "ReadSensorStatusResponse" in ops
             or "ReadSensorsInOneStatusResponse" in ops
@@ -1517,20 +1640,38 @@ class ARHDLOptionsFlow(OptionsFlow):
             parts.append(f'"{disc.remark}"')
         if disc.type_code and disc.type_code != "0x0000":
             parts.append(disc.type_code)
-        if disc.channel_count:
-            parts.append(f"{disc.channel_count}ch")
-        # Prefer the vendored enum name; otherwise fall back to our own table so
-        # identified-but-unenumerated hardware still reads sensibly.
+        plan = _disc_channel_plan(disc, role)
+        if plan:
+            kinds = {kind for _ch, kind in plan}
+            if len(kinds) > 1:
+                relays = sum(1 for _ch, k in plan if k == DEVICE_TYPE_SWITCH)
+                dimmers = sum(1 for _ch, k in plan if k == DEVICE_TYPE_LIGHT)
+                parts.append(f"{relays} relay + {dimmers} dimmer")
+            else:
+                parts.append(f"{len(plan)}ch")
+        elif role == DEVICE_TYPE_BINARY_SENSOR and _disc_zones(disc):
+            parts.append(f"{_disc_zones(disc)} zones")
+        # Our own table first (field-confirmed names), then HDL's catalogue,
+        # then the vendored enum name.
         friendly = (
-            disc.type_name
-            if disc.type_name and disc.type_name != "Unknown"
-            else HDL_TYPE_NAMES.get(disc.type_code)
+            HDL_TYPE_NAMES.get(disc.type_code)
+            or catalog_name(disc.type_code)
+            or (
+                disc.type_name
+                if disc.type_name and disc.type_name != "Unknown"
+                else None
+            )
         )
+        own = function_summary(getattr(disc, "self_functions", None))
+        if own:
+            friendly = f"{friendly} [{own}]" if friendly else f"[{own}]"
         if friendly:
             parts.append(friendly)
         label = "  ".join(parts[:2]) + "  ·  " + " · ".join(parts[2:])
         if role == ROLE_KEYPAD:
             label += "  ·  buttons only, no entities"
+        elif role in HDL_NO_ENTITY_ROLES.values():
+            label += "  ·  no entities"
         if already:
             label += "  \u2713 in config"
         return label
@@ -1590,9 +1731,10 @@ class ARHDLOptionsFlow(OptionsFlow):
                 if disc is None:
                     continue
                 dtype = self._infer_device_type(disc, dimmer_codes)
-                if dtype == ROLE_KEYPAD:
-                    # Keypads have no controllable channels; importing one as
-                    # a switch just creates a dead entity. Skip and count.
+                if dtype == ROLE_KEYPAD or dtype in HDL_NO_ENTITY_ROLES.values():
+                    # Keypads, gateways and logic modules have no controllable
+                    # channels; importing one as a switch just creates a dead
+                    # entity. Skip and count.
                     skipped_keypads += 1
                     continue
                 if dtype == DEVICE_TYPE_SENSOR:
@@ -1601,10 +1743,7 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # motion) so the user isn't left hand-adding the rest.
                     added += self._import_sensor_bundle(disc, devices)
                     continue
-                if dtype == DEVICE_TYPE_BINARY_SENSOR and (
-                    disc.type_code in HDL_DRY_CONTACT_ZONES
-                    or getattr(disc, "dry_contact_zones", None)
-                ):
+                if dtype == DEVICE_TYPE_BINARY_SENSOR and _disc_zones(disc):
                     # Dry-contact input module: one entity per zone.
                     added += self._import_dry_contact_zones(disc, devices)
                     continue
@@ -1613,11 +1752,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                     DEVICE_TYPE_SWITCH,
                     DEVICE_TYPE_COVER,
                 )
-                if split and channel_device and disc.channel_count:
-                    channels = range(1, disc.channel_count + 1)
-                else:
-                    channels = (None,)
-                for channel in channels:
+                plan = (
+                    _disc_channel_plan(disc, dtype)
+                    if split and channel_device
+                    else None
+                )
+                entries = plan or [(None, dtype)]
+                for channel, ctype in entries:
                     eff_channel = channel if channel is not None else (
                         1 if channel_device else None
                     )
@@ -1628,16 +1769,22 @@ class ARHDLOptionsFlow(OptionsFlow):
                     ) in existing_triples:
                         continue
                     devices.append(
-                        self._build_imported_device(disc, dtype, channel)
+                        self._build_imported_device(disc, ctype, channel)
                     )
                     existing_triples.add(
                         (disc.subnet_id, disc.device_id, eff_channel)
                     )
                     added += 1
+                if dtype == DEVICE_TYPE_CLIMATE and catalog_family(
+                    disc.type_code
+                ) == "touch_panel":
+                    # Granite / 4" touch panels also carry onboard
+                    # temperature (and humidity on most): import those too.
+                    added += self._import_sensor_bundle(disc, devices)
             if skipped_keypads:
                 _LOGGER.info(
-                    "AR HDL BUSPRO import: skipped %d keypad(s) (buttons only, "
-                    "no entities to create)",
+                    "AR HDL BUSPRO import: skipped %d keypad/gateway/logic "
+                    "device(s) (no entities to create)",
                     skipped_keypads,
                 )
             _LOGGER.info("AR HDL BUSPRO import: added %d new device entr(y/ies)", added)
@@ -1710,7 +1857,20 @@ class ARHDLOptionsFlow(OptionsFlow):
             # given unit turns out to answer something else.
             "0x0138": DEVICE_HW_SENSORS_IN_ONE,
             "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
-        }.get(disc.type_code) or _hw_kind_from_replies(disc)
+            "0x0141": DEVICE_HW_12IN1,        # HDL-MS12.2C 12-in-1 (was mis-mapped as a relay)
+        }.get(disc.type_code)
+        family = catalog_family(disc.type_code)
+        if not hw_kind:
+            replied = _hw_kind_from_replies(disc)
+            hw_kind = (
+                replied
+                if replied != DEVICE_HW_GENERIC
+                else FAMILY_HW_KIND.get(family)
+                or (DEVICE_HW_PANEL if family in PANEL_FAMILIES else None)
+                or replied
+            )
+        # Temperature-only hardware (HDL-MTS04 style): no lux, no motion.
+        temp_only = family == "sensor_temp"
         # Poll every 60s so readings arrive even when the sensor doesn't
         # broadcast on its own; broadcasts still update instantly.
         scan = 60
@@ -1725,11 +1885,14 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
 
         added = 0
-        if hw_kind == DEVICE_HW_PANEL:
+        if hw_kind == DEVICE_HW_PANEL or temp_only:
             # Wall panel: onboard temperature only -- no lux, no PIR (the
             # reference integration's panel profile). Lux/motion entities
             # created here would sit unavailable forever.
             sensor_kinds = [SENSOR_KIND_TEMPERATURE]
+            # Granite / 4" touch panels HDL reads humidity from (0xE440).
+            if hw_kind == DEVICE_HW_PANEL and panel_has_humidity(disc.type_code):
+                sensor_kinds.append(SENSOR_KIND_HUMIDITY)
         elif hw_kind == DEVICE_HW_PIR:
             # Motion-only module.
             sensor_kinds = []
@@ -1762,7 +1925,7 @@ class ARHDLOptionsFlow(OptionsFlow):
                 }
             )
             added += 1
-        if hw_kind != DEVICE_HW_PANEL and not have(
+        if hw_kind != DEVICE_HW_PANEL and not temp_only and not have(
             DEVICE_TYPE_BINARY_SENSOR, CONF_BINARY_KIND, BINARY_KIND_MOTION
         ):
             devices.append(
@@ -1805,9 +1968,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             and d.get(CONF_BINARY_KIND) == BINARY_KIND_DRY_CONTACT
         }
         added = 0
-        zones = HDL_DRY_CONTACT_ZONES.get(disc.type_code) or int(
-            getattr(disc, "dry_contact_zones", None) or 1
-        )
+        zones = int(_disc_zones(disc) or 1)
         for zone in range(1, zones + 1):
             if zone in existing:
                 continue

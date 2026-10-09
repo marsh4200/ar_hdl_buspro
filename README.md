@@ -340,23 +340,24 @@ Add it by hand:
 
 ## 📖 Recognised HDL Type Codes
 
-Codes already pinned in the classification table. Anything not listed still gets discovered — it classifies from its replies, or falls back to an editable switch.
+Codes already pinned in the classification table. Anything not listed is still identified automatically: hardware that describes itself on the bus reports its own type and channel count during the scan, and the rest is looked up in a built-in catalogue of ~1,800 HDL type codes (model, device family and channel layout). Only if neither knows the device does it classify from its replies, or fall back to an editable switch.
 
 | Code | Classified as | Hardware |
 |---|---|---|
-| `0x0011` | Climate | SB_DN_6B0-10v heating relay |
-| `0x0086` / `0x0095` / `0x009C` | Climate | DLP / DLP2 panels |
-| `0x0890` | Climate | HDL-MPTL4C.48 Granite Display touch panel |
+| `0x0095` / `0x009C` | Climate | DLP panels |
+| `0x0086` | Sensor or Climate | HDL-MTS04.20 4-ch temperature sensor on HDL, DLP2 panel on Smart-Bus — decided by what the device answers |
+| `0x0890` | Climate | HDL-MPTL4C.48 Granite Display touch panel — also imports its temperature and humidity sensors |
 | `0x0260` / `0x026D` / `0x0269` | Light (dimmer) | DT0601 / MDT0601 6-ch dimmers |
-| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0141`, `0x0457`, `0x1209`, `0x120B`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit, 18 relay + 4 dimmer ch) imports as 22 switch channels — re-tag the 4 dimmer channels to light by hand afterward |
-| `0x1391` / `0x13C3` / `0x13C2` | Switch | Buspro wireless wall panels with built-in relays — imports the 3 relay channels (the extra buttons have no relay behind them). `0x13C2` also exists as a 1-relay panel that is indistinguishable on the bus: delete the two unused channels after import |
+| `0x0011` | Light (dimmer) | HDL-MRDA06 / SB-DN-6B0-10v 6-ch 0-10V dimmer |
+| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit) imports channels 1–17 and 22 as switches and 18–21 as dimmable lights |
+| `0x1391` / `0x13C3` / `0x13C2` | Switch | Buspro wireless wall panels with built-in relays — imports the 3 relay channels (the extra buttons have no relay behind them). `0x13C2` also exists as a 1-relay panel: if the panel reports its own relay count during the scan that count is used, otherwise it imports 3 and you delete the unused channels |
 | `0x1589` | Switch | 1-channel relay |
 | `0x25E5` / `0x25E8` / `0x02C9` | **Cover** | Curtain modules (`0x02C9` = HDL-MW02.431 2-ch) |
 | `0x0077` / `0x0166` | Binary sensor | SB_DRY_4Z dry contact / HDL-MS24.232 24-zone dry contact |
-| `0x0134` / `0x0135` / `0x0150` | Sensor bundle | 12-in-1 / 8-in-1 / MSP07M |
+| `0x0134` / `0x0141` / `0x0135` / `0x0150` | Sensor bundle | 12-in-1 (HDL-MS12.2C) / 8-in-1 / MSP07M |
 | `0x0516` / `0x0517` | Universal switch | HDL-MIRC04.40 IR emitter/receiver module |
 | `0x012B`, `0x00AF`, `0x08DB`, `0x080D`, `0x084D`, `0x239C`, `0x238C`, `0x08CA` | Keypad | Wall keypads and DLP panels, incl. `0x08CA` Granite Display keypad (labelled, not imported) |
-| `0x02F5` / `0x0455` | Gateway / Logic | Wireless mesh gateway and logic module (labelled, not imported — no entities) |
+| `0x02F5` / `0x1209` / `0x120B` / `0x0455` / `0x0457` | Gateway / Logic | Wireless mesh gateway, HDL-MBUS01IP.431 IP gateways, logic modules (labelled, not imported — no entities) |
 
 Found a code that isn't here? The scan log prints every device's type code — open an ["Unrecognised device / type code"](issues/new?template=unsupported_device.yml) issue with the code and what the hardware is, and it gets added.
 
