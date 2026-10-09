@@ -10,6 +10,7 @@ _LOGGER_SENSOR = logging.getLogger(__name__)
 
 from ..helpers.enums import OnOffStatus, OperateCode, SuccessOrFailure
 from .control import (
+    _GenericControl,
     _ReadDryContactStatus,
     _ReadFloorHeatingStatus,
     _ReadMotionSensorStatus,
@@ -19,7 +20,7 @@ from .control import (
     _ReadStatusOfUniversalSwitch,
     _ReadTemperature,
 )
-from .device import Device
+from .device import Device, startup_retry_delay
 
 # How often to re-issue the startup status read while this sensor has still
 # never produced a single reading. A one-shot read is fragile: on a full HA
@@ -33,6 +34,10 @@ from .device import Device
 # it. It stops for good the moment any real reading arrives, so it is not
 # polling -- a sensor that works costs one extra frame at most.
 _SENSOR_STATUS_RETRY_SECONDS = 20
+
+# HDL ReadAnalogValue request and the humidity sub-type it takes.
+_READ_ANALOG_VALUE = b"\xe4\x40"
+_ANALOG_HUMIDITY = 0x45
 
 
 class Sensor(Device):
@@ -51,6 +56,7 @@ class Sensor(Device):
         temperature_channel: int = 1,
         motion_uv_switch: int | None = None,
         motion_byte_index: int | None = None,
+        read_humidity: bool = False,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(buspro, device_address, name)
@@ -65,6 +71,9 @@ class Sensor(Device):
         # temperature read (0xE3E7). The onboard sensor answers on ch 1 on
         # every panel observed so far.
         self._temperature_channel = temperature_channel or 1
+        # Panel humidity entity: poll the panel's humidity analog value
+        # (0xE440 sub-type 0x45) instead of its temperature.
+        self._read_humidity = bool(read_humidity)
         # Universal-switch number a multisensor uses to PUSH motion in real
         # time (201 / 0xC9 on HDL CMS hardware). See the handler below for why
         # this is the only thing that makes a PIR usable.
@@ -419,6 +428,19 @@ class Sensor(Device):
                     self._current_temperature_precise = None
                 self._call_device_updated()
 
+        elif (
+            op == OperateCode.BroadcastLuminanceResponse
+            and len(payload) >= 3
+            and payload[0] == _ANALOG_HUMIDITY
+        ):
+            # 0xE441 is HDL's generic "analog value" reply; payload[0] names
+            # the value. Sub-type 0x45 is relative humidity at payload[2]
+            # (as read by the HDL Setup Tool for Granite / 4" touch panels).
+            # Anything else keeps the original illuminance decode below.
+            if 0 <= payload[2] <= 100:
+                self._current_humidity = payload[2]
+                self._call_device_updated()
+
         elif op == OperateCode.BroadcastLuminanceResponse:
             if len(payload) >= 4:
                 self._brightness = (payload[2] << 8) | payload[3]
@@ -504,6 +526,14 @@ class Sensor(Device):
             # replies at all, so its entity stays "clear" for good.
             req = _ReadMotionSensorStatus(self._buspro)
             req.subnet_id, req.device_id = self._device_address
+            await req.send()
+        elif self._device == "panel" and self._read_humidity:
+            # Granite / 4" touch panel humidity: ReadAnalogValue (0xE440)
+            # with sub-type 0x45; answered on 0xE441 [0x45, x, humidity].
+            req = _GenericControl(self._buspro)
+            req.subnet_id, req.device_id = self._device_address
+            req.operate_code = _READ_ANALOG_VALUE
+            req.payload = [_ANALOG_HUMIDITY, 0]
             await req.send()
         elif self._device == "panel":
             # MPTL/Granite Display family: channel-addressed temperature.
@@ -657,7 +687,9 @@ class Sensor(Device):
             # Stagger the first attempt so a restart with many sensors
             # doesn't fire them all in one UDP burst.
             await asyncio.sleep(5 + random.uniform(0, 2))
+            attempt = 0
             while not self._got_reading:
+                attempt += 1
                 try:
                     await self.read_sensor_status()
                 except Exception:  # noqa: BLE001
@@ -665,6 +697,6 @@ class Sensor(Device):
                         "Initial sensor status read failed for %s",
                         self._device_address,
                     )
-                await asyncio.sleep(_SENSOR_STATUS_RETRY_SECONDS)
+                await asyncio.sleep(startup_retry_delay(attempt))
 
         asyncio.ensure_future(_read(), loop=self._buspro.loop)

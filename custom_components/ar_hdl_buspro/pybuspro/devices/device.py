@@ -19,6 +19,22 @@ from .control import _ReadStatusOfChannels
 # polling was tried and reverted instead -- this stops the moment a real
 # reading arrives, same as that one).
 _CHANNEL_STATUS_RETRY_SECONDS = 20
+# After this many unanswered startup reads, stop hammering the bus every 20s
+# and fall back to a slow retry. Some hardware (the Buspro wireless relay
+# panels) never answers ReadStatusOfChannels at all, and every channel of it
+# used to re-ask every 20 seconds forever - constant traffic on the wireless
+# mesh for nothing. A device that answers is unaffected: the loop still
+# stops the moment a real status arrives, and a device that was merely
+# offline at boot is still picked up by the slow retry.
+_STARTUP_FAST_RETRIES = 6
+_STARTUP_SLOW_RETRY_SECONDS = 600
+
+
+def startup_retry_delay(attempt: int) -> int:
+    """Seconds to wait after startup read number `attempt` (1-based)."""
+    if attempt < _STARTUP_FAST_RETRIES:
+        return _CHANNEL_STATUS_RETRY_SECONDS
+    return _STARTUP_SLOW_RETRY_SECONDS
 
 
 class Device:
@@ -128,7 +144,9 @@ class Device:
                 # Stagger the very first attempt so a restart with many
                 # channels doesn't fire them all in the same UDP burst.
                 await asyncio.sleep(3 + random.uniform(0, 2))
+                attempt = 0
                 while not self._got_initial_status:
+                    attempt += 1
                     reader = _ReadStatusOfChannels(self._buspro)
                     reader.subnet_id, reader.device_id = self._device_address
                     try:
@@ -138,7 +156,7 @@ class Device:
                             "Startup status read failed for %s",
                             self._device_address,
                         )
-                    await asyncio.sleep(_CHANNEL_STATUS_RETRY_SECONDS)
+                    await asyncio.sleep(startup_retry_delay(attempt))
             else:
                 reader = _ReadStatusOfChannels(self._buspro)
                 reader.subnet_id, reader.device_id = self._device_address

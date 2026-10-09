@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 
@@ -34,8 +35,10 @@ from .const import (
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_KEYPAD_TYPE_CODES,
+    HDL_NO_ENTITY_ROLES,
     HDL_TYPE_TO_DEVICE_TYPE,
 )
+from .classify import function_summary, parse_module_reply
 from .pybuspro.buspro import Buspro
 from .pybuspro.core.telegram import Telegram
 from .pybuspro.helpers.enums import OperateCode
@@ -138,6 +141,17 @@ _IDENTITY_PROBES: tuple[tuple[object, list[int]], ...] = (
 # Remark reply operate code (not in the OperateCode enum, so it arrives raw).
 _REMARK_REPLY_OP = "0x000F"
 
+# "Read device module" (0xE548) -> reply 0xE549. This is the request the HDL
+# Setup Tool's own device search broadcasts: newer HDL hardware answers with
+# its remark AND its own function list as (big, small, count) triples - e.g.
+# (1, 1, 3) = 3 relays - so it reports what it is and how many channels it
+# has without anyone recording its type code first. Request payload: two
+# non-zero session bytes, then up to 32 (subnet, device) pairs that have
+# already answered and should stay quiet (HDL's own flood control).
+_MODULE_READ_OP = b"\xe5\x48"
+_MODULE_REPLY_OP = "0xE549"
+_MODULE_EXCLUDE_MAX = 32
+
 
 # Operate codes a keypad/panel *originates* when a button is pressed or when
 # it broadcasts state. Hearing these from a source is keypad evidence.
@@ -187,6 +201,9 @@ class DiscoveredDevice:
     remark: str | None = None
     # Highest dry-contact zone that answered a directed zone read.
     dry_contact_zones: int | None = None
+    # The device's own function list from its 0xE549 reply, flat
+    # (big, small, count) triples. None if it never answered 0xE548.
+    self_functions: list[int] | None = None
 
     @property
     def address(self) -> str:
@@ -224,9 +241,12 @@ class DiscoveredDevice:
         if self.looks_like_keypad:
             hints.append("keypad")
         hint = f" [{'/'.join(hints)}]" if hints else ""
+        reported = ""
+        if self.self_functions:
+            reported = f" self-reported=[{function_summary(self.self_functions) or self.self_functions}]"
         return (
             f"{self.address}{name} type={self.type_code}({self.type_name}) "
-            f"{chans}{hint} replied=[{ops}]"
+            f"{chans}{hint}{reported} replied=[{ops}]"
         )
 
 
@@ -237,6 +257,9 @@ class BusScanner:
         """Initialize the scanner around an already-connected Buspro client."""
         self._buspro = buspro
         self._found: dict[tuple[int, int], DiscoveredDevice] = {}
+        # Session bytes for the 0xE548 module read (must be non-zero).
+        self._session = [random.randint(1, 255), random.randint(1, 255)]
+        self._exclude_cursor = 0
 
     # ----- telegram harvesting --------------------------------------------
     def _on_telegram(self, telegram) -> None:
@@ -288,6 +311,15 @@ class BusScanner:
                 dev.remark = self._decode_remark(
                     getattr(telegram, "payload", None) or []
                 )
+
+            if op_name == _MODULE_REPLY_OP:
+                remark, functions = parse_module_reply(
+                    getattr(telegram, "payload", None) or []
+                )
+                if functions:
+                    dev.self_functions = functions
+                if remark and not dev.remark:
+                    dev.remark = self._decode_remark(list(remark.encode("latin-1")))
 
             if op_name == "ReadDryContactStatusResponse":
                 payload = getattr(telegram, "payload", None) or []
@@ -449,6 +481,38 @@ class BusScanner:
                     "Provocation send failed (%s): %s", operate_code, err
                 )
             await asyncio.sleep(_FRAME_GAP)
+        await self._broadcast_module_read()
+
+    async def _broadcast_module_read(self) -> None:
+        """Broadcast 0xE548 so self-describing hardware reports its functions.
+
+        Devices that already answered are listed (32 at a time, rotating) so
+        they stay quiet - the same flood control the HDL Setup Tool uses.
+        """
+        ni = self._buspro.network_interface
+        if ni is None:
+            return
+        answered = [
+            (d.subnet_id, d.device_id)
+            for d in self._found.values()
+            if d.self_functions is not None
+        ]
+        exclude: list[int] = []
+        if answered:
+            start = self._exclude_cursor % len(answered)
+            window = (answered[start:] + answered[:start])[:_MODULE_EXCLUDE_MAX]
+            self._exclude_cursor = start + len(window)
+            for subnet, device in window:
+                exclude += [subnet, device]
+        telegram = Telegram()
+        telegram.target_address = _BROADCAST
+        telegram.operate_code = _MODULE_READ_OP
+        telegram.payload = list(self._session) + exclude
+        try:
+            await ni.send_telegram(telegram)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Module-read broadcast failed: %s", err)
+        await asyncio.sleep(_FRAME_GAP)
 
     async def _directed_channel_reads(self) -> None:
         """Ask each discovered device directly for its channel status.
@@ -491,6 +555,8 @@ class BusScanner:
         code = dev.type_code
         if code in HDL_KEYPAD_TYPE_CODES or code in HDL_DIMMER_TYPE_CODES:
             return False
+        if code in HDL_NO_ENTITY_ROLES:
+            return False
         if code in HDL_TYPE_TO_DEVICE_TYPE:
             # Known type, but a dry-contact module of unknown size still
             # needs its zones counted.
@@ -528,6 +594,10 @@ class BusScanner:
             if time.monotonic() >= deadline:
                 break
             address = (dev.subnet_id, dev.device_id)
+            # Ask every device that hasn't described itself yet, directly,
+            # once: some only answer 0xE548 when it is addressed to them.
+            if dev.self_functions is None:
+                await self._send_directed(address, _MODULE_READ_OP, self._session)
             if self._needs_identification(dev):
                 for operate_code, payload in _IDENTITY_PROBES:
                     if time.monotonic() >= deadline:

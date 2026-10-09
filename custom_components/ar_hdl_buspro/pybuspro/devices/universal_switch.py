@@ -6,7 +6,7 @@ import random
 
 from ..helpers.enums import OnOff, OperateCode, SwitchStatusOnOff
 from .control import _ReadStatusOfUniversalSwitch, _UniversalSwitch
-from .device import Device
+from .device import Device, startup_retry_delay
 
 # See device.py's _CHANNEL_STATUS_RETRY_SECONDS for why a single one-shot
 # startup read isn't reliable enough (lost UDP packet -> stuck showing the
@@ -102,7 +102,9 @@ class UniversalSwitch(Device):
                 # Stagger the first attempt so a restart with many universal
                 # switches doesn't fire them all in the same UDP burst.
                 await asyncio.sleep(1 + random.uniform(0, 2))
+                attempt = 0
                 while not self._got_initial_status:
+                    attempt += 1
                     req = _ReadStatusOfUniversalSwitch(self._buspro)
                     req.subnet_id, req.device_id = self._device_address
                     req.switch_number = self._switch_number
@@ -113,7 +115,7 @@ class UniversalSwitch(Device):
                             "Startup universal switch read failed for %s",
                             self._device_address,
                         )
-                    await asyncio.sleep(_STATUS_RETRY_SECONDS)
+                    await asyncio.sleep(startup_retry_delay(attempt))
             else:
                 req = _ReadStatusOfUniversalSwitch(self._buspro)
                 req.subnet_id, req.device_id = self._device_address
