@@ -6,8 +6,13 @@ HDL software as:
     mode: Single ON/OFF
     target: Universal Switch <N> at 250.250  (HA_VIRTUAL_ADDRESS)
 
-Each press then sends UniversalSwitchControl (0xE01C) [N, 255 = on / 0 = off]
-to 250.250. Nothing physical lives there: this module answers on its behalf.
+Each press then sends UniversalSwitchControl (0xE01C) to 250.250, payload
+[N, status, 0, 0, button]. The status byte cannot be trusted to alternate:
+a Buspro wireless panel (0x13C3, captured live) sends the fixed "Switch
+Status" from its target setting on every press - [200, 0, 0, 0, 4] each
+time - so every press is treated as a TOGGLE of the switch, whatever status
+it carries. The reply carries the new state, and the button LED is set to
+match, so the keypad and Home Assistant always agree. Nothing physical lives there: this module answers on its behalf.
 It replies UniversalSwitchControlResponse (0xE01D) [N, status] so the keypad
 sees the command succeed (without a reply the keypad flashes its LED three
 times and turns it back off), keeps the on/off state per universal switch,
@@ -95,13 +100,16 @@ class VirtualKeypadResponder:
 
         if op == OperateCode.UniversalSwitchControl and len(payload) >= 2:
             number, status = int(payload[0]), int(payload[1])
-            on = status != UV_OFF
+            # A press toggles (see module docstring for why the status byte
+            # is not used to decide on/off).
+            on = not self.state(number)
             # Acknowledge first: the keypad is waiting for it.
             self._send(
                 source,
                 OperateCode.UniversalSwitchControlResponse,
-                [number, status],
+                [number, UV_ON if on else UV_OFF],
             )
+            button = int(payload[4]) if len(payload) >= 5 and payload[4] else None
             self._update(number, on, source)
             if self._fire_event is not None:
                 try:
@@ -110,6 +118,8 @@ class VirtualKeypadResponder:
                             "switch_number": number,
                             "state": "on" if on else "off",
                             "keypad": f"{source[0]}.{source[1]}" if source else None,
+                            "button": button,
+                            "reported_status": status,
                         }
                     )
                 except Exception:  # noqa: BLE001

@@ -367,14 +367,14 @@ Home Assistant answers on the bus at its own address, **`250.250`**. Point the s
 | Type | **Universal Switch** |
 | Subnet ID / Device ID | **250** / **250** (Home Assistant) |
 | Switch no. | any free number, e.g. **200** (use a different number per button) |
-| Switch status | leave as is (Single ON/OFF alternates on/off itself) |
+| Switch status | doesn't matter (each press toggles in Home Assistant) |
 
 Save it to the keypad.
 
 **2. In Home Assistant**, run **Scan bus for devices** and press submit. The scan reads the button's programming and creates a **keypad button** entity for it, already linked to the button's LED. To add one by hand instead: *Add a device → Keypad button*, switch number `200`, Keypad LED buttons `subnet.device:button` (e.g. `2.1:4`).
 
 **What you get:**
-- **Press the button** → the entity flips on/off, the button LED stays lit or off as normal (Home Assistant confirms the command, so the keypad doesn't flash), and an `ar_hdl_buspro_keypad_button` event fires.
+- **Press the button** → the entity toggles on/off (every press is a toggle, so it works even on panels that always send the same status), the button LED stays lit or off as normal (Home Assistant confirms the command, so the keypad doesn't flash), and an `ar_hdl_buspro_keypad_button` event fires.
 - **Toggle the entity in Home Assistant** → the button's LED turns on/off to match.
 - The state survives a Home Assistant restart.
 
@@ -386,14 +386,14 @@ triggers:
     event_type: ar_hdl_buspro_keypad_button
     event_data:
       switch_number: 200
-      state: "on"        # or "off"; leave out to fire on every press
+      state: "on"        # the new state; leave out to fire on every press
 actions:
   - action: scene.turn_on
     target:
       entity_id: scene.movie_night
 ```
 
-Or trigger on the keypad button entity's state changing like any other switch. Several keypads can share one switch number (e.g. a button at each door), and they stay in step.
+The event also carries `keypad` (e.g. `2.1`) and `button` (e.g. `4`). Or trigger on the keypad button entity's state changing like any other switch. Several keypads can share one switch number (e.g. a button at each door), and they stay in step.
 
 > If the button's LED **flashes three times and goes off** when pressed, the keypad isn't getting Home Assistant's confirmation: check the target is `250.250`, the integration is running and licensed, and the gateway is reachable.
 
@@ -561,7 +561,8 @@ Reproduce the problem (or run a bus scan), then download the log from **Settings
 | **A dimmer imported as a switch** | See [Dimmer imported as a switch?](#-dimmer-imported-as-a-switch). |
 | **Keypad LED doesn't follow a relay** | Check *Edit a device → Keypad LED buttons* on that relay. Empty means no link was found: run a bus scan, or type the link in (`subnet.device:button`). |
 | **Keypad LED lights for the wrong relay** | Remove the wrong entry from *Keypad LED buttons* on that relay, or re-run a bus scan to refresh the links. |
-| **Spare keypad button flashes 3 times and goes off** | The keypad got no confirmation. Its target must be Universal Switch at `250.250`; check the integration is running and licensed. |
+| **Spare keypad button flashes 3 times and goes off** | The keypad got no confirmation. Its target must be Universal Switch at **`250.250`** (not the keypad's own address); check the integration is running and licensed. |
+| **Spare keypad button does nothing in Home Assistant** | Add the entity as **Keypad button** (not *Universal switch*) with the same switch number, or run a bus scan. |
 | **Wireless panel shows extra relay channels** | A 1-relay `0x13C2` panel that didn't report its relay count imports 3; delete the two unused channels. |
 | **Humidity shows unavailable on a touch panel** | Check the entity's hardware kind is **panel**, then look at its `last_telegram` / `raw_payload` attributes and open an issue with them. |
 | **Devices flicker unavailable** | Check the log for reconnect messages; the transport recovers with backoff. Persistent drops usually mean duplicate IPs or a flaky switch port on the gateway. |

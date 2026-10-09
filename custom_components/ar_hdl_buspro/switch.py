@@ -235,8 +235,10 @@ class ARHDLKeypadButton(ARHDLBaseEntity, SwitchEntity, RestoreEntity):
         def _changed(on: bool, source) -> None:
             self.async_write_ha_state()
             if source is not None and self._led_sync.active:
-                # Pressed on a keypad: bring any OTHER linked keypads along.
-                self.hass.async_create_task(self._led_sync.push(on))
+                # Pressed on a keypad: set every linked button LED - the
+                # pressing one included, since a keypad that sends a fixed
+                # status may have lit its LED the wrong way round.
+                self.hass.async_create_task(self._led_sync.push(on, force=True))
 
         self.async_on_remove(self._virtual.add_listener(self._number, _changed))
 
