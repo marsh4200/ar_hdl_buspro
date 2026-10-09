@@ -58,6 +58,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 - **Keypad buttons in Home Assistant.** A spare keypad button (one with no relay behind it) can be programmed to talk to Home Assistant, appearing as an on/off switch and firing an event on every press for automations. See [Keypad buttons in Home Assistant](#-keypad-buttons-in-home-assistant).
 - **Keypad LED sync.** Keypad button LEDs now follow the relays they control, even when the relay is switched from Home Assistant. Works for wired keypads and Buspro wireless panels. See [Keypad LED sync](#-keypad-led-sync).
 - **Humidity on touch panels.** Granite Display and 4" touch panels now report humidity as well as temperature, and both sensors are added automatically when the panel is imported.
+- **Wall panels import their sensors and climate.** DLP, Enviro, Granite and "with temperature" panels list their temperature sensor, floor heating and AC as separate lines in the scan, instead of being skipped as keypads.
 - **HDL-MRCU home control unit** imports its 4 dimmer channels as dimmable lights automatically.
 - **Wireless Buspro panels** import their built-in relays, and the 1-relay and 3-relay versions of `0x13C2` are told apart when the panel reports its relay count.
 - **Corrected device types.** `0x0011` is a 6-channel 0-10V dimmer, `0x0141` a 12-in-1 sensor, `0x1209` / `0x120B` IP gateways and `0x0457` a logic module. Gateways and logic modules are labelled and left out of import.
@@ -313,7 +314,17 @@ They also get a **position slider**, driven by the **travel time** field (defaul
 
 ### 🎛️ Keypads, Panels, Gateways and Logic Modules
 
-- **Keypads and wall panels** are labelled **`buttons only, no entities`** and left out of import. Their button presses act on the loads you *did* import, and their LEDs are kept in step by [Keypad LED sync](#-keypad-led-sync).
+- **Plain keypads** are labelled **`buttons only, no entities`** and left out of import. Their button presses act on the loads you *did* import, and their LEDs are kept in step by [Keypad LED sync](#-keypad-led-sync).
+- **Wall panels with more than buttons** (DLP, Enviro, Granite Display, "with temperature" panels…) get **one extra line per feature** in the scan list, so you tick exactly what's installed:
+
+  ```
+  2.60  keypad  ·  "Lounge DLP" · 0x00AF · Wall keypad  ·  buttons — tick its features below
+  2.60  temperature sensor  ·  Lounge DLP
+  2.60  floor heating       ·  Lounge DLP
+  2.60  air conditioner     ·  Lounge DLP
+  ```
+
+  Each feature imports as its own entity (temperature sensor, floor-heating climate, AC climate on the panel) and shows `✓ in config` once it's in, so you can see at a glance what's still missing. Features come from what the panel answered during the scan and from HDL's own description of the model.
 - **Buspro wireless panels** are the exception: they have relays built in, so they import as switches. See [Buspro wireless panels](#-buspro-wireless-panels).
 - **Gateways and logic modules** (IP gateways, mesh gateways, logic timers) are labelled **`no entities`** and left out of import.
 
@@ -545,6 +556,7 @@ Reproduce the problem (or run a bus scan), then download the log from **Settings
 |---|---|
 | **Gateway detection finds nothing** | HA and the gateway must share an L2 segment for broadcasts to travel. Routed networks / VLANs block them: allow UDP/6000 broadcast forwarding or use *Enter address manually*. Check the host firewall isn't dropping UDP/6000. |
 | **Scan finds nothing, but the gateway was detected** | Check no other Buspro software (HDL Setup Tool, another HA instance) is bound to port 6000 on the same host. Try a 60-second scan and press a few keypad buttons during it. |
+| **A DLP or wall panel shows as "keypad"** | Tick its feature lines underneath it (temperature sensor, floor heating, air conditioner). The panel line itself only covers the buttons. |
 | **A device came in as the wrong type** | Open an issue with its type code from the scan list. For dimmers, use the *Dimmer type codes* box on the results screen meanwhile. |
 | **A dimmer imported as a switch** | See [Dimmer imported as a switch?](#-dimmer-imported-as-a-switch). |
 | **Keypad LED doesn't follow a relay** | Check *Edit a device → Keypad LED buttons* on that relay. Empty means no link was found: run a bus scan, or type the link in (`subnet.device:button`). |
