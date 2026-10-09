@@ -779,12 +779,21 @@ def _keypad_links(results) -> tuple[dict, set]:
         if targets:
             read.add((disc.subnet_id, disc.device_id))
         for button, by_no in targets.items():
-            for ttype, subnet, device, channel, _level in by_no.values():
-                if ttype != TARGET_TYPE_SINGLE_CHANNEL or not 1 <= channel <= 255:
-                    continue
-                links.setdefault((subnet, device, channel), set()).add(
-                    (disc.subnet_id, disc.device_id, int(button))
-                )
+            channels = {
+                (subnet, device, channel)
+                for ttype, subnet, device, channel, _level in by_no.values()
+                if ttype == TARGET_TYPE_SINGLE_CHANNEL and 1 <= channel <= 255
+            }
+            # Only a button that drives exactly ONE channel owns that
+            # channel's LED. A button driving several (an "all lights" /
+            # combination button) would otherwise light up whenever any one
+            # of its channels came on - seen on a 0x13C3 whose button 4 was
+            # programmed for relays 1 and 2.
+            if len(channels) != 1:
+                continue
+            links.setdefault(next(iter(channels)), set()).add(
+                (disc.subnet_id, disc.device_id, int(button))
+            )
     return links, read
 
 

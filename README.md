@@ -344,7 +344,7 @@ An HDL keypad's button LED shows the button's own state, so when a relay is swit
 
 AR HDL BUSPRO keeps them in step automatically:
 
-- **The bus scan reads each keypad's button programming** (wired keypads and Buspro wireless panels) and links every button that switches a relay or dimmer channel to that entity, exactly as programmed in the HDL software.
+- **The bus scan reads each keypad's button programming** (wired keypads and Buspro wireless panels) and links every button that switches a single relay or dimmer channel to that entity, exactly as programmed in the HDL software. Buttons that drive several channels at once (an "all lights" button, for example) are left unlinked, since their LED doesn't belong to any one channel; add them by hand if you want.
 - **Whenever the channel changes**, from Home Assistant or anywhere else on the bus, the linked buttons' LEDs are set to match.
 - Works for keypads driving a separate relay module and for wireless panels with built-in relays. A wireless panel that can't be read falls back to button N = relay N.
 - Links show on each relay/light under **Edit device → Keypad LED buttons** as `subnet.device:button` (e.g. `2.1:2, 1.50:4`) and can be changed by hand.
