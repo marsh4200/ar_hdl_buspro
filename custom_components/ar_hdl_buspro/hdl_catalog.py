@@ -29,6 +29,9 @@ HUMIDITY_PANEL_CODES: Final = frozenset({0x0879, 0x087A, 0x087F, 0x0886, 0x088E,
 # Hotel RCUs with 22 channels where HDL fixes channels 18-21 as dimmers and the rest as relays.
 RCU_22CH_CODES: Final = frozenset({0x0DAD, 0x0DAE, 0x0DB1, 0x0DB2, 0x0DB4, 0x0DB5, 0x0DBC, 0x0DC1, 0x0DC2, 0x0DC3, 0x0DC7, 0x0DC8, 0x0DC9, 0x0DCA, 0x0DCC, 0x0DCD, 0x0DCE, 0x0DCF, 0x0DD0, 0x0DD2, 0x0DD3, 0x0DD5, 0x0DD7, 0x0DE2, 0x0DE7, 0x0DE8, 0x0DE9, 0x0DED, 0x34C5})
 
+# DLP panels HDL lists as having no floor heating.
+DLP_WITHOUT_FLOOR_HEATING_CODES: Final = frozenset({0x088F, 0x08BE, 0x08C1, 0x08C2, 0x08C4, 0x08C5})
+
 HDL_CATALOG: Final[dict[int, tuple[str, str, str, tuple[int, ...]]]] = {
     0x0001: ('HDL-MDH0610', '6 channels 10A dimmable scene controller', 'dimmer', (1, 0, 6)),
     0x0002: ('HDL-MDH1210', '12ch 10A Professional Intelligent Dimmer(with load statu', 'dimmer', (1, 0, 12)),

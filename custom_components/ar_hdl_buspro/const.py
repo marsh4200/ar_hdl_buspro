@@ -159,6 +159,18 @@ DEVICE_TYPE_COVER: Final = "cover"
 # switch entity, addable from the UI like any other device.
 DEVICE_TYPE_UNIVERSAL_SWITCH: Final = "universal_switch"
 
+# A spare keypad button programmed (in the HDL software) to send a universal
+# switch to Home Assistant's own bus address - see virtual_device.py.
+DEVICE_TYPE_KEYPAD_BUTTON: Final = "keypad_button"
+
+# Home Assistant's own address on the HDL bus. Keypad buttons target a
+# universal switch at this address; the integration answers for it.
+HA_VIRTUAL_ADDRESS: Final = (250, 250)
+# Fired on every press of such a button: switch_number, state, keypad.
+EVENT_KEYPAD_BUTTON: Final = "ar_hdl_buspro_keypad_button"
+# Keypad button-target type for "universal switch" (0xE001 reply byte 2).
+TARGET_TYPE_UNIVERSAL_SWITCH: Final = 88
+
 DEVICE_TYPES: Final = [
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SWITCH,
@@ -167,6 +179,7 @@ DEVICE_TYPES: Final = [
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
+    DEVICE_TYPE_KEYPAD_BUTTON,
 ]
 
 # Cover modes

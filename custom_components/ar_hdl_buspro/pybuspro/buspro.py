@@ -85,6 +85,10 @@ class Buspro:
 
         self.gateway_address_send_receive = gateway_address_send_receive
 
+        # Handlers that see every received telegram regardless of its source
+        # (e.g. the responder answering for Home Assistant's own bus address).
+        self.virtual_handlers: list = []
+
     async def start(self, state_updater: bool = False) -> None:
         """Connect to the gateway and start listening for telegrams."""
         self.network_interface = NetworkInterface(
@@ -112,6 +116,12 @@ class Buspro:
 
         if self.callback_all_messages is not None:
             self.callback_all_messages(telegram)
+
+        for handler in list(self.virtual_handlers):
+            try:
+                handler(telegram)
+            except Exception as err:  # noqa: BLE001
+                self.logger.warning("Virtual handler error: %s", err)
 
         # Every per-device handler decodes a *Response / *Broadcast frame,
         # i.e. state the device reports about ITSELF, so only the sender's

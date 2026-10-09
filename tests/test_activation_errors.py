@@ -97,11 +97,15 @@ async def serve(handler, port, method="post", path="/api/activation/activate"):
     await web.TCPSite(runner,"127.0.0.1",port).start()
     return runner
 
-async def mgr():
+async def mgr(contact=True):
+    """A fresh, unlicensed install. A new licence request needs a name and
+    email, so by default the requester has filled them in."""
     global FAKE_DISK
     FAKE_DISK={}
     h=HomeAssistant(); h.config_entries.entries.append(FE("e0"))
     mg=licensing.ARHDLLicenseManager(h); await mg.async_load(); await h.drain()
+    if contact:
+        await mg.async_set_contact("Test Site", "test@example.co.za")
     return mg
 
 async def main():
@@ -173,8 +177,13 @@ async def main():
         seen={}
         async def cap(r):
             seen.update(await r.json()); return web.json_response({"status":"pending"})
-        rn=await serve(cap,4108); mg=await mgr()
+        rn=await serve(cap,4108); mg=await mgr(contact=False)
         check("no contact recorded on a fresh install", not mg.has_contact)
+        # --- no name/email: NO request may leave the install ---
+        seen.clear()
+        st,reason=await mg.async_activate("http://127.0.0.1:4108")
+        check("fresh install without name/email -> contact_required, server not contacted",
+              reason=="contact_required" and not seen, f"{reason} {seen}")
         await mg.async_set_contact("  Kruger Lodge ", "ops@example.co.za ")
         st,reason=await mg.async_activate("http://127.0.0.1:4108")
         check("request carries name + email",
@@ -183,6 +192,13 @@ async def main():
         check("contact persisted to storage",
               any(d.get("contact_email")=="ops@example.co.za" for d in FAKE_DISK.values()
                   if isinstance(d,dict)))
+        await rn.cleanup()
+
+        # --- an install that already holds a key may still check in ---
+        seen.clear()
+        rn=await serve(cap,4114); mg=await licensed_mgr()
+        st,reason=await mg.async_activate("http://127.0.0.1:4114")
+        check("licensed install without name/email can still renew", bool(seen), json.dumps(seen))
         await rn.cleanup()
 
         # --- licence DELETED on the server: stored key must be dropped ---
@@ -210,6 +226,38 @@ async def main():
         mg=await licensed_mgr()
         await mg.async_activate("http://127.0.0.1:4198")
         check("offline keeps the stored key", mg.state.licensed and stored_key())
+
+        # --- update notice from the licence server ---
+        cur = licensing._integration_version()
+        parts = [int(x) for x in cur.split(".")]
+        newer = ".".join(str(x) for x in parts[:-1] + [parts[-1] + 1])
+        reply = {"body": {"status": "pending", "update": {"version": newer, "message": "Keypad fixes"}}}
+        async def upd(r): return web.json_response(reply["body"])
+        rn=await serve(upd,4115); mg=await mgr()
+        await mg.async_activate("http://127.0.0.1:4115")
+        n = mg.update_notice
+        check("newer version notice is shown", n == {"version": newer, "message": "Keypad fixes"}, str(n))
+        reply["body"] = {"status": "pending", "update": {"version": cur}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("notice for the running version shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": "1.0.0"}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("notice for an older version shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": "garbage"}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("malformed notice shows nothing", mg.update_notice is None, str(mg.update_notice))
+        reply["body"] = {"status": "pending", "update": {"version": newer}}
+        await mg.async_activate("http://127.0.0.1:4115")
+        await mg.async_activate("http://127.0.0.1:4198")
+        check("offline keeps the last notice", (mg.update_notice or {}).get("version") == newer, str(mg.update_notice))
+        reply["body"] = {"status": "pending"}
+        await mg.async_activate("http://127.0.0.1:4115")
+        check("withdrawn on the server -> notice cleared", mg.update_notice is None, str(mg.update_notice))
+        await rn.cleanup()
+        check("is_newer_version basics",
+              licensing.is_newer_version("5.0.12", "5.0.11") and licensing.is_newer_version("v5.1", "5.0.11")
+              and not licensing.is_newer_version("5.0.11", "5.0.11") and not licensing.is_newer_version("5.0.10", "5.0.11")
+              and not licensing.is_newer_version("", "5.0.11") and not licensing.is_newer_version("5.0.12", "unknown"))
 
         # --- connection refused ---
         mg=await mgr()

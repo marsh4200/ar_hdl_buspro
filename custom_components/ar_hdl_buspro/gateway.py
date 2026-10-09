@@ -14,9 +14,14 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import SIGNAL_GATEWAY_AVAILABILITY
+from .const import (
+    EVENT_KEYPAD_BUTTON,
+    HA_VIRTUAL_ADDRESS,
+    SIGNAL_GATEWAY_AVAILABILITY,
+)
 from .licensing import DATA_LICENSE, get_unlock
 from .pybuspro.buspro import Buspro
+from .virtual_device import VirtualKeypadResponder
 
 if TYPE_CHECKING:
     pass
@@ -67,6 +72,16 @@ class ARHDLGateway:
         # When the UDP transport dies unexpectedly (interface change, docker
         # network flap, etc.) mark unavailable and start reconnecting.
         self.hdl.on_connection_lost = self._handle_connection_lost
+        # Home Assistant's own bus address, answering keypad buttons that
+        # send a universal switch to it (see virtual_device.py).
+        self.virtual = VirtualKeypadResponder(
+            self.hdl,
+            HA_VIRTUAL_ADDRESS,
+            fire_event=lambda data: hass.bus.async_fire(
+                EVENT_KEYPAD_BUTTON, {**data, "entry_id": entry_id}
+            ),
+        )
+        self.hdl.virtual_handlers.append(self.virtual.handle_telegram)
 
     @property
     def available(self) -> bool:

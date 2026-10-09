@@ -35,6 +35,7 @@ from .const import (
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_KEYPAD_TYPE_CODES,
+    HA_VIRTUAL_ADDRESS,
     HDL_NO_ENTITY_ROLES,
     HDL_TYPE_TO_DEVICE_TYPE,
     WIRELESS_RELAY_PANEL_CODES,
@@ -60,7 +61,7 @@ _BROADCAST: tuple[int, int] = (255, 255)
 #   (200, 200) is pybuspro's own default sender id
 #   (0, 0)     is a null/unset address
 #   (255, 255) is the broadcast address itself
-_IGNORED_SOURCES = {(200, 200), (0, 0), (255, 255)}
+_IGNORED_SOURCES = {(200, 200), (0, 0), (255, 255), HA_VIRTUAL_ADDRESS}
 
 # Broadcast read requests used to provoke replies, spanning the common device
 # classes. operate_code may be an OperateCode enum or a raw 2-byte sequence

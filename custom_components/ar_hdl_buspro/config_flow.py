@@ -95,6 +95,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TEMP_CHANNEL,
     DEFAULT_TEMP_OFFSET,
+    DEVICE_HW_DLP,
     DEVICE_HW_GENERIC,
     DEVICE_HW_12IN1,
     DEVICE_HW_8IN1,
@@ -105,12 +106,14 @@ from .const import (
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
     DEVICE_TYPE_COVER,
+    DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_UNIVERSAL_SWITCH,
     DEVICE_TYPES,
     DOMAIN,
+    HA_VIRTUAL_ADDRESS,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_AMBIGUOUS_COUNT_CODES,
@@ -129,17 +132,22 @@ from .const import (
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KINDS,
+    TARGET_TYPE_UNIVERSAL_SWITCH,
 )
 from .classify import (
     FAMILY_HW_KIND,
     FAMILY_ROLE,
     PANEL_FAMILIES,
+    PANEL_FEATURE_AC,
+    PANEL_FEATURE_FLOOR_HEATING,
+    PANEL_FEATURE_TEMPERATURE,
     catalog_entry,
     catalog_family,
     catalog_name,
     channel_plan_from_functions,
     dry_contact_zones,
     function_summary,
+    panel_features,
     panel_has_humidity,
     rcu_plan,
     role_from_functions,
@@ -305,6 +313,25 @@ def _universal_switch_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=255, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+        }
+    )
+
+
+def _keypad_button_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """A spare keypad button sending a universal switch to Home Assistant."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_NAME, default=defaults.get(CONF_NAME, vol.UNDEFINED)
+            ): str,
+            vol.Required(
+                CONF_SUB_NUMBER, default=defaults.get(CONF_SUB_NUMBER, 200)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            **_keypad_led_field(defaults),
         }
     )
 
@@ -597,6 +624,7 @@ DEVICE_SCHEMA_BUILDERS = {
     DEVICE_TYPE_BINARY_SENSOR: _binary_sensor_schema,
     DEVICE_TYPE_COVER: _cover_schema,
     DEVICE_TYPE_CLIMATE: _climate_schema,
+    DEVICE_TYPE_KEYPAD_BUTTON: _keypad_button_schema,
 }
 
 
@@ -633,6 +661,9 @@ def _normalize_device_input(
                 out[field] = int(out[field])
             except (TypeError, ValueError):
                 pass
+    if device_type == DEVICE_TYPE_KEYPAD_BUTTON:
+        # Keypad buttons live at Home Assistant's own bus address.
+        out[CONF_SUBNET_ID], out[CONF_DEVICE_ID] = HA_VIRTUAL_ADDRESS
     if CONF_KEYPAD_LEDS in out:
         # Store a clean "s.d:b, ..." string; anything unparseable is dropped.
         out[CONF_KEYPAD_LEDS] = format_keypad_leds(
@@ -648,7 +679,7 @@ def _device_summary(device: dict[str, Any]) -> str:
     sub = device.get(CONF_SUBNET_ID, "?")
     dev = device.get(CONF_DEVICE_ID, "?")
     ch = device.get(CONF_CHANNEL)
-    if ch is None and dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+    if ch is None and dtype in (DEVICE_TYPE_UNIVERSAL_SWITCH, DEVICE_TYPE_KEYPAD_BUTTON):
         ch = device.get(CONF_SUB_NUMBER)
     if (
         ch is None
@@ -839,6 +870,117 @@ def _apply_keypad_links(devices: list, results) -> int:
     return changed
 
 
+_PANEL_FEATURE_LABELS = {
+    PANEL_FEATURE_TEMPERATURE: "temperature sensor",
+    PANEL_FEATURE_FLOOR_HEATING: "floor heating",
+    PANEL_FEATURE_AC: "air conditioner",
+}
+_FEATURE_SEP = "|"
+
+
+def _disc_panel_features(disc, role: str) -> list[str]:
+    """Panel features offered as their own scan-list lines.
+
+    Whatever the main line already imports is left out: a panel imported
+    as climate (floor heating) doesn't repeat floor heating, and a panel
+    imported as a temperature sensor doesn't repeat that.
+    """
+    family = catalog_family(disc.type_code)
+    features = panel_features(
+        disc.type_code,
+        family,
+        getattr(disc, "op_codes", set()),
+        getattr(disc, "self_functions", None),
+    )
+    if role == DEVICE_TYPE_CLIMATE:
+        features = [f for f in features if f != PANEL_FEATURE_FLOOR_HEATING]
+        if family == "touch_panel":
+            # Climate import of a touch panel already adds its sensors.
+            features = [f for f in features if f != PANEL_FEATURE_TEMPERATURE]
+    elif role == DEVICE_TYPE_SENSOR:
+        features = [f for f in features if f != PANEL_FEATURE_TEMPERATURE]
+    return features
+
+
+def _panel_feature_configured(devices, disc, feature: str) -> bool:
+    """Is this panel feature already in the config?"""
+    for d in devices:
+        if (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID)) != (
+            disc.subnet_id,
+            disc.device_id,
+        ):
+            continue
+        dtype, kind = d.get(CONF_DEVICE_TYPE), d.get(CONF_CLIMATE_KIND)
+        if feature == PANEL_FEATURE_TEMPERATURE and dtype == DEVICE_TYPE_SENSOR and (
+            d.get(CONF_SENSOR_KIND) == SENSOR_KIND_TEMPERATURE
+        ):
+            return True
+        if feature == PANEL_FEATURE_FLOOR_HEATING and dtype == DEVICE_TYPE_CLIMATE and (
+            kind in (None, CLIMATE_KIND_DLP)
+        ):
+            return True
+        if feature == PANEL_FEATURE_AC and dtype == DEVICE_TYPE_CLIMATE and (
+            kind == CLIMATE_KIND_AC_PANEL
+        ):
+            return True
+    return False
+
+
+def _import_keypad_buttons(devices: list, results) -> int:
+    """Create keypad-button entries for buttons programmed to target HA.
+
+    Any keypad button whose programming sends a universal switch to
+    HA_VIRTUAL_ADDRESS gets a keypad-button entity (one per universal
+    switch number), linked to that button for LED sync. Existing entries
+    are only given the extra LED link. Returns how many entries changed.
+    """
+    found: dict[int, tuple[str, set]] = {}
+    for disc in results:
+        for button, by_no in (getattr(disc, "button_targets", None) or {}).items():
+            for ttype, subnet, device, number, _status in by_no.values():
+                if ttype != TARGET_TYPE_UNIVERSAL_SWITCH:
+                    continue
+                if (subnet, device) != tuple(HA_VIRTUAL_ADDRESS) or not 1 <= number <= 255:
+                    continue
+                name, links = found.setdefault(
+                    number, (f"{_disc_name(disc)} button {button}", set())
+                )
+                links.add((disc.subnet_id, disc.device_id, int(button)))
+    changed = 0
+    for number, (name, links) in found.items():
+        index = next(
+            (
+                i
+                for i, d in enumerate(devices)
+                if d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_KEYPAD_BUTTON
+                and int(d.get(CONF_SUB_NUMBER, 0) or 0) == number
+            ),
+            None,
+        )
+        if index is None:
+            devices.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    CONF_DEVICE_TYPE: DEVICE_TYPE_KEYPAD_BUTTON,
+                    CONF_NAME: name,
+                    CONF_SUBNET_ID: HA_VIRTUAL_ADDRESS[0],
+                    CONF_DEVICE_ID: HA_VIRTUAL_ADDRESS[1],
+                    CONF_SUB_NUMBER: number,
+                    CONF_KEYPAD_LEDS: format_keypad_leds(links),
+                }
+            )
+            changed += 1
+            continue
+        old = devices[index]
+        merged = format_keypad_leds(
+            set(parse_keypad_leds(old.get(CONF_KEYPAD_LEDS))) | links
+        )
+        if merged != (old.get(CONF_KEYPAD_LEDS) or ""):
+            devices[index] = {**old, CONF_KEYPAD_LEDS: merged}
+            changed += 1
+    return changed
+
+
 def _disc_zones(disc) -> int | None:
     """Dry-contact zone count: pin > self-report > scan > catalogue."""
     entry = catalog_entry(disc.type_code)
@@ -1001,6 +1143,11 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = reason
             elif url:
                 await manager.async_set_activation_url(url)
+                # A brand-new request: ask for a name and email FIRST. No
+                # licence request reaches the server until they are given.
+                if not manager.has_stored_key and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 # Always ask the server, even when a key is already stored
                 # (e.g. the integration was removed and re-added): the server
                 # decides whether that licence still exists, and a deleted or
@@ -1019,7 +1166,9 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 ):
                     self._license_seen = True
                     return await self.async_step_user()
-                if reason == "pending_approval" and not manager.has_contact:
+                if reason == "contact_required" or (
+                    reason == "pending_approval" and not manager.has_contact
+                ):
                     self._pending_license_url = url
                     return await self.async_step_license_contact()
                 errors["base"] = reason
@@ -1284,15 +1433,21 @@ class ARHDLOptionsFlow(OptionsFlow):
                 errors["base"] = reason
             elif url:
                 # No key typed but a URL present: treat Submit as
-                # "activate / renew now". The server is checked first; a
-                # name and email are only asked for when this turns out to
-                # be a new request awaiting approval.
+                # "activate / renew now". A brand-new request asks for a
+                # name and email FIRST - nothing reaches the server until
+                # they are given. An install that already holds a key is
+                # checked with the server straight away.
+                if not manager.has_stored_key and not manager.has_contact:
+                    self._pending_license_url = url
+                    return await self.async_step_license_contact()
                 _state, reason = await manager.async_activate(url)
                 if reason is None:
                     return self.async_create_entry(
                         title="", data=dict(self._entry.options)
                     )
-                if reason == "pending_approval" and not manager.has_contact:
+                if reason == "contact_required" or (
+                    reason == "pending_approval" and not manager.has_contact
+                ):
                     self._pending_license_url = url
                     return await self.async_step_license_contact()
                 errors["base"] = reason
@@ -1790,12 +1945,37 @@ class ARHDLOptionsFlow(OptionsFlow):
         for disc in results:
             role = self._infer_device_type(disc)
             already = (disc.subnet_id, disc.device_id) in existing_addrs
+            features = _disc_panel_features(disc, role)
+            label = self._discovery_label(disc, role, already)
+            if features and (role == ROLE_KEYPAD or role in HDL_NO_ENTITY_ROLES.values()):
+                # The panel line itself imports nothing: point at its
+                # feature lines instead of looking like a dead option.
+                label = label.replace(
+                    "buttons only, no entities", "buttons — tick its features below"
+                ).replace("  \u2713 in config", "")
             options.append(
-                selector.SelectOptionDict(
-                    value=disc.key,
-                    label=self._discovery_label(disc, role, already),
-                )
+                selector.SelectOptionDict(value=disc.key, label=label)
             )
+            name = _disc_name(disc)
+            for feature in features:
+                feature_label = (
+                    f"{disc.address}  {_PANEL_FEATURE_LABELS[feature]}"
+                    f"  ·  {name}"
+                )
+                if feature == PANEL_FEATURE_TEMPERATURE and panel_has_humidity(
+                    disc.type_code
+                ):
+                    feature_label = feature_label.replace(
+                        "temperature sensor", "temperature + humidity", 1
+                    )
+                if _panel_feature_configured(self.devices, disc, feature):
+                    feature_label += "  \u2713 in config"
+                options.append(
+                    selector.SelectOptionDict(
+                        value=f"{disc.key}{_FEATURE_SEP}{feature}",
+                        label=feature_label,
+                    )
+                )
 
         if user_input is not None:
             chosen_keys = set(user_input.get(CONF_DISCOVERED, []))
@@ -1822,7 +2002,13 @@ class ARHDLOptionsFlow(OptionsFlow):
             }
             added = 0
             skipped_keypads = 0
-            for key in chosen_keys:
+            for key in sorted(chosen_keys):
+                if _FEATURE_SEP in key:
+                    disc_key, feature = key.split(_FEATURE_SEP, 1)
+                    disc = by_key.get(disc_key)
+                    if disc is not None:
+                        added += self._import_panel_feature(disc, feature, devices)
+                    continue
                 disc = by_key.get(key)
                 if disc is None:
                     continue
@@ -1878,6 +2064,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # temperature (and humidity on most): import those too.
                     added += self._import_sensor_bundle(disc, devices)
             linked = _apply_keypad_links(devices, results)
+            buttons = _import_keypad_buttons(devices, results)
+            if buttons:
+                _LOGGER.info(
+                    "AR HDL BUSPRO import: %d keypad button entr(y/ies) added "
+                    "or updated",
+                    buttons,
+                )
             if linked:
                 _LOGGER.info(
                     "AR HDL BUSPRO import: keypad LED links updated on %d "
@@ -1933,8 +2126,54 @@ class ARHDLOptionsFlow(OptionsFlow):
             },
         )
 
+    def _import_panel_feature(
+        self, disc, feature: str, devices: list[dict[str, Any]]
+    ) -> int:
+        """Import one feature of a wall panel. Returns entries added."""
+        if _panel_feature_configured(devices, disc, feature):
+            return 0
+        name = _disc_name(disc)
+        if feature == PANEL_FEATURE_TEMPERATURE:
+            # DLP panels report their temperature with the floor-heating
+            # status; the others answer the channel temperature read.
+            entry = catalog_entry(disc.type_code)
+            is_dlp = bool(entry) and "dlp" in f"{entry[0]} {entry[1]}".lower()
+            hw = (
+                DEVICE_HW_DLP
+                if is_dlp and "ReadTemperatureResponse" not in disc.op_codes
+                else DEVICE_HW_PANEL
+            )
+            return self._import_sensor_bundle(disc, devices, hw_override=hw)
+        base = {
+            "id": uuid.uuid4().hex,
+            CONF_DEVICE_TYPE: DEVICE_TYPE_CLIMATE,
+            CONF_SUBNET_ID: disc.subnet_id,
+            CONF_DEVICE_ID: disc.device_id,
+            CONF_PRESET_MODES: [PRESET_NONE],
+            CONF_RELAY_SUBNET: 0,
+            CONF_RELAY_DEVICE: 0,
+            CONF_RELAY_CHANNEL: 0,
+        }
+        if feature == PANEL_FEATURE_FLOOR_HEATING:
+            devices.append(
+                {**base, CONF_NAME: f"{name} floor heating", CONF_CLIMATE_KIND: CLIMATE_KIND_DLP}
+            )
+            return 1
+        if feature == PANEL_FEATURE_AC:
+            devices.append(
+                {
+                    **base,
+                    CONF_NAME: f"{name} AC",
+                    CONF_CLIMATE_KIND: CLIMATE_KIND_AC_PANEL,
+                    CONF_HVAC_NUMBER: 1,
+                    CONF_TEMP_CHANNEL: 1,
+                }
+            )
+            return 1
+        return 0
+
     def _import_sensor_bundle(
-        self, disc, devices: list[dict[str, Any]]
+        self, disc, devices: list[dict[str, Any]], hw_override: str | None = None
     ) -> int:
         """Append a full entity bundle for a discovered multi-sensor.
 
@@ -1962,6 +2201,8 @@ class ARHDLOptionsFlow(OptionsFlow):
             "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
             "0x0141": DEVICE_HW_12IN1,        # HDL-MS12.2C 12-in-1 (was mis-mapped as a relay)
         }.get(disc.type_code)
+        if hw_override:
+            hw_kind = hw_override
         family = catalog_family(disc.type_code)
         if not hw_kind:
             replied = _hw_kind_from_replies(disc)
@@ -1973,7 +2214,8 @@ class ARHDLOptionsFlow(OptionsFlow):
                 or replied
             )
         # Temperature-only hardware (HDL-MTS04 style): no lux, no motion.
-        temp_only = family == "sensor_temp"
+        # DLP panels too: their temperature rides the floor-heating status.
+        temp_only = family == "sensor_temp" or hw_kind == DEVICE_HW_DLP
         # Poll every 60s so readings arrive even when the sensor doesn't
         # broadcast on its own; broadcasts still update instantly.
         scan = 60

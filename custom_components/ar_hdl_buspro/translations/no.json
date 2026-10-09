@@ -19,7 +19,7 @@
       },
       "license_contact": {
         "title": "Dine opplysninger",
-        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.\n\n**Ingen lisens blir forespurt før du har skrevet inn navn og e-post og trykket Send.** Går du tilbake uten å sende, sendes ingenting.",
         "data": {
           "contact_name": "Navn",
           "contact_email": "E-post"
@@ -33,7 +33,8 @@
       "invalid_port": "Porten må være mellom 1 og 65535.",
       "unknown": "Uventet feil. Se logg for detaljer.",
       "contact_name_required": "Skriv inn et navn.",
-      "invalid_email": "Skriv inn en gyldig e-postadresse."
+      "invalid_email": "Skriv inn en gyldig e-postadresse.",
+      "contact_required": "Skriv inn navn og e-post først - ingen lisens blir forespurt uten dem."
     },
     "abort": {
       "already_configured": "Denne gatewayen er allerede konfigurert."
@@ -174,7 +175,7 @@
       },
       "license_contact": {
         "title": "Dine opplysninger",
-        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.",
+        "description": "Slik at vi vet hvem denne lisensen er for og kan gi beskjed når den er aktivert, oppgi et navn og en e-postadresse.\n\nDisse sendes til lisensserveren sammen med Server-ID `{server_id}` og brukes kun til å kontakte deg om denne lisensen.\n\n**Merk:** det kan ta fra 30 minutter til 24 timer før lisensen blir aktivert.\n\n**Ingen lisens blir forespurt før du har skrevet inn navn og e-post og trykket Send.** Går du tilbake uten å sende, sendes ingenting.",
         "data": {
           "contact_name": "Navn",
           "contact_email": "E-post"
@@ -193,7 +194,8 @@
       "unknown": "Uventet feil. Se logg for detaljer.",
       "scan_failed": "Bussskanningen mislyktes. Se loggene for detaljer.",
       "contact_name_required": "Skriv inn et navn.",
-      "invalid_email": "Skriv inn en gyldig e-postadresse."
+      "invalid_email": "Skriv inn en gyldig e-postadresse.",
+      "contact_required": "Skriv inn navn og e-post først - ingen lisens blir forespurt uten dem."
     },
     "abort": {
       "no_devices": "Ingen enheter er konfigurert ennå.",
@@ -212,7 +214,8 @@
         "sensor": "Sensor",
         "binary_sensor": "Binær sensor",
         "climate": "Klima",
-        "cover": "Cover / Curtain"
+        "cover": "Cover / Curtain",
+        "keypad_button": "Tastaturknapp (sender til Home Assistant)"
       }
     },
     "sensor_kind": {
@@ -339,6 +342,12 @@
       "dry_contact": {
         "name": "Tørrkontakt"
       }
+    }
+  },
+  "issues": {
+    "update_available": {
+      "title": "AR HDL BUSPRO {version} er tilgjengelig",
+      "description": "En ny versjon av AR HDL BUSPRO er ute. Denne installasjonen kjører {current}.{message}\n\nIngenting er endret på dette systemet. For å oppdatere, åpne HACS, finn AR HDL BUSPRO og velg Oppdater, og start deretter Home Assistant på nytt. Hvis HACS ikke viser oppdateringen ennå, åpne AR HDL BUSPRO i HACS og velg Oppdater informasjon fra ⋮-menyen.\n\nDette varselet forsvinner av seg selv når {version} er installert."
     }
   }
 }

@@ -20,7 +20,14 @@ Precedence used by the config flow, highest first:
 # Licensed software - see LICENSE in the repository root.
 from __future__ import annotations
 
-from .hdl_catalog import HDL_CATALOG, HUMIDITY_PANEL_CODES, RCU_22CH_CODES
+import re
+
+from .hdl_catalog import (
+    DLP_WITHOUT_FLOOR_HEATING_CODES,
+    HDL_CATALOG,
+    HUMIDITY_PANEL_CODES,
+    RCU_22CH_CODES,
+)
 
 # HDL "big type" values used in function triples.
 BIG_LIGHT = 1
@@ -230,3 +237,66 @@ def function_summary(funcs) -> str:
         elif big == BIG_FLOOR_HEAT:
             parts.append(f"{count} floor heat")
     return " + ".join(parts)
+
+
+# ----- wall panels: what besides buttons does this panel have? -------------
+PANEL_FEATURE_TEMPERATURE = "temperature"
+PANEL_FEATURE_FLOOR_HEATING = "floor_heating"
+PANEL_FEATURE_AC = "ac"
+
+_AC_WORD = re.compile(r"\bac\b")
+
+
+def panel_features(type_code, family: str, ops, self_functions) -> list[str]:
+    """Features a wall panel offers besides its buttons.
+
+    Taken from what the panel answered during the scan, its own function
+    list, and the HDL catalogue's model description (HDL describes these
+    panels as e.g. "DLP panel with AC music clock floor heating" or
+    "4 button touch panel with temperature"). Empty for a plain keypad.
+    """
+    ops = set(ops or ())
+    tr = triples(self_functions)
+    is_panel = family in PANEL_FAMILIES or any(
+        b == BIG_PANEL and s == 1 for b, s, _c in tr
+    )
+    if not is_panel and not ops & {
+        "ReadTemperatureResponse",
+        "ReadFloorHeatingStatusResponse",
+    }:
+        return []
+    entry = catalog_entry(type_code)
+    text = (f"{entry[0]} {entry[1]}" if entry else "").lower()
+    value = code_int(type_code)
+
+    floor_heating = "ReadFloorHeatingStatusResponse" in ops or any(
+        b == BIG_FLOOR_HEAT for b, _s, _c in tr
+    )
+    if ("floor heat" in text or "enviro" in text) and not (
+        value is not None and value in DLP_WITHOUT_FLOOR_HEATING_CODES
+    ):
+        floor_heating = True
+
+    ac = bool(_AC_WORD.search(text)) or any(
+        word in text for word in ("climate", "granite", "enviro")
+    ) or any(b == BIG_AC for b, _s, _c in tr)
+
+    temperature = (
+        "ReadTemperatureResponse" in ops
+        or floor_heating
+        or panel_has_humidity(type_code)
+        or any(
+            word in text
+            for word in ("temperature", "dlp", "granite", "enviro", "climate")
+        )
+        or any(b == BIG_SENSOR and s == 2 for b, s, _c in tr)
+    )
+
+    features: list[str] = []
+    if temperature:
+        features.append(PANEL_FEATURE_TEMPERATURE)
+    if floor_heating:
+        features.append(PANEL_FEATURE_FLOOR_HEATING)
+    if ac:
+        features.append(PANEL_FEATURE_AC)
+    return features
