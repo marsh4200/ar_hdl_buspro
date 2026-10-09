@@ -1,14 +1,16 @@
 <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
 
 
-#  HDL Buspro for Home Assistant
+# HDL Buspro for Home Assistant
 
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=marsh4200&repository=ar_hdl_buspro&category=integration)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![GitHub release](https://img.shields.io/github/v/release/marsh4200/ar_hdl_buspro)](https://github.com/marsh4200/ar_hdl_buspro/releases)
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 
+Control an entire **HDL Buspro** installation from Home Assistant: lights, relays, curtains, floor heating, air conditioning, sensors, dry contacts and wireless Buspro panels, all configured **from the UI**. No YAML and no hunting for addresses: point it at your gateway, press **Scan bus**, tick the devices you want, done.
 
-Control an entire **HDL Buspro** installation from Home Assistant — lights, relays, curtains, floor heating, sensors and dry contacts — configured **entirely from the UI**. No YAML, no manual address hunting: point it at your gateway, press **Scan bus**, tick the devices you want, done.
+The scan recognises your hardware for you. Devices that can describe themselves report what they are and how many channels they have, and everything else is matched against a built-in catalogue of **~1,800 HDL device types**.
 
 Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 
@@ -16,39 +18,63 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 
 ## 📚 Table of Contents
 
-- [What you get](#what-you-get)
-- [Supported platforms](#supported-platforms)
-- [Installation](#installation)
-- [Quick start (5 minutes)](#quick-start-5-minutes)
+- [What's new in 5.0.11](#-whats-new-in-5011)
+- [What you get](#-what-you-get)
+- [Supported platforms](#-supported-platforms)
+- [Installation](#-installation)
+- [Quick start (5 minutes)](#-quick-start-5-minutes)
 - [Setup walkthrough (with screenshots)](#-setup-walkthrough-with-screenshots)
-- [Finding your gateway on the network](#finding-your-gateway-on-the-network)
-- [Scanning the bus for devices](#scanning-the-bus-for-devices)
-  - [How the scan works](#how-the-scan-works)
-  - [Reading the results list](#reading-the-results-list)
-  - [Split channels](#split-channels)
-  - [Dimmer imported as a switch? Fix it in 10 seconds](#dimmer-imported-as-a-switch-fix-it-in-10-seconds)
-  - [Curtain modules](#curtain-modules)
-  - [Keypads and wall panels](#keypads-and-wall-panels)
-  - [Re-scanning is always safe](#re-scanning-is-always-safe)
-- [Adding and editing devices by hand](#adding-and-editing-devices-by-hand)
-- [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module)
-- [Air conditioning via a touch panel](#-air-conditioning-via-a-touch-panel)
-- [Recognised HDL type codes](#recognised-hdl-type-codes)
-- [Services](#services)
-- [How the connection works](#how-the-connection-works)
-- [Troubleshooting](#troubleshooting)
-- [Migrating from the legacy `buspro` integration](#migrating-from-the-legacy-buspro-integration)
+- [Finding your gateway on the network](#-finding-your-gateway-on-the-network)
+- [Scanning the bus for devices](#-scanning-the-bus-for-devices)
+  - [How the scan works](#️-how-the-scan-works)
+  - [How a device is identified](#-how-a-device-is-identified)
+  - [Reading the results list](#-reading-the-results-list)
+  - [Split channels](#️-split-channels)
+  - [Dimmer imported as a switch?](#-dimmer-imported-as-a-switch)
+  - [Curtain modules](#-curtain-modules)
+  - [Keypads, panels, gateways and logic modules](#️-keypads-panels-gateways-and-logic-modules)
+  - [Re-scanning is always safe](#-re-scanning-is-always-safe)
+- [Keypad LED sync](#-keypad-led-sync)
+- [Keypad buttons in Home Assistant](#-keypad-buttons-in-home-assistant)
+- [Buspro wireless panels](#-buspro-wireless-panels)
+- [Sensors, temperature and humidity](#️-sensors-temperature-and-humidity)
+- [Adding and editing devices by hand](#️-adding-and-editing-devices-by-hand)
+- [Air conditioning via an IR module](#️-air-conditioning-via-an-ir-module)
+- [Air conditioning via a touch panel](#️-air-conditioning-via-a-touch-panel)
+- [Recognised HDL type codes](#-recognised-hdl-type-codes)
+- [Services](#-services)
+- [How the connection works](#-how-the-connection-works)
+- [Debug logging](#-debug-logging)
+- [Troubleshooting](#-troubleshooting)
+- [Upgrading](#-upgrading)
+- [Migrating from the legacy `buspro` integration](#-migrating-from-the-legacy-buspro-integration)
+- [Licensing](#licensing)
 
 ---
+
+## 🆕 What's New in 5.0.11
+
+- **Automatic device identification.** Supported HDL hardware now describes itself during the bus scan (what it is and how many relays, dimmers, curtains or inputs it has), and a built-in catalogue of ~1,800 HDL device types names and classifies everything else. Silent relay and dimmer modules import all their channels, not just channel 1.
+- **Keypad buttons in Home Assistant.** A spare keypad button (one with no relay behind it) can be programmed to talk to Home Assistant, appearing as an on/off switch and firing an event on every press for automations. See [Keypad buttons in Home Assistant](#-keypad-buttons-in-home-assistant).
+- **Keypad LED sync.** Keypad button LEDs now follow the relays they control, even when the relay is switched from Home Assistant. Works for wired keypads and Buspro wireless panels. See [Keypad LED sync](#-keypad-led-sync).
+- **Humidity on touch panels.** Granite Display and 4" touch panels now report humidity as well as temperature, and both sensors are added automatically when the panel is imported.
+- **HDL-MRCU home control unit** imports its 4 dimmer channels as dimmable lights automatically.
+- **Wireless Buspro panels** import their built-in relays, and the 1-relay and 3-relay versions of `0x13C2` are told apart when the panel reports its relay count.
+- **Corrected device types.** `0x0011` is a 6-channel 0-10V dimmer, `0x0141` a 12-in-1 sensor, `0x1209` / `0x120B` IP gateways and `0x0457` a logic module. Gateways and logic modules are labelled and left out of import.
+- **Less bus traffic.** Devices that never answer a status request are no longer asked every 20 seconds forever: they get a few quick retries, then a slow background check.
+
+Sorry to anyone who had devices come in as the wrong type on earlier versions. See [Upgrading](#-upgrading) for how to bring an existing install up to date.
 
 ## ✨ What You Get
 
 | | |
 |---|---|
 | 🖱️ **UI-only setup** | Add the gateway once, then manage every device from the **Configure** menu |
-| 📡 **Gateway auto-detection** | Broadcast probe on UDP/6000 finds every HDL gateway on the wire — even across IP subnets on the same switch. Pick from a list instead of typing an IP |
-| 🔍 **Bus discovery** | One click scans the bus, identifies device types automatically, and imports them with sensible defaults |
-| ✂️ **Per-channel splitting** | A 12-channel relay becomes 12 switches; a 6-channel dimmer becomes 6 lights; a 2-curtain module becomes 2 covers |
+| 📡 **Gateway auto-detection** | A broadcast probe on UDP/6000 finds every HDL gateway on the wire, even across IP subnets on the same switch. Pick from a list instead of typing an IP |
+| 🔍 **Bus discovery** | One scan finds every device on the bus, identifies it automatically and imports it with sensible defaults |
+| 🧠 **Automatic identification** | Self-describing hardware reports its own type and channel layout; everything else is matched against ~1,800 known HDL device types |
+| ✂️ **Per-channel splitting** | A 12-channel relay becomes 12 switches, a 6-channel dimmer 6 lights, a 2-curtain module 2 covers, and an MRCU its relays *and* dimmers |
+| 💡 **Keypad LED sync** | Keypad button LEDs stay in step with relays switched from Home Assistant |
 | 🛡️ **Source-IP filter** | Only telegrams from *your* gateway are processed, so other HDL systems on a shared network can't create phantom devices |
 | 🔁 **Resilient connection** | Automatic reconnect with backoff if the UDP transport drops |
 | 🩺 **Diagnostics** | Downloadable config-entry diagnostics with host redaction |
@@ -57,12 +83,14 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 
 | Platform | HDL hardware | Notes |
 |---|---|---|
-| **Light** | Dimmer modules (MDT0601, DT0601, …) and relay channels | Dimmable or on/off, configurable ramp time |
-| **Switch** | Relay modules (R0816, MR-family, …) | One entity per relay channel |
-| **Cover** | Curtain modules (MW02 / MWM70B family) **and** relay-pair curtains | Real open / close / stop — see [Curtain modules](#curtain-modules) |
-| **Climate** | Floor heating (6B0-10v, DLP panels) **and** air conditioners via an IR emitter module (e.g. HDL-MIRC04.40) | Floor heating: presets, optional relay feedback. AC via IR module: power, mode, fan speed, target temperature — see [Air conditioning via an IR module](#-air-conditioning-via-an-ir-module) |
-| **Sensor** | 12-in-1, 8-in-1, MSP07M sensors-in-one | Presence, Temperature and illuminance, broadcast + optional polling |
-| **Binary sensor** | Motion, dry contacts, universal switches, channel status | Per-device scan interval |
+| **Light** | Dimmer modules (MDT0601, MD0602, MRDA06 0-10V, …), MRCU dimmer channels, relay channels | Dimmable or on/off, configurable ramp time, keypad LED sync |
+| **Switch** | Relay modules (MR0410, MR0816, MR1210, MR1616, …), MRCU relays, Buspro wireless panels with built-in relays | One entity per relay channel, keypad LED sync |
+| **Universal switch** | IR modules (HDL-MIRC04.40) and any universal-switch number | Virtual on/off flags for scenes and logic |
+| **Keypad button** | Any spare keypad button sending a universal switch to Home Assistant | On/off switch + press event for automations |
+| **Cover** | Curtain modules (MW02 / MWM / MVSM families) **and** relay-pair curtains | Open / close / stop plus an estimated position. See [Curtain modules](#-curtain-modules) |
+| **Climate** | Floor heating (DLP panels), air conditioners via an IR module, air conditioners via a touch panel | See the AC sections below |
+| **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M sensors-in-one, temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
+| **Binary sensor** | Motion, dry-contact zones, universal switches, channel status | One entity per dry-contact zone |
 
 ## 📥 Installation
 
@@ -70,7 +98,7 @@ Part of the **1PM-HDL** suite · [1pm.co.za](https://www.1pm.co.za/)
 
 1. HACS → **Integrations** → ⋮ → **Custom repositories**
 2. Add `https://github.com/marsh4200/ar_hdl_buspro` as an **Integration**
-3. Install **AR HDL BUSPRO**, restart Home Assistant
+3. Install **AR HDL BUSPRO**, then restart Home Assistant
 
 ### Manual
 
@@ -80,7 +108,7 @@ Copy `custom_components/ar_hdl_buspro` into your `config/custom_components/` fol
 
 1. **Settings → Devices & Services → Add Integration → AR HDL BUSPRO**
 2. The setup flow immediately broadcasts on the network and lists every HDL gateway it hears. **Pick yours** (or choose *Enter address manually*).
-3. Confirm the details — port is normally `6000`. Leave *Local IP* blank unless you need to bind to a specific interface.
+3. Confirm the details. The port is normally `6000`; leave *Local IP* blank unless you need to bind to a specific interface.
 4. The entry is created straight away. Now open **Configure** on the integration card:
 
    ```
@@ -93,15 +121,15 @@ Copy `custom_components/ar_hdl_buspro` into your `config/custom_components/` fol
    └── Remove a device
    ```
 
-5. Choose **Scan bus for devices**, keep the default listen duration, and press submit. Walk through the results (details below), tick everything you want, import. Your HDL system is now in Home Assistant.
+5. Choose **Scan bus for devices**, keep the default listen duration and press submit. Tick everything you want in the results and import. Your HDL system is now in Home Assistant.
 
 ---
 
 ## 📸 Setup Walkthrough (with Screenshots)
 
-Seven screens from nothing to a working system — add the hub, pick the gateway, open settings, scan the bus, watch it work, and import.
+Seven screens from nothing to a working system: add the hub, pick the gateway, open settings, scan the bus, watch it work, and import.
 
-> These are recreated at the current version (4.2.2) so the branding, text and behaviour you see below match what you'll actually get — they're not raw screen grabs off a live install (this repo doesn't ship with one), but every string is pulled straight from the integration's own `strings.json` and `config_flow.py`, so what's on screen is exactly what you'll see.
+> These screens are recreated from the integration's own text and flow rather than grabbed off a live install, so the wording matches what you'll see. Labels in the scan results now also show HDL model names.
 
 ### Step 1 — Add the hub
 
@@ -109,7 +137,7 @@ Seven screens from nothing to a working system — add the hub, pick the gateway
   <img src="images/demo.png" alt="AR HDL BUSPRO integration page with the Add hub button" width="800">
 </p>
 
-**Settings → Devices & Services → Add Integration → AR HDL BUSPRO**, then **Add hub**. Nothing to fill in yet — the next screen does the finding for you.
+**Settings → Devices & Services → Add Integration → AR HDL BUSPRO**, then **Add hub**. Nothing to fill in yet; the next screen does the finding for you.
 
 ### Step 2 — Pick your gateway
 
@@ -117,9 +145,9 @@ Seven screens from nothing to a working system — add the hub, pick the gateway
   <img src="images/demo2.png" alt="AR HDL BUSPRO gateway picker listing detected HDL Buspro gateways with bus device counts" width="620">
 </p>
 
-AR HDL BUSPRO probes UDP port 6000 and lists every HDL Buspro gateway that answers, each with the number of bus devices it heard — so if a site has more than one gateway, the busy one is obvious at a glance. Select yours and submit. There's also **Scan again** if the gateway was still booting, and **Enter address manually** if broadcasts are blocked on the network.
+AR HDL BUSPRO probes UDP port 6000 and lists every HDL Buspro gateway that answers, each with the number of bus devices it heard. If a site has more than one gateway, the busy one is obvious at a glance. Select yours and submit. There's also **Scan again** if the gateway was still booting, and **Enter address manually** if broadcasts are blocked on the network.
 
-Confirm the details on the next screen — port is normally `6000`, and *Local IP* stays blank unless you need to bind the listener to a specific interface.
+Confirm the details on the next screen. The port is normally `6000`, and *Local IP* stays blank unless you need to bind the listener to a specific interface.
 
 ### Step 3 — Open the settings menu
 
@@ -127,7 +155,7 @@ Confirm the details on the next screen — port is normally `6000`, and *Local I
   <img src="images/demo3.png" alt="AR HDL BUSPRO hub entry in Devices & Services with the settings gear icon" width="800">
 </p>
 
-The hub is created immediately and appears under **Hubs** with its IP. Click the ⚙️ **gear icon** on the hub row — that's where everything else lives. (The device row beneath it is the gateway itself; the entities arrive once you've imported devices.)
+The hub is created immediately and appears under **Hubs** with its IP. Click the ⚙️ **gear icon** on the hub row; that's where everything else lives. The device row beneath it is the gateway itself; the entities arrive once you've imported devices.
 
 ### Step 4 — Run a bus scan
 
@@ -135,34 +163,28 @@ The hub is created immediately and appears under **Hubs** with its IP. Click the
   <img src="images/demo4.png" alt="AR HDL BUSPRO configuration menu with Scan bus for devices option" width="520">
 </p>
 
-The configuration menu is the control room for the whole integration:
-
 | Option | What it's for |
 |---|---|
 | **Gateway settings** | Change host, port or local IP |
 | **Detect gateway on the network** | Re-run the broadcast probe (new DHCP lease, moved VLAN) |
-| **Scan bus for devices** | ⬅️ **Start here** — finds and imports your hardware |
-| **Add a device** | Manual entry for anything the scan can't infer |
-| **Edit a device** | Rename, change channel, dimmable flag, curtain number, presets… |
+| **Scan bus for devices** | ⬅️ **Start here**: finds, identifies and imports your hardware |
+| **Add a device** | Manual entry for anything the scan can't reach |
+| **Edit a device** | Rename, change channel, dimmable flag, curtain number, keypad LED buttons, presets… |
 | **Remove a device** | Drops the entity (the physical device is untouched) |
 
-Choose **Scan bus for devices** to carry on.
-
-### Step 5 — Choose how long to sniff the bus
+### Step 5 — Choose how long to listen
 
 <p align="center">
   <img src="images/demo5.png" alt="AR HDL BUSPRO bus scan — listen duration setting" width="560">
 </p>
 
-The scan works by broadcasting read requests every few seconds and listening to everything that answers, so the listen duration is simply how long that window stays open:
-
 | Duration | When to use it |
 |---|---|
-| **10–15 s** | Quick re-scan after adding a module or two — the default |
+| **10–15 s** | Quick re-scan after adding a module or two (the default) |
 | **30 s** | First scan on a normal house; gives quiet devices time to reply |
-| **45–60 s** | Large sites, or when you want to catch passive traffic — walk around pressing keypad buttons and dimming a few lights while it runs, so dimmers reveal themselves and keypads get identified |
+| **45–60 s** | Large sites, or to catch passive traffic. Press a few keypad buttons and dim some lights while it runs |
 
-Longer is never wrong, it just costs you the wait. Submit when you're happy.
+Longer is never wrong, it just costs you the wait.
 
 ### Step 6 — Watch it work
 
@@ -172,7 +194,7 @@ Longer is never wrong, it just costs you the wait. Submit when you're happy.
   <img src="images/demo5c.png" alt="AR HDL BUSPRO bus scan confirming channel counts after the listen window ends" width="480">
 </p>
 
-While the listen window is open you get a live countdown instead of a blank spinner. When it hits `0s`, the dialog doesn't close right away — it switches to **confirming channel counts**: most relay and dimmer modules ignore a broadcast channel-status read and only answer one sent directly to their own address, so the integration follows up with every device it just found. That's normally a few extra seconds and is capped well beyond that on a very large bus, but it's what fills in the channel counts you see on the next screen — so let it finish.
+While the listen window is open you get a live countdown. When it reaches `0s`, the dialog switches to **confirming**: the integration follows up directly with every device it found to confirm channel counts, identify unknown hardware and read keypad programming. Let it finish; on a normal site it takes a few extra seconds, and it is hard-capped on very large buses.
 
 ### Step 7 — Select what you want to control
 
@@ -180,206 +202,285 @@ While the listen window is open you get a live countdown instead of a blank spin
   <img src="images/demo6.png" alt="AR HDL BUSPRO scan results — discovered devices with inferred type, HDL type code and channel count" width="700">
 </p>
 
-Everything the bus answered with is listed for you to tick. Each line reads `address · inferred type · raw HDL type code · channel count · friendly name`, and anything already in your setup is marked so you can see at a glance what's new.
+Everything the bus answered with is listed for you to tick, and anything already in your setup is marked so you can see what's new. Two options are worth a look before you import:
 
-Before you import, two options are worth a look:
+- **Split channels** (on by default) turns a 12-channel relay into 12 individual switches and a 2-curtain module into 2 covers, so you can name each load properly.
+- **Dimmer type codes**: if a dimmer landed in the list as a switch, copy its type code (e.g. `0x0269`) into this box. The code is remembered for good.
 
-- **Split channels** (on by default) — turns a 12-channel relay into 12 individual switches and a 2-curtain module into 2 covers, so you can name each load properly. Turn it off only if you'd rather have one entity per physical module.
-- **Dimmer type codes** — if a dimmer landed in the list as a switch, copy its type code from the line (e.g. `0x0269`) into this box before importing. The code is remembered for good, so every future scan on this site gets it right automatically.
-
-Tick, submit, and your HDL system is in Home Assistant. Nothing is overwritten and nothing is deleted, so you can re-scan any time.
+Tick, submit, and your HDL system is in Home Assistant. Nothing is overwritten or deleted, so you can re-scan any time.
 
 ## 🌐 Finding Your Gateway on the Network
 
 You never need to know the gateway's IP address up front.
 
-HDL gateways broadcast on UDP port `6000` to `255.255.255.255`, which travels across IP-subnet boundaries as long as the devices share the same L2 switch. AR HDL BUSPRO exploits this in both directions:
+HDL gateways broadcast on UDP port `6000` to `255.255.255.255`, which crosses IP-subnet boundaries as long as the devices share the same L2 switch. AR HDL BUSPRO uses this in both directions:
 
-- **During first setup** — the config flow sends a broadcast probe and lists every gateway that answers, with its IP and address. Select one and you're done.
-- **Any time later** — *Configure → Detect gateway on the network* re-runs the same probe. Useful when the gateway got a new DHCP lease, you moved it to another VLAN, or you're standing in a client's plant room and don't know what the installer configured.
+- **During first setup**, the config flow sends a broadcast probe and lists every gateway that answers. Select one and you're done.
+- **Any time later**, *Configure → Detect gateway on the network* re-runs the same probe. Useful when the gateway got a new DHCP lease, moved to another VLAN, or you're on a site and don't know what the installer configured.
 
-If nothing shows up, see [Troubleshooting](#troubleshooting) — it's almost always a firewall or a router between HA and the bus.
-
-> 📸 The gateway picker is shown in [Step 2](#step-2--pick-your-gateway).
-
-> **Tip — multiple HDL systems on one network:** detection will list *all* of them. The source-IP filter guarantees that once you pick a gateway, telegrams from the others are ignored, so neighbouring installations never bleed into your entity list.
+> **Tip — multiple HDL systems on one network:** detection lists *all* of them. Once you pick a gateway, the source-IP filter ignores telegrams from the others, so neighbouring installations never leak into your entity list.
 
 ## 🔍 Scanning the Bus for Devices
 
-This is the headline feature. Instead of walking the site with the HDL Buspro Setup Tool writing down subnet/device/channel numbers, let the integration interrogate the bus for you.
+Instead of walking the site with the HDL Buspro Setup Tool writing down subnet, device and channel numbers, let the integration interrogate the bus for you.
 
 **Configure → Scan bus for devices**
 
 | Field | What it does |
 |---|---|
-| **Listen duration** | How long to listen on the bus, in seconds (default 15, range 3–60). Longer scans catch more passive traffic — 30–60 s is worth it on a large or quiet site. |
-
-> 📸 The scan screens are shown in [Step 4](#step-4--run-a-bus-scan), [Step 5](#step-5--choose-how-long-to-sniff-the-bus), [Step 6](#step-6--watch-it-work) and [Step 7](#step-7--select-what-you-want-to-control).
+| **Listen duration** | How long to listen on the bus, in seconds (default 15, range 3–60). Longer scans catch more passive traffic. |
 
 ### ⚙️ How the Scan Works
 
-The scan runs in two phases, and the progress dialog (see [Step 6](#step-6--watch-it-work)) tells you which one you're in:
+**Phase 1 — broadcast discovery**, for the listen duration you set:
 
-**Phase 1 — broadcast discovery**, for however long you set as the listen duration. During this window the scanner does two things at once:
+1. **Provokes replies.** Every 2.5 s it broadcasts a round of read requests covering every device class: channel status, sensors, sensors-in-one, motion, panel temperature, floor heating, dry contacts, universal switches, curtains, the device name, and HDL's "read device module" request (`0xE548`) that self-describing hardware answers with its own function list.
+2. **Listens.** All other traffic in the window (keypad presses, dimmer broadcasts, sensor reports) is harvested too.
 
-1. **Provokes replies.** Every 2.5 s it broadcasts a round of read requests covering each device class — channel status, sensor status, sensors-in-one, floor heating, dry contacts, universal switches, curtain status (curtains 1 and 2), and the canonical HDL "device info" poke (`0x000E`). Anything alive on the bus answers at least one of these.
-2. **Eavesdrops.** All other traffic during the window — keypad presses, dimmer broadcasts, sensor auto-reports — is also harvested. This is how keypads get identified (they *send* commands but never answer channel reads) and how dimmers betray themselves (any channel reporting an in-between level of 1–99 can only be a dimmer).
+**Phase 2 — directed follow-up.** Most relay and dimmer modules only answer a channel-status read sent directly to their own address, so the scanner asks each device it found for its channel count.
 
-**Phase 2 — directed follow-up**, always runs after, and isn't part of the listen duration you set. Most relay and dimmer modules ignore a *broadcast* channel-status read and only answer one sent *directly* to their own address, so the scanner goes back to every device Phase 1 found and asks each one for its channel count, in two rounds a couple of seconds apart. This is normally a few seconds and is hard-capped at 20 seconds regardless of how many devices are on the bus, so a large site can't make the scan run away.
+**Phase 3 — identification.** Every device that hasn't described itself yet is asked directly, once per protocol, what it is, and its name (the remark set in the HDL Setup Tool) is read so imported entities carry real names.
 
-Each device that speaks is classified from **what it said**, which is far more reliable than the raw type code alone:
+**Phase 4 — keypad programming.** Keypads and panels are asked what each button is programmed to do, so relays can be linked to the buttons that drive them for [Keypad LED sync](#-keypad-led-sync).
 
-| The device replied with… | Classified as |
+Every phase after the listen window is time-capped, so a large site can't make the scan run away.
+
+### 🧠 How a Device Is Identified
+
+Each device is classified using the most reliable information available, in this order:
+
+| Priority | Source | Example |
+|---|---|---|
+| 1 | **Confirmed codes** pinned in the integration (from real installations) | `0x01BD` → 8-channel relay |
+| 2 | **The device's own description** (its reply to `0xE548`) | "2 buttons + 1 relay" |
+| 3 | **HDL device catalogue** (~1,800 type codes: model, family, channel layout) | `0x01C0` → HDL-MR0810, 8 relays |
+| 4 | **What the device answered** during the scan | Answered a curtain read → cover |
+
+A device that answers a channel-status read is never overruled by the catalogue, so real hardware always wins over a lookup. Panels still follow what they answer: a panel that reports floor heating becomes a climate device, one that reports an onboard temperature becomes a sensor.
+
+| The device answered… | Classified as |
 |---|---|
-| Sensor / sensors-in-one status | Sensor (imported as a full temperature + lux + motion bundle) |
+| Sensor / sensors-in-one status | Sensor (temperature + lux + motion bundle, humidity where fitted) |
 | Floor-heating status | Climate |
-| Dry-contact status | Binary sensor |
-| Curtain status (or echoed a keypad's curtain command) | **Cover** |
-| Channel status, with dimmer evidence or a known dimmer type code | Light |
+| Panel temperature only | Sensor (temperature, plus humidity on touch panels) |
+| Dry-contact status | Binary sensor (one per zone) |
+| Curtain status | **Cover** |
+| Channel status, with dimmer evidence or a dimmer type code | Light |
 | Channel status, otherwise | Switch |
-| Only ever *sent* commands, never answered a read | Keypad (labelled, not imported) |
+| Only ever *sent* commands | Keypad (labelled, not imported) |
 
-Unknown hardware falls back to a switch on channel 1 — never lost, always editable afterwards.
+Unknown hardware falls back to a switch on channel 1: never lost, always editable afterwards.
 
 ### 📋 Reading the Results List
 
-Each discovered device shows one line:
-
 ```
-1.13  switch  ·  0x01AC  ·  12ch  ·  Relay module            ✓ in config
+1.13  switch  ·  0x01C1  ·  12ch  ·  Relay module                          ✓ in config
 1.21  light   ·  0x026D  ·  6ch   ·  Dimmer module (6ch)
-2.51  cover   ·  0x25E5  ·  2ch   ·  Curtain module
+1.37  switch  ·  0x0DCE  ·  18 relay + 4 dimmer  ·  Home control unit (HDL-MRCU)
+2.1   switch  ·  "Lounge"  ·  0x13C3  ·  3ch  ·  Wireless relay panel (3 relays)
+2.51  cover   ·  0x02C9  ·  2ch   ·  Curtain module (2ch, HDL-MW02.431)
 2.60  keypad  ·  0x00AF  ·  Wall keypad  ·  buttons only, no entities
+1.38  gateway ·  0x1209  ·  IP gateway (HDL-MBUS01IP.431)  ·  no entities
 ```
 
-Left to right: **bus address** (subnet.device), **inferred type**, **raw HDL type code**, **channel count**, **friendly name**. `✓ in config` means that address already exists in your setup — re-importing it is safe and only fills gaps.
+Left to right: **bus address** (subnet.device), **classified type**, the device's **name** if it has one, **HDL type code**, **channels**, and the **model**. Where a device described itself, its own function list is shown in brackets, e.g. `[2 button + 1 relay]`. `✓ in config` means that address already exists in your setup; re-importing it only fills gaps.
 
 ### ✂️ Split Channels
 
-**Split multi-channel devices into one entity per channel** (on by default) is what turns a `12ch` relay into 12 individual switches named `HDL 1.13 ch1` … `HDL 1.13 ch12`, ready to be renamed to *Kitchen Downlights* and friends. It applies to lights, switches **and** covers (one cover per curtain number).
+**Split channels** (on by default) turns a `12ch` relay into 12 switches named `HDL 1.13 ch1` … `HDL 1.13 ch12`, ready to rename. It applies to lights, switches and covers. Mixed modules come in per channel with the right type each: an HDL-MRCU imports channels 1–17 and 22 as switches and 18–21 as dimmable lights.
 
-Turn it off if you'd rather import a single entity per physical module and wire up channels by hand.
+Turn it off if you'd rather import a single entity per physical module.
 
 ### 💡 Dimmer Imported as a Switch?
 
-Dimmers are detected two ways: a known type code, or live evidence (a channel sitting at an in-between brightness during the scan). If every light on a dimmer happened to be fully off or fully on for the whole window, the module can land as a switch.
+Most dimmers are now recognised from the catalogue. If one still lands as a switch:
 
-The fix is built into the results screen — the **Dimmer type codes** box:
-
-1. Find the module's raw type code in its results line (e.g. `0x0269`).
-2. Type it into the box (comma-separated for several: `0x0269, 0x0602`).
+1. Find its type code in the results line (e.g. `0x0269`).
+2. Type it into the **Dimmer type codes** box (comma-separated for several: `0x0269, 0x0602`).
 3. Import.
 
-Those codes are **remembered permanently** — every future scan on this entry imports them as dimmable lights, no questions asked. This is how you teach the integration your site's hardware once and never think about it again.
+Those codes are **remembered permanently** for every future scan on this entry.
 
 ### 🪟 Curtain Modules
 
-Real HDL curtain modules (MW02 / MWM70B family, type codes `0x25E5`, `0x25E8`, …) are discovered via the curtain-status probe and imported as **cover** entities with proper **open / close / stop** — not as switches. A two-curtain module splits into two covers, one per curtain number.
+HDL curtain modules (MW02, MWM and MVSM families) are imported as **cover** entities with **open / close / stop**. A two-curtain module splits into two covers.
 
-These modules also get a **position slider**, using the same **travel time** field as relay-pair curtains (default 30 s, editable per device under *Edit a device*). This is an *estimate*, not a real percentage read back from the module — HDL's `CurtainSwitchControl` command has no percentage field on the wire. Opening and closing fully still work exactly as before (the module's own limit switches decide when to stop); a partial position drives the curtain and stops it after a proportionally-scaled delay, so accuracy depends on how close the configured travel time is to reality. If the curtain is moved by a wall switch, remote, or anything else outside Home Assistant, the estimate can drift — it resyncs to 0/100 the next time the module reports a real fully-open or fully-closed status.
+They also get a **position slider**, driven by the **travel time** field (default 30 s, editable per device). This is an *estimate*: HDL's curtain command has no percentage field. Fully open and fully closed always work exactly (the module's limit switches decide), and the estimate resyncs whenever the module reports a real fully-open or fully-closed status.
 
-**Recalibrate via nearest endpoint before repositioning** — off by default. When on, a position change first runs to whichever endpoint (fully open or fully closed) is closer, then travels to the requested position from there instead of estimating straight from wherever it currently thinks it is. To enable it: **Settings → Devices & Services → AR HDL BUSPRO → Configure → Edit a device**, pick the cover, and turn it on.
+**Recalibrate via nearest endpoint before repositioning** (off by default) first runs to the nearer endpoint, then travels to the requested position. Turn it on under *Edit a device*.
 
-The integration also supports the other common install style, **relay-pair curtains** — a motor hung off two relay channels (one drives open, one drives close) with a travel-time timer. The scan can't tell a curtain relay from a light relay, so relay-pair covers are set up by hand: *Add a device → Cover → mode: relay pair*, pick the open/close channels and travel time.
+**Relay-pair curtains** (a motor on two relay channels plus a travel timer) are set up by hand: *Add a device → Cover → mode: relay pair*.
 
-If your curtain module shows up with an unlisted type code, it will still classify as a cover as long as it answered the curtain probe — and you're welcome to open an issue with the code so it gets pinned in the table.
+### 🎛️ Keypads, Panels, Gateways and Logic Modules
 
-### 🎛️ Keypads and Wall Panels
+- **Keypads and wall panels** are labelled **`buttons only, no entities`** and left out of import. Their button presses act on the loads you *did* import, and their LEDs are kept in step by [Keypad LED sync](#-keypad-led-sync).
+- **Buspro wireless panels** are the exception: they have relays built in, so they import as switches. See [Buspro wireless panels](#-buspro-wireless-panels).
+- **Gateways and logic modules** (IP gateways, mesh gateways, logic timers) are labelled **`no entities`** and left out of import.
 
-Keypads are recognised (by type code, or by their traffic pattern: they command loads but never answer channel reads) and clearly labelled **`buttons only, no entities`**. They're deliberately excluded from import — a keypad has no controllable channels, so importing one would just create a dead switch. Their button presses arrive on the bus as ordinary scene/channel telegrams that act on the loads you *did* import.
+### 🔄 Re-scanning Is Always Safe
 
-### 🔄 Re-scanning is Always Safe
+Import never deletes or overwrites a device. Existing (subnet, device, channel) combinations are skipped, so a scan after adding new hardware only fills the gaps. Each scan also refreshes keypad LED links for the keypads it could read.
 
-Import never deletes or overwrites anything. Existing (subnet, device, channel) combinations are skipped, so running a scan after adding new hardware only fills the gaps. Scan as often as you like.
+## 💡 Keypad LED Sync
+
+An HDL keypad's button LED shows the button's own state, not the relay's. When a relay is switched from Home Assistant, another keypad or HDL logic, the keypad that normally drives it isn't told, so its LED goes out of step.
+
+AR HDL BUSPRO keeps them in step automatically:
+
+- **The bus scan reads each keypad's button programming**, from wired keypads and Buspro wireless panels alike, and links every button that switches a **single** relay or dimmer channel to that entity, exactly as programmed in the HDL software.
+- **Whenever that channel changes**, from Home Assistant or anywhere else on the bus, the linked buttons' LEDs are set to match.
+- It works for keypads driving a separate relay module, and for wireless panels driving their own built-in relays. A wireless panel whose buttons can't be read falls back to button N = relay N.
+- Buttons that drive **several** channels at once (an "all lights" button, for example) are left unlinked, because their LED doesn't belong to any one channel.
+
+Links are shown on each relay and light under **Configure → Edit a device → Keypad LED buttons**, written as `subnet.device:button` and separated by commas:
+
+```
+2.1:2              # button 2 on the panel at 2.1
+2.1:2, 1.50:4      # two keypads (two-way switching)
+```
+
+You can add, change or clear them by hand at any time. Leave the field empty to turn LED sync off for that entity.
+
+## 🔘 Keypad Buttons in Home Assistant
+
+A keypad often has more buttons than loads, e.g. a 4-button panel with 3 relays. A spare button can be turned into a **trigger for Home Assistant**: it shows up as an on/off switch, toggles with each press, and fires an event your automations can use.
+
+Home Assistant answers on the bus at its own address, **`250.250`**. Point the spare button at it:
+
+**1. In the HDL software**, select the keypad and the spare button, then:
+
+| Setting | Value |
+|---|---|
+| Button type | **Single ON/OFF** |
+| Target | **one** target only — delete any others |
+| Type | **Universal Switch** |
+| Subnet ID / Device ID | **250** / **250** (Home Assistant) |
+| Switch no. | any free number, e.g. **200** (use a different number per button) |
+| Switch status | leave as is (Single ON/OFF alternates on/off itself) |
+
+Save it to the keypad.
+
+**2. In Home Assistant**, run **Scan bus for devices** and press submit. The scan reads the button's programming and creates a **keypad button** entity for it, already linked to the button's LED. To add one by hand instead: *Add a device → Keypad button*, switch number `200`, Keypad LED buttons `subnet.device:button` (e.g. `2.1:4`).
+
+**What you get:**
+- **Press the button** → the entity flips on/off, the button LED stays lit or off as normal (Home Assistant confirms the command, so the keypad doesn't flash), and an `ar_hdl_buspro_keypad_button` event fires.
+- **Toggle the entity in Home Assistant** → the button's LED turns on/off to match.
+- The state survives a Home Assistant restart.
+
+Nothing is switched on the bus. It's a trigger, so wire it to whatever you like with an automation:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: ar_hdl_buspro_keypad_button
+    event_data:
+      switch_number: 200
+      state: "on"        # or "off"; leave out to fire on every press
+actions:
+  - action: scene.turn_on
+    target:
+      entity_id: scene.movie_night
+```
+
+Or trigger on the keypad button entity's state changing like any other switch. Several keypads can share one switch number (e.g. a button at each door), and they stay in step.
+
+> If the button's LED **flashes three times and goes off** when pressed, the keypad isn't getting Home Assistant's confirmation: check the target is `250.250`, the integration is running and licensed, and the gateway is reachable.
+
+## 📶 Buspro Wireless Panels
+
+Buspro wireless wall panels (`0x1391`, `0x13C2`, `0x13C3`) have relays built in behind the switch, usually with more buttons than relays. They import as **one switch per relay**, and their button LEDs are kept in step by [Keypad LED sync](#-keypad-led-sync).
+
+- `0x1391` and `0x13C3` import 3 relays.
+- `0x13C2` is sold with **1 or 3 relays** under the same code. If the panel reports its own relay count during the scan, that count is used; otherwise it imports 3, and you can delete the unused channels on a 1-relay panel.
+
+Wireless panels don't answer HDL's channel-status read, so their on/off state in Home Assistant comes from switching events. They're asked a few times after a restart and then left alone instead of being polled forever.
+
+## 🌡️ Sensors, Temperature and Humidity
+
+Multi-sensors are imported as a **bundle** under one device: temperature, illuminance and motion, plus humidity where the sensor has it.
+
+| Hardware | Readings |
+|---|---|
+| 12-in-1 (HDL-MS12.2C) | Temperature, lux, motion |
+| 8-in-1 (HDL-MS08M.2C) | Temperature, lux, motion |
+| 7-in-1 / MSP07M sensors-in-one | Temperature, lux, motion, humidity (when the sensor reports it) |
+| Granite Display / 4" touch panels | Temperature and **humidity** |
+| HDL-MTS04 temperature sensor | Temperature |
+
+**Touch-panel humidity:** Granite Display and 4" touch panels report humidity through HDL's analog-value read, the same way HDL's own software reads it. Importing a Granite Display adds its temperature and humidity sensors automatically. To add one by hand: *Add a device → Sensor*, the panel's address, sensor kind **humidity**, hardware kind **panel**.
+
+Each sensor entity exposes `last_telegram` and `raw_payload` attributes, so you can see exactly what the hardware sent if a reading looks wrong.
 
 ## 🛠️ Adding and Editing Devices by Hand
 
-Everything the scanner does, you can do manually — and everything it imports, you can refine:
+Everything the scanner does you can do manually, and everything it imports you can refine:
 
-- **Add a device** — pick a type (light, switch, cover, climate, sensor, binary sensor), fill in the subnet / device / channel and type-specific options.
-- **Edit a device** — change any imported device's name, channel, dimmable flag, curtain number, cover mode, presets, scan interval, and so on.
-- **Remove a device** — removes the entity; the physical device is of course untouched.
+- **Add a device**: pick a type (light, switch, universal switch, cover, climate, sensor, binary sensor) and fill in the subnet / device / channel and type-specific options.
+- **Edit a device**: change name, channel, dimmable flag, curtain number, cover mode, presets, scan interval, keypad LED buttons, and so on.
+- **Remove a device**: removes the entity; the physical device is untouched.
 
-Per-device **scan interval** (sensors and binary sensors) enables active polling; `0` relies purely on bus broadcasts.
+A per-device **scan interval** (sensors and binary sensors) enables active polling; `0` relies on bus broadcasts only.
 
 ## ❄️ Air Conditioning via an IR Module
 
-HDL IR emitter modules like the **HDL-MIRC04.40** have 4 "live AC panel" channels, each of which can control one air conditioner directly — separate from the module's larger 24-device/100-code IR library used for TVs, projectors and the like. AR HDL BUSPRO can control these 4 channels as full climate entities: power, HVAC mode, fan speed and target temperature.
+HDL IR emitter modules like the **HDL-MIRC04.40** have 4 "live AC panel" channels, each able to control one air conditioner directly. AR HDL BUSPRO controls these as full climate entities: power, HVAC mode, fan speed and target temperature.
 
-This isn't found by **Scan bus for devices** — add it by hand:
+The scan doesn't find these; add them by hand:
 
 1. **Configure → Add a device → Climate**
-2. Fill in the module's own subnet/device address (not the AC unit's)
+2. Fill in the **module's** subnet/device address (not the AC unit's)
 3. Set **Climate protocol** to *Air conditioner via IR module*
-4. Set **HVAC No.** (1–4) — which of the module's 4 live AC channels this entity is
-5. Repeat for each of the up to 4 AC units wired to the module, one entity per HVAC No.
+4. Set **HVAC No.** (1–4), the module's AC channel for this unit
+5. Repeat for each AC unit, one entity per HVAC No.
 
-**Supported modes:** Cool, Heat, Fan only, Auto, Dry. **Supported fan speeds:** Auto, Low, Medium, High.
+**Modes:** Cool, Heat, Fan only, Auto, Dry. **Fan speeds:** Auto, Low, Medium, High. If a unit lacks a mode (a cooling-only split, say), narrow **AC HVAC modes to offer** under *Edit a device*.
 
-If a unit doesn't have every mode (a cooling-only split, say, with no Heat), open **Edit a device** for it and narrow **AC HVAC modes to offer** to just the ones it actually has — the entity won't show modes that aren't ticked there.
-
-> This byte-level protocol was reverse-engineered from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) and independently cross-checked against HDL's own published AC control specification, so it should hold for any HDL AC-via-IR-module setup — but it's newer and less travelled than the rest of this integration. If something doesn't behave as expected on your hardware, please open an issue with your `ar_hdl_buspro.telegram` debug log.
+> Mapped from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) and cross-checked against HDL's AC control specification. If something doesn't behave as expected, please open an issue with a [debug log](#-debug-logging).
 
 ## 🌡️ Air Conditioning via a Touch Panel
 
-HDL touch panels with an AC page (**HDL-MPTL4C.48 Granite Display**, **HDL-MPTLC43.46-A Enviro** and the same family) can be controlled directly: power, Cool/Heat, fan speed and target temperature, with the room temperature taken from the panel's own sensor. Changes made on the panel's screen show up in Home Assistant straight away.
-
-Add it by hand:
+HDL touch panels with an AC page (**HDL-MPTL4C.48 Granite Display**, **HDL-MPTLC43.46-A Enviro** and the same family) can be controlled directly: power, Cool/Heat, fan speed and target temperature, with the room temperature from the panel's own sensor. Changes made on the panel's screen show up in Home Assistant straight away.
 
 1. **Configure → Add a device → Climate**
 2. Fill in the **panel's** subnet/device address
 3. Set **Climate protocol** to *Air conditioner via touch panel*
-4. Set **HVAC No.** to the panel's AC slot (AC 1 on the panel = 1, AC 2 = 2, …)
-5. Leave **Temperature channel** at `1` (the panel's built-in sensor), or `0` for no room temperature
+4. Set **HVAC No.** to the panel's AC slot (AC 1 = 1, AC 2 = 2, …)
+5. Leave **Temperature channel** at `1` (the panel's built-in sensor), or `0` for none
 
-**Supported modes:** Cool, Heat. **Supported fan speeds:** Auto, Low, Medium, High. **Setpoint range:** 16–30 °C.
-
-**Not supported yet:** swing, and the panel's own setpoint limits. The entity stays unavailable until the panel has answered once, and it never shows a state the panel hasn't reported.
-
-> The panel protocol is mapped from live bus captures on an Enviro panel. Power has been tested end to end from Home Assistant; mode, setpoint and fan follow the same captured frame layout but are newer. If something doesn't behave as expected, please open an issue with your `ar_hdl_buspro.telegram` debug log.
-
-## 💡 Keypad LED Sync
-
-An HDL keypad's button LED shows the button's own state, so when a relay is switched from Home Assistant (or by another keypad or logic) the keypad that normally drives it isn't told, and its LED goes out of step.
-
-AR HDL BUSPRO keeps them in step automatically:
-
-- **The bus scan reads each keypad's button programming** (wired keypads and Buspro wireless panels) and links every button that switches a single relay or dimmer channel to that entity, exactly as programmed in the HDL software. Buttons that drive several channels at once (an "all lights" button, for example) are left unlinked, since their LED doesn't belong to any one channel; add them by hand if you want.
-- **Whenever the channel changes**, from Home Assistant or anywhere else on the bus, the linked buttons' LEDs are set to match.
-- Works for keypads driving a separate relay module and for wireless panels with built-in relays. A wireless panel that can't be read falls back to button N = relay N.
-- Links show on each relay/light under **Edit device → Keypad LED buttons** as `subnet.device:button` (e.g. `2.1:2, 1.50:4`) and can be changed by hand.
-
-After updating, run one **bus scan** and press submit to create the links for devices you already have.
+**Modes:** Cool, Heat. **Fan speeds:** Auto, Low, Medium, High. **Setpoint range:** 16–30 °C. Swing and the panel's own setpoint limits aren't supported yet.
 
 ## 📖 Recognised HDL Type Codes
 
-Codes already pinned in the classification table. Anything not listed is still identified automatically: hardware that describes itself on the bus reports its own type and channel count during the scan, and the rest is looked up in a built-in catalogue of ~1,800 HDL type codes (model, device family and channel layout). Only if neither knows the device does it classify from its replies, or fall back to an editable switch.
+These codes are confirmed from real installations and always take priority. Anything not listed is still identified automatically (see [How a device is identified](#-how-a-device-is-identified)).
 
 | Code | Classified as | Hardware |
 |---|---|---|
 | `0x0095` / `0x009C` | Climate | DLP panels |
-| `0x0086` | Sensor or Climate | HDL-MTS04.20 4-ch temperature sensor on HDL, DLP2 panel on Smart-Bus — decided by what the device answers |
-| `0x0890` | Climate | HDL-MPTL4C.48 Granite Display touch panel — also imports its temperature and humidity sensors |
-| `0x0260` / `0x026D` / `0x0269` | Light (dimmer) | DT0601 / MDT0601 6-ch dimmers |
+| `0x0086` | Sensor or Climate | HDL-MTS04.20 4-ch temperature sensor on HDL, DLP2 panel on Smart-Bus; decided by what the device answers |
+| `0x0890` | Climate | HDL-MPTL4C.48 Granite Display; also imports its temperature and humidity sensors |
+| `0x0260` / `0x026D` / `0x0269` / `0x027E` | Light (dimmer) | MDT0601 / MD0602 / MDT06015 6-ch dimmers |
 | `0x0011` | Light (dimmer) | HDL-MRDA06 / SB-DN-6B0-10v 6-ch 0-10V dimmer |
-| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2`, `0x0DCE` | Switch | Relay modules (4/8/16 ch and mixed); `0x0DCE` (HDL-MRCU home control unit) imports channels 1–17 and 22 as switches and 18–21 as dimmable lights |
-| `0x1391` / `0x13C3` / `0x13C2` | Switch | Buspro wireless wall panels with built-in relays — imports the 3 relay channels (the extra buttons have no relay behind them). `0x13C2` also exists as a 1-relay panel: if the panel reports its own relay count during the scan that count is used, otherwise it imports 3 and you delete the unused channels |
-| `0x1589` | Switch | 1-channel relay |
-| `0x25E5` / `0x25E8` / `0x02C9` | **Cover** | Curtain modules (`0x02C9` = HDL-MW02.431 2-ch) |
-| `0x0077` / `0x0166` | Binary sensor | SB_DRY_4Z dry contact / HDL-MS24.232 24-zone dry contact |
-| `0x0134` / `0x0141` / `0x0135` / `0x0150` | Sensor bundle | 12-in-1 (HDL-MS12.2C) / 8-in-1 / MSP07M |
+| `0x164B` | Light (dimmer) | HDL-MPD01-RF.28 1-ch wireless dimmer |
+| `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2` | Switch | Relay modules (4 / 8 / 12 / 16 ch) |
+| `0x0DCE` | Switch + Light | HDL-MRCU home control unit: channels 1–17 and 22 as switches, 18–21 as dimmable lights |
+| `0x1391` / `0x13C3` / `0x13C2` | Switch | Buspro wireless panels with built-in relays (see [Buspro wireless panels](#-buspro-wireless-panels)) |
+| `0x1589` / `0x158A` | Switch | HDL-MPR01-RF.28 1-ch / HDL-MPR02-RF.28 2-ch wireless relays |
+| `0x25E5` / `0x25E8` / `0x02C9` | **Cover** | Curtain motors and HDL-MW02.431 2-ch curtain module |
+| `0x0073` / `0x0077` / `0x0166` | Binary sensor | 4-zone and 24-zone dry-contact modules |
+| `0x0134` / `0x0141` / `0x0135` | Sensor bundle | 12-in-1 (HDL-MS12.2C) / 8-in-1 |
+| `0x0138` / `0x0148` / `0x0150` | Sensor bundle | 7-in-1 / MSP07M sensors-in-one |
 | `0x0516` / `0x0517` | Universal switch | HDL-MIRC04.40 IR emitter/receiver module |
-| `0x012B`, `0x00AF`, `0x08DB`, `0x080D`, `0x084D`, `0x239C`, `0x238C`, `0x08CA` | Keypad | Wall keypads and DLP panels, incl. `0x08CA` Granite Display keypad (labelled, not imported) |
-| `0x02F5` / `0x1209` / `0x120B` / `0x0455` / `0x0457` | Gateway / Logic | Wireless mesh gateway, HDL-MBUS01IP.431 IP gateways, logic modules (labelled, not imported — no entities) |
+| `0x012B`, `0x00AF`, `0x08DB`, `0x080D`, `0x084D`, `0x239C`, `0x238C`, `0x08CA` | Keypad | Wall keypads, DLP panels and Granite Display keypads (labelled, not imported) |
+| `0x02F5` / `0x1209` / `0x120B` / `0x0455` / `0x0457` | Gateway / Logic | Mesh gateway, HDL-MBUS01IP.431 IP gateways, logic modules (labelled, not imported) |
 
-Found a code that isn't here? The scan log prints every device's type code — open an ["Unrecognised device / type code"](issues/new?template=unsupported_device.yml) issue with the code and what the hardware is, and it gets added.
+Found a device that comes in wrong? The scan log prints every device's type code. Open an ["Unrecognised device / type code"](issues/new?template=unsupported_device.yml) issue with the code and what the hardware is, and it gets added.
 
 ## 🔧 Services
 
 ### `ar_hdl_buspro.activate_scene`
 
 ```yaml
-service: ar_hdl_buspro.activate_scene
+action: ar_hdl_buspro.activate_scene
 data:
   address: [1, 74]        # subnet, device id
   scene_address: [3, 5]   # area, scene number
@@ -388,7 +489,7 @@ data:
 ### `ar_hdl_buspro.set_universal_switch`
 
 ```yaml
-service: ar_hdl_buspro.set_universal_switch
+action: ar_hdl_buspro.set_universal_switch
 data:
   address: [1, 74]
   switch_number: 100
@@ -398,41 +499,76 @@ data:
 ### `ar_hdl_buspro.send_message` — raw telegram, for anything else
 
 ```yaml
-# Example: single-channel control — channel 1 to 100% over 3 seconds
-service: ar_hdl_buspro.send_message
+# Single-channel control: channel 1 to 100% over 3 seconds
+action: ar_hdl_buspro.send_message
 data:
   address: [1, 74]
   operate_code: [0, 49]        # 0x0031 SingleChannelControl
-  payload: [1, 100, 0, 3]      # channel, level %, running-time hi, lo
+  payload: [1, 100, 0, 3]      # channel, level %, running-time min, sec
+```
+
+```yaml
+# Set a keypad button's LED: button 2 on the panel at 2.1, on
+action: ar_hdl_buspro.send_message
+data:
+  address: [2, 1]
+  operate_code: [227, 216]     # 0xE3D8 panel control
+  payload: [17, 2, 1]          # 17 = button status, button, 1 on / 0 off
 ```
 
 If HDL's protocol can say it, `send_message` can send it.
 
 ## 📡 How the Connection Works
 
-- HDL Buspro over IP is **connectionless UDP** — the gateway can't be "pinged", so the config entry is created immediately and connectivity is reflected through entity availability.
-- The integration binds UDP port `6000` to hear passive broadcasts. If something else on the host already owns 6000, it falls back to an ephemeral port: **commands still work**, but passive broadcasts from other bus devices are missed (polling still functions).
-- The **source-IP filter** is installed automatically on connect and shown in diagnostics. It exists because HDL gateways broadcast everything to `255.255.255.255:6000`, which crosses IP-subnet boundaries on a shared L2 segment — without the filter, a neighbouring HDL system's traffic would appear as phantom devices.
+- HDL Buspro over IP is **connectionless UDP**. The gateway can't be "pinged", so the config entry is created immediately and connectivity shows through entity availability.
+- The integration binds UDP port `6000` to hear broadcasts. If something else on the host owns 6000, it falls back to another port: **commands still work**, but broadcasts from other bus devices are missed (polling still works).
+- The **source-IP filter** is installed on connect and shown in diagnostics. HDL gateways broadcast to `255.255.255.255:6000`, which crosses IP subnets on a shared L2 segment; without the filter, a neighbouring HDL system's traffic would appear as phantom devices.
+- After a restart, each channel is asked for its status a few times. Devices that never answer are then checked every 10 minutes instead of every 20 seconds, which keeps the bus and wireless mesh quiet.
+
+## 🪵 Debug Logging
+
+To capture what's happening on the bus, run this in **Developer tools → Actions → YAML mode**:
+
+```yaml
+action: logger.set_level
+data:
+  custom_components.ar_hdl_buspro: debug
+  ar_hdl_buspro.telegram: debug
+  ar_hdl_buspro.buspro: debug
+```
+
+Reproduce the problem (or run a bus scan), then download the log from **Settings → System → Logs → Download full log**. Turn it back down afterwards with the same action using `info` instead of `debug`.
 
 ## 🚨 Troubleshooting
 
 | Symptom | Likely cause / fix |
 |---|---|
-| **Gateway detection finds nothing** | HA and the gateway must share an L2 segment for broadcasts to travel. Routed networks / VLANs block them — either allow UDP/6000 broadcast forwarding or use *Enter address manually*. Also check the host firewall isn't dropping UDP/6000. |
-| **Scan finds nothing, but the gateway was detected** | The bus side may be quiet and something is eating the replies — verify no other Buspro software (HDL Setup Tool, another HA instance) is bound to port 6000 on the same host. Try a 60-second scan and press a few keypad buttons during it. |
-| **Devices flicker unavailable** | Check the HA log for reconnect messages; the transport auto-recovers with backoff. Persistent drops usually mean duplicate IPs or a flaky switch port on the gateway. |
-| **A dimmer imported as a switch** | Add its type code in the *Dimmer type codes* box on the scan results screen — see [above](#dimmer-imported-as-a-switch-fix-it-in-10-seconds). |
-| **A curtain module imported as a switch** | Re-scan with this version — curtain modules are probed directly and classify as covers. If it still lands wrong, its type code isn't answering the curtain probe; open an issue with the code from the scan log. |
-| **Phantom devices from a neighbour's HDL system** | Shouldn't happen — the source-IP filter drops them. Check diagnostics to confirm the filter shows your gateway's IP. |
-| **Entities respond but sensor broadcasts never arrive** | Port 6000 fallback is in effect (see [How the connection works](#how-the-connection-works)). Free up UDP/6000 on the host, or set a per-device scan interval to poll instead. |
+| **Gateway detection finds nothing** | HA and the gateway must share an L2 segment for broadcasts to travel. Routed networks / VLANs block them: allow UDP/6000 broadcast forwarding or use *Enter address manually*. Check the host firewall isn't dropping UDP/6000. |
+| **Scan finds nothing, but the gateway was detected** | Check no other Buspro software (HDL Setup Tool, another HA instance) is bound to port 6000 on the same host. Try a 60-second scan and press a few keypad buttons during it. |
+| **A device came in as the wrong type** | Open an issue with its type code from the scan list. For dimmers, use the *Dimmer type codes* box on the results screen meanwhile. |
+| **A dimmer imported as a switch** | See [Dimmer imported as a switch?](#-dimmer-imported-as-a-switch). |
+| **Keypad LED doesn't follow a relay** | Check *Edit a device → Keypad LED buttons* on that relay. Empty means no link was found: run a bus scan, or type the link in (`subnet.device:button`). |
+| **Keypad LED lights for the wrong relay** | Remove the wrong entry from *Keypad LED buttons* on that relay, or re-run a bus scan to refresh the links. |
+| **Spare keypad button flashes 3 times and goes off** | The keypad got no confirmation. Its target must be Universal Switch at `250.250`; check the integration is running and licensed. |
+| **Wireless panel shows extra relay channels** | A 1-relay `0x13C2` panel that didn't report its relay count imports 3; delete the two unused channels. |
+| **Humidity shows unavailable on a touch panel** | Check the entity's hardware kind is **panel**, then look at its `last_telegram` / `raw_payload` attributes and open an issue with them. |
+| **Devices flicker unavailable** | Check the log for reconnect messages; the transport recovers with backoff. Persistent drops usually mean duplicate IPs or a flaky switch port on the gateway. |
+| **Phantom devices from a neighbour's HDL system** | Shouldn't happen; the source-IP filter drops them. Check diagnostics to confirm the filter shows your gateway's IP. |
+| **Entities respond but sensor broadcasts never arrive** | The port-6000 fallback is in effect. Free up UDP/6000 on the host, or set a per-device scan interval to poll instead. |
+
+## ⬆️ Upgrading
+
+Updating never changes devices you've already set up: names, entities and settings stay exactly as they are. New identification only applies to new scans and imports.
+
+To bring an existing install up to date:
+
+1. Update through HACS and restart Home Assistant.
+2. Run **Configure → Scan bus for devices** and press submit. This adds any missing channels and creates the keypad LED links. Nothing is duplicated.
+3. Entities created under a wrong type on an older version (for example a switch for an IP gateway) aren't removed automatically. Delete them under *Remove a device*, then re-import them with a scan if they should exist.
 
 ## 🔄 Migrating from the Legacy `buspro` Integration
 
-Legacy `buspro` entries (`host` / `port`) are migrated automatically to the new schema on first load. Your entities keep working; from there, use **Scan bus for devices** to pull in everything the old integration couldn't do.
-
----
-
-· Issues and type-code contributions welcome on [GitHub](https://github.com/marsh4200/ar_hdl_buspro/issues)
+Legacy `buspro` entries (`host` / `port`) are migrated to the new schema automatically on first load. Your entities keep working; from there, use **Scan bus for devices** to pull in everything the old integration couldn't do.
 
 ---
 
@@ -441,14 +577,13 @@ Legacy `buspro` entries (`host` / `port`) are migrated automatically to the new 
 If you find **AR HDL BUSPRO** useful:
 
 - ⭐ Star this repository
-- 🐛 Report bugs
+- 🐛 Report bugs and unrecognised devices
 - 💡 Suggest features
-- 🤝 Contribute improvements
+
+Issues and type-code contributions are welcome on [GitHub](https://github.com/marsh4200/ar_hdl_buspro/issues).
 
 <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="400" alt="AR HDL BUSPRO logo" />
 
-
-[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 ## Licensing
 
 AR HDL BUSPRO is proprietary, licensed software — see [LICENSE](LICENSE). It

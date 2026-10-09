@@ -212,7 +212,8 @@
         "sensor": "Sensor",
         "binary_sensor": "Binær sensor",
         "climate": "Klima",
-        "cover": "Cover / Curtain"
+        "cover": "Cover / Curtain",
+        "keypad_button": "Tastaturknapp (sender til Home Assistant)"
       }
     },
     "sensor_kind": {

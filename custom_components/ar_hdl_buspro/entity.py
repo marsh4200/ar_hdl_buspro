@@ -29,6 +29,7 @@ from .const import (
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
     DEVICE_TYPE_COVER,
+    DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_SWITCH,
@@ -53,6 +54,7 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
     DEVICE_TYPE_COVER: "Curtain",
     DEVICE_TYPE_SENSOR: "Sensor",
     DEVICE_TYPE_BINARY_SENSOR: "Binary Sensor",
+    DEVICE_TYPE_KEYPAD_BUTTON: "Keypad Buttons",
 }
 _CLIMATE_KIND_LABELS: dict[str, str] = {
     CLIMATE_KIND_DLP: "Climate – Floor Heating",

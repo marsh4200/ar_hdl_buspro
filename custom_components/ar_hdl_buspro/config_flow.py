@@ -105,12 +105,14 @@ from .const import (
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
     DEVICE_TYPE_COVER,
+    DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_UNIVERSAL_SWITCH,
     DEVICE_TYPES,
     DOMAIN,
+    HA_VIRTUAL_ADDRESS,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_AMBIGUOUS_COUNT_CODES,
@@ -129,6 +131,7 @@ from .const import (
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
     SENSOR_KINDS,
+    TARGET_TYPE_UNIVERSAL_SWITCH,
 )
 from .classify import (
     FAMILY_HW_KIND,
@@ -305,6 +308,25 @@ def _universal_switch_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=255, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+        }
+    )
+
+
+def _keypad_button_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """A spare keypad button sending a universal switch to Home Assistant."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_NAME, default=defaults.get(CONF_NAME, vol.UNDEFINED)
+            ): str,
+            vol.Required(
+                CONF_SUB_NUMBER, default=defaults.get(CONF_SUB_NUMBER, 200)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            **_keypad_led_field(defaults),
         }
     )
 
@@ -597,6 +619,7 @@ DEVICE_SCHEMA_BUILDERS = {
     DEVICE_TYPE_BINARY_SENSOR: _binary_sensor_schema,
     DEVICE_TYPE_COVER: _cover_schema,
     DEVICE_TYPE_CLIMATE: _climate_schema,
+    DEVICE_TYPE_KEYPAD_BUTTON: _keypad_button_schema,
 }
 
 
@@ -633,6 +656,9 @@ def _normalize_device_input(
                 out[field] = int(out[field])
             except (TypeError, ValueError):
                 pass
+    if device_type == DEVICE_TYPE_KEYPAD_BUTTON:
+        # Keypad buttons live at Home Assistant's own bus address.
+        out[CONF_SUBNET_ID], out[CONF_DEVICE_ID] = HA_VIRTUAL_ADDRESS
     if CONF_KEYPAD_LEDS in out:
         # Store a clean "s.d:b, ..." string; anything unparseable is dropped.
         out[CONF_KEYPAD_LEDS] = format_keypad_leds(
@@ -648,7 +674,7 @@ def _device_summary(device: dict[str, Any]) -> str:
     sub = device.get(CONF_SUBNET_ID, "?")
     dev = device.get(CONF_DEVICE_ID, "?")
     ch = device.get(CONF_CHANNEL)
-    if ch is None and dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+    if ch is None and dtype in (DEVICE_TYPE_UNIVERSAL_SWITCH, DEVICE_TYPE_KEYPAD_BUTTON):
         ch = device.get(CONF_SUB_NUMBER)
     if (
         ch is None
@@ -835,6 +861,61 @@ def _apply_keypad_links(devices: list, results) -> int:
         new_text = format_keypad_leds(new)
         if new_text != old_text:
             devices[index] = {**dev, CONF_KEYPAD_LEDS: new_text}
+            changed += 1
+    return changed
+
+
+def _import_keypad_buttons(devices: list, results) -> int:
+    """Create keypad-button entries for buttons programmed to target HA.
+
+    Any keypad button whose programming sends a universal switch to
+    HA_VIRTUAL_ADDRESS gets a keypad-button entity (one per universal
+    switch number), linked to that button for LED sync. Existing entries
+    are only given the extra LED link. Returns how many entries changed.
+    """
+    found: dict[int, tuple[str, set]] = {}
+    for disc in results:
+        for button, by_no in (getattr(disc, "button_targets", None) or {}).items():
+            for ttype, subnet, device, number, _status in by_no.values():
+                if ttype != TARGET_TYPE_UNIVERSAL_SWITCH:
+                    continue
+                if (subnet, device) != tuple(HA_VIRTUAL_ADDRESS) or not 1 <= number <= 255:
+                    continue
+                name, links = found.setdefault(
+                    number, (f"{_disc_name(disc)} button {button}", set())
+                )
+                links.add((disc.subnet_id, disc.device_id, int(button)))
+    changed = 0
+    for number, (name, links) in found.items():
+        index = next(
+            (
+                i
+                for i, d in enumerate(devices)
+                if d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_KEYPAD_BUTTON
+                and int(d.get(CONF_SUB_NUMBER, 0) or 0) == number
+            ),
+            None,
+        )
+        if index is None:
+            devices.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    CONF_DEVICE_TYPE: DEVICE_TYPE_KEYPAD_BUTTON,
+                    CONF_NAME: name,
+                    CONF_SUBNET_ID: HA_VIRTUAL_ADDRESS[0],
+                    CONF_DEVICE_ID: HA_VIRTUAL_ADDRESS[1],
+                    CONF_SUB_NUMBER: number,
+                    CONF_KEYPAD_LEDS: format_keypad_leds(links),
+                }
+            )
+            changed += 1
+            continue
+        old = devices[index]
+        merged = format_keypad_leds(
+            set(parse_keypad_leds(old.get(CONF_KEYPAD_LEDS))) | links
+        )
+        if merged != (old.get(CONF_KEYPAD_LEDS) or ""):
+            devices[index] = {**old, CONF_KEYPAD_LEDS: merged}
             changed += 1
     return changed
 
@@ -1878,6 +1959,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # temperature (and humidity on most): import those too.
                     added += self._import_sensor_bundle(disc, devices)
             linked = _apply_keypad_links(devices, results)
+            buttons = _import_keypad_buttons(devices, results)
+            if buttons:
+                _LOGGER.info(
+                    "AR HDL BUSPRO import: %d keypad button entr(y/ies) added "
+                    "or updated",
+                    buttons,
+                )
             if linked:
                 _LOGGER.info(
                     "AR HDL BUSPRO import: keypad LED links updated on %d "

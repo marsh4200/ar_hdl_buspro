@@ -267,7 +267,8 @@
         "sensor": "Sensor",
         "binary_sensor": "Binary sensor",
         "climate": "Climate",
-        "cover": "Cover / Curtain"
+        "cover": "Cover / Curtain",
+        "keypad_button": "Keypad button (sends to Home Assistant)"
       }
     },
     "sensor_kind": {

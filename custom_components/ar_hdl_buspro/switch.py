@@ -14,6 +14,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import ARHDLData
 from .const import (
@@ -25,6 +26,7 @@ from .const import (
     CONF_NAME,
     CONF_SUB_NUMBER,
     CONF_SUBNET_ID,
+    DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_UNIVERSAL_SWITCH,
     DOMAIN,
@@ -54,6 +56,8 @@ async def async_setup_entry(
             entities.append(ARHDLSwitch(entry, data.gateway, device_cfg))
         elif dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
             entities.append(ARHDLUniversalSwitch(entry, data.gateway, device_cfg))
+        elif dtype == DEVICE_TYPE_KEYPAD_BUTTON:
+            entities.append(ARHDLKeypadButton(entry, data.gateway, device_cfg))
 
     if entities:
         async_add_entities(entities)
@@ -187,3 +191,75 @@ class ARHDLUniversalSwitch(ARHDLBaseEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the universal switch off."""
         await self._switch.set_off()
+
+
+class ARHDLKeypadButton(ARHDLBaseEntity, SwitchEntity, RestoreEntity):
+    """A spare keypad button that talks to Home Assistant.
+
+    The button is programmed in the HDL software as Single ON/OFF with a
+    Universal Switch target at Home Assistant's bus address (250.250); the
+    integration answers for that address (virtual_device.py). Pressing the
+    button flips this switch and fires `ar_hdl_buspro_keypad_button`;
+    toggling the switch here sets the button's LED to match. Nothing on the
+    bus is switched - it is a trigger for automations.
+    """
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        gateway: ARHDLGateway,
+        device_cfg: dict[str, Any],
+    ) -> None:
+        """Initialize the keypad button."""
+        super().__init__(entry, gateway, device_cfg)
+        self._virtual = gateway.virtual
+        self._number = int(device_cfg[CONF_SUB_NUMBER])
+        self._led_sync = KeypadLedSync(gateway.hdl, device_cfg.get(CONF_KEYPAD_LEDS))
+        self._attr_unique_id = build_unique_id(
+            entry.entry_id, device_cfg, suffix="keypad_button"
+        )
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
+        self._attr_has_entity_name = False
+        self._attr_name = (
+            device_cfg.get(CONF_NAME) or f"HDL keypad button {self._number}"
+        )
+        self._attr_icon = "mdi:gesture-tap-button"
+
+    async def async_added_to_hass(self) -> None:
+        """Follow presses of the button, restoring its last state."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state in ("on", "off"):
+            self._virtual.set_state(self._number, last.state == "on")
+
+        def _changed(on: bool, source) -> None:
+            self.async_write_ha_state()
+            if source is not None and self._led_sync.active:
+                # Pressed on a keypad: bring any OTHER linked keypads along.
+                self.hass.async_create_task(self._led_sync.push(on))
+
+        self.async_on_remove(self._virtual.add_listener(self._number, _changed))
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if the button is on."""
+        return self._virtual.state(self._number)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Show how the button is addressed, for programming the keypad."""
+        subnet, device = self._virtual.address
+        return {
+            "universal_switch": self._number,
+            "target_address": f"{subnet}.{device}",
+        }
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on: set the state and the linked button LEDs."""
+        self._virtual.set_state(self._number, True)
+        await self._led_sync.push(True, force=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off: set the state and the linked button LEDs."""
+        self._virtual.set_state(self._number, False)
+        await self._led_sync.push(False, force=True)
