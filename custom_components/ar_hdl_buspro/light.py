@@ -159,9 +159,13 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
             brightness_pct = self._light.previous_brightness
 
         await self._light.set_brightness(brightness_pct, self._running_time)
-        await self._led_sync.push(brightness_pct > 0, force=True)
+        # Show the new state now instead of waiting for the module's reply;
+        # under rapid clicking that reply can be a second or more behind.
+        self.async_write_ha_state()
+        self._led_sync.push_soon(lambda: self.is_on)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         await self._light.set_off(self._running_time)
-        await self._led_sync.push(False, force=True)
+        self.async_write_ha_state()
+        self._led_sync.push_soon(lambda: self.is_on)

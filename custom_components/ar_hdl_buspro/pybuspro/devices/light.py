@@ -35,7 +35,8 @@ class Light(Device):
             channel = telegram.payload[0]
             brightness = telegram.payload[2]
             if channel == self._channel:
-                self._awaiting_ack = False
+                if not self._accept_reply(brightness):
+                    return  # late reply to an earlier click
                 self._brightness = brightness
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
@@ -43,6 +44,8 @@ class Light(Device):
         elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
             payload = telegram.payload
             if payload and self._channel <= payload[0] and self._channel < len(payload):
+                if not self._accept_reply(payload[self._channel]):
+                    return
                 self._brightness = telegram.payload[self._channel]
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
@@ -103,6 +106,7 @@ class Light(Device):
         self._set_previous_brightness(self._brightness)
 
         minutes, seconds = Generics.calculate_minutes_seconds(running_time_seconds)
+        self._note_command(intensity)
         scc = _SingleChannelControl(self._buspro)
         scc.subnet_id, scc.device_id = self._device_address
         scc.channel_number = self._channel

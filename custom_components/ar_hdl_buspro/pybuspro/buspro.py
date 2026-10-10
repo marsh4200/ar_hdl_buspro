@@ -89,6 +89,9 @@ class Buspro:
         # (e.g. the responder answering for Home Assistant's own bus address).
         self.virtual_handlers: list = []
 
+        # Command timing (see devices/device.py), surfaced in diagnostics.
+        self.bus_stats: dict | None = None
+
     async def start(self, state_updater: bool = False) -> None:
         """Connect to the gateway and start listening for telegrams."""
         self.network_interface = NetworkInterface(

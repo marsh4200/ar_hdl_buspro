@@ -274,6 +274,18 @@ class ARHDLGateway:
             # discarding -- a second gateway, or a gateway whose IP changed.
             "dropped_source_ips": sorted(self.hdl.dropped_source_ips),
             "available": self._available,
+            # Reply timing for channel commands sent from Home Assistant:
+            # how long modules take to confirm, how often a command had to be
+            # resent, and the slowest recent replies by module address.
+            "command_timing": self.hdl.bus_stats or "no commands sent yet",
+            # Keypads seen confirming an LED write (0xE3D9). Linked keypads
+            # missing from this list get one write plus one repeat instead.
+            "keypads_confirming_led": sorted(
+                f"{s}.{d}"
+                for s, d in getattr(
+                    getattr(self.hdl, "_led_ack_router", None), "confirmers", ()
+                )
+            ),
             "stop_requested": self._stop_requested,
             "reconnect_active": bool(
                 self._reconnect_task and not self._reconnect_task.done()

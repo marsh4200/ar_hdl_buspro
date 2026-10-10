@@ -1,6 +1,8 @@
 """Network interface tying UDP transport to the telegram helper."""
 from __future__ import annotations
 
+import logging
+
 from ..helpers.telegram_helper import TelegramHelper
 from .udp_client import UDPClient
 
@@ -149,9 +151,13 @@ class NetworkInterface:
         message = self._th.build_send_buffer(telegram)
         if message is None:
             return
-        gateway_address_send, _ = self.gateway_address_send_receive
-        self.buspro.logger.debug(
-            self._th.build_telegram_from_udp_data(message, gateway_address_send)
-        )
+        if self.buspro.logger.isEnabledFor(logging.DEBUG):
+            # Re-parsing every outbound frame just to log it is only worth
+            # doing when someone is actually reading the debug log.
+            gateway_address_send, _ = self.gateway_address_send_receive
+            self.buspro.logger.debug(
+                self._th.build_telegram_from_udp_data(message, gateway_address_send)
+            )
+
         if self.udp_client is not None:
             await self.udp_client.send_message(message)

@@ -2522,40 +2522,53 @@ class ARHDLOptionsFlow(OptionsFlow):
             },
         )
 
-    # ----- remove device ---------------------------------------------------
+    # ----- remove devices (tick any number, remove in one go) --------------
     async def async_step_remove_device(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Remove a configured device."""
+        """Remove one or more configured devices."""
         devices = self.devices
         if not devices:
             return self.async_abort(reason="no_devices")
 
-        options = [
-            selector.SelectOptionDict(value=d["id"], label=_device_summary(d))
-            for d in devices
-        ]
+        options = sorted(
+            (
+                selector.SelectOptionDict(value=d["id"], label=_device_summary(d))
+                for d in devices
+            ),
+            key=lambda o: o["label"].lower(),
+        )
 
+        errors: dict[str, str] = {}
         if user_input is not None:
-            target_id = user_input["device_id_choice"]
-            target = next((d for d in devices if d["id"] == target_id), None)
-            new_devices = [d for d in devices if d["id"] != target_id]
-            if target is not None:
-                # Free the entity_ids before the entry reloads, so re-adding
-                # this channel later reuses them instead of colliding.
-                self._purge_registry_for_device(target)
-            return self._save_devices(new_devices)
+            chosen = set(user_input.get("device_ids") or [])
+            if not chosen:
+                errors["base"] = "no_devices_selected"
+            else:
+                for target in devices:
+                    if target["id"] in chosen:
+                        # Free the entity_ids before the entry reloads, so
+                        # re-adding a channel later reuses them instead of
+                        # colliding.
+                        self._purge_registry_for_device(target)
+                # One save = one reload, however many were ticked.
+                return self._save_devices(
+                    [d for d in devices if d["id"] not in chosen]
+                )
 
         return self.async_show_form(
             step_id="remove_device",
             data_schema=vol.Schema(
                 {
-                    vol.Required("device_id_choice"): selector.SelectSelector(
+                    vol.Required("device_ids", default=[]): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options,
-                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST,
                         )
                     )
                 }
             ),
+            errors=errors,
+            description_placeholders={"count": str(len(devices))},
         )
