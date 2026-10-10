@@ -350,7 +350,11 @@ Links are shown on each relay and light under **Configure → Edit a device → 
 2.1:2, 1.50:4      # two keypads (two-way switching)
 ```
 
-You can add, change or clear them by hand at any time. Leave the field empty to turn LED sync off for that entity.
+You can add, change or clear them by hand at any time. Leave the field empty to turn LED sync off for that entity. `2.8.3` is also accepted and saved as `2.8:3`; anything that can't be read shows an error instead of being saved.
+
+**DLP buttons** are numbered across pages: page 1 is buttons 1–8, page 2 is 9–16, and so on.
+
+> **LED sync runs in Home Assistant.** If Home Assistant is off, panels go back to plain HDL behaviour. For two-way switching that keeps LEDs in step without Home Assistant, give each button a second target in the HDL software that sets the other panel's button status.
 
 ## 🔘 Keypad Buttons in Home Assistant
 
@@ -365,16 +369,24 @@ Home Assistant answers on the bus at its own address, **`250.250`**. Point the s
 | Button type | **Single ON/OFF** |
 | Target | **one** target only — delete any others |
 | Type | **Universal Switch** |
-| Subnet ID / Device ID | **250** / **250** (Home Assistant) |
+| Subnet ID / Device ID | **250** / **250** (Home Assistant). Not `255.255` (that's broadcast), and not the keypad's own address |
 | Switch no. | any free number, e.g. **200** (use a different number per button) |
-| Switch status | doesn't matter (each press toggles in Home Assistant) |
+| Switch status | doesn't matter (see below) |
 
 Save it to the keypad.
 
 **2. In Home Assistant**, run **Scan bus for devices** and press submit. The scan reads the button's programming and creates a **keypad button** entity for it, already linked to the button's LED. To add one by hand instead: *Add a device → Keypad button*, switch number `200`, Keypad LED buttons `subnet.device:button` (e.g. `2.1:4`).
 
+The **Keypad LED buttons** field is the **keypad's own address and button**, not `250.250`. It's what lets Home Assistant light the button's LED. Without it the button still works, but the LED and Home Assistant can drift apart.
+
+**Not sure of the keypad's address or button number?** Open **Developer Tools → Events**, listen to `ar_hdl_buspro_keypad_button` and press the button. The event shows `keypad` (e.g. `2.8`) and `button` (e.g. `3`), so the link is `2.8:3`.
+
+**Check it took:** in **Developer Tools → States**, the keypad button entity shows `keypad_leds` (e.g. `2.8:3`). `none` means no LED link is set.
+
 **What you get:**
-- **Press the button** → the entity toggles on/off (every press is a toggle, so it works even on panels that always send the same status), the button LED stays lit or off as normal (Home Assistant confirms the command, so the keypad doesn't flash), and an `ar_hdl_buspro_keypad_button` event fires.
+- **Press the button** → the entity turns on/off, the button LED stays lit or off as normal (Home Assistant confirms the command, so the keypad doesn't flash), and an `ar_hdl_buspro_keypad_button` event fires.
+  - Panels that send their real state (DLPs alternate on/off) are followed exactly.
+  - Panels that always send the same status (some wireless panels) toggle on each press.
 - **Toggle the entity in Home Assistant** → the button's LED turns on/off to match.
 - The state survives a Home Assistant restart.
 
@@ -563,6 +575,8 @@ Reproduce the problem (or run a bus scan), then download the log from **Settings
 | **Keypad LED lights for the wrong relay** | Remove the wrong entry from *Keypad LED buttons* on that relay, or re-run a bus scan to refresh the links. |
 | **Spare keypad button flashes 3 times and goes off** | The keypad got no confirmation. Its target must be Universal Switch at **`250.250`** (not the keypad's own address); check the integration is running and licensed. |
 | **Spare keypad button does nothing in Home Assistant** | Add the entity as **Keypad button** (not *Universal switch*) with the same switch number, or run a bus scan. |
+| **Keypad button works but its LED doesn't follow Home Assistant** | The entity's `keypad_leds` attribute shows `none`: set *Edit a device → Keypad LED buttons* to the keypad's address and button, e.g. `2.8:3`. |
+| **Keypad button never reaches Home Assistant** | The button's target must be **`250.250`** exactly, not `255.255` or the keypad's own address. Save the change to the panel. |
 | **Wireless panel shows extra relay channels** | A 1-relay `0x13C2` panel that didn't report its relay count imports 3; delete the two unused channels. |
 | **Humidity shows unavailable on a touch panel** | Check the entity's hardware kind is **panel**, then look at its `last_telegram` / `raw_payload` attributes and open an issue with them. |
 | **Devices flicker unavailable** | Check the log for reconnect messages; the transport recovers with backoff. Persistent drops usually mean duplicate IPs or a flaky switch port on the gateway. |
