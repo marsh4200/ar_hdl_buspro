@@ -121,12 +121,16 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self._switch.set_on()
-        await self._led_sync.push(True, force=True)
+        # Show the new state now (see light.py).
+        self.async_write_ha_state()
+        self._led_sync.push_soon(lambda: self.is_on)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self._switch.set_off()
-        await self._led_sync.push(False, force=True)
+        # Show the new state now (see light.py).
+        self.async_write_ha_state()
+        self._led_sync.push_soon(lambda: self.is_on)
 
 
 class ARHDLUniversalSwitch(ARHDLBaseEntity, SwitchEntity):
@@ -192,10 +196,12 @@ class ARHDLUniversalSwitch(ARHDLBaseEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the universal switch on."""
         await self._switch.set_on()
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the universal switch off."""
         await self._switch.set_off()
+        self.async_write_ha_state()
 
 
 class ARHDLKeypadButton(ARHDLBaseEntity, SwitchEntity, RestoreEntity):

@@ -34,13 +34,16 @@ class Switch(Device):
             channel = telegram.payload[0]
             brightness = telegram.payload[2]
             if channel == self._channel:
-                self._awaiting_ack = False
+                if not self._accept_reply(brightness):
+                    return  # late reply to an earlier click
                 self._brightness = brightness
                 self._got_initial_status = True
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
             payload = telegram.payload
             if payload and self._channel <= payload[0] and self._channel < len(payload):
+                if not self._accept_reply(payload[self._channel]):
+                    return
                 self._brightness = telegram.payload[self._channel]
                 self._got_initial_status = True
                 self._call_device_updated()
@@ -74,6 +77,11 @@ class Switch(Device):
     def supports_brightness(self) -> bool:
         return False
 
+    @staticmethod
+    def _same_level(a, b) -> bool:
+        """A relay is on or off; 100 and 255 both mean on."""
+        return bool(a) == bool(b)
+
     @property
     def is_on(self) -> bool:
         return self._brightness != 0
@@ -85,6 +93,7 @@ class Switch(Device):
     async def _set(self, intensity: int, running_time_seconds: int) -> None:
         self._brightness = intensity
         minutes, seconds = Generics.calculate_minutes_seconds(running_time_seconds)
+        self._note_command(intensity)
         scc = _SingleChannelControl(self._buspro)
         scc.subnet_id, scc.device_id = self._device_address
         scc.channel_number = self._channel

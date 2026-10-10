@@ -49,7 +49,7 @@
           "gateway": "Gateway-innstillinger",
           "add_device": "Legg til enhet",
           "edit_device": "Rediger enhet",
-          "remove_device": "Fjern enhet",
+          "remove_device": "Fjern enheter",
           "scan_bus": "Skann buss for enheter",
           "detect_gateway": "Finn gateway på nettverket"
         }
@@ -160,10 +160,10 @@
         }
       },
       "remove_device": {
-        "title": "Fjern enhet",
-        "description": "Velg en enhet å fjerne.",
+        "title": "Fjern enheter",
+        "description": "Kryss av for enhetene som skal fjernes ({count} konfigurert). Alle avkryssede fjernes samtidig.",
         "data": {
-          "device_id_choice": "Enhet"
+          "device_ids": "Enheter"
         }
       },
       "detect_gateway": {
@@ -195,7 +195,8 @@
       "scan_failed": "Bussskanningen mislyktes. Se loggene for detaljer.",
       "contact_name_required": "Skriv inn et navn.",
       "invalid_email": "Skriv inn en gyldig e-postadresse.",
-      "contact_required": "Skriv inn navn og e-post først - ingen lisens blir forespurt uten dem."
+      "contact_required": "Skriv inn navn og e-post først - ingen lisens blir forespurt uten dem.",
+      "no_devices_selected": "Kryss av for minst én enhet."
     },
     "abort": {
       "no_devices": "Ingen enheter er konfigurert ennå.",

@@ -87,7 +87,7 @@
           "gateway": "Gateway settings",
           "add_device": "Add a device",
           "edit_device": "Edit a device",
-          "remove_device": "Remove a device",
+          "remove_device": "Remove devices",
           "scan_bus": "Scan bus for devices",
           "detect_gateway": "Detect gateway on the network",
           "license": "Licence"
@@ -211,10 +211,10 @@
         }
       },
       "remove_device": {
-        "title": "Remove a device",
-        "description": "Pick a device to remove.",
+        "title": "Remove devices",
+        "description": "Tick every device to remove ({count} configured). All ticked devices are removed together.",
         "data": {
-          "device_id_choice": "Device"
+          "device_ids": "Devices"
         }
       },
       "detect_gateway": {
@@ -250,7 +250,8 @@
       "no_activation_endpoint": "That address answered, but it does not offer automatic activation. It usually means the address points at the licence request portal instead of the licence server. Check the address, or paste a licence key below instead.",
       "contact_name_required": "Enter a name.",
       "invalid_email": "Enter a valid email address.",
-      "contact_required": "Enter a name and email first - no licence is requested without them."
+      "contact_required": "Enter a name and email first - no licence is requested without them.",
+      "no_devices_selected": "Tick at least one device to remove."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",
