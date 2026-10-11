@@ -239,5 +239,13 @@ class ARHDLBaseEntity(Entity):
         An unlicensed install keeps its entities and configuration intact --
         they just report unavailable until a key is entered, so activating
         later restores everything without a re-scan.
+
+        A switch/light channel also goes unavailable while its module has
+        stopped answering (pybuspro Device.responsive), and comes back the
+        moment the module is heard from again.
         """
-        return self._gateway_available and self._license_active
+        return (
+            self._gateway_available
+            and self._license_active
+            and getattr(self._resync_device, "responsive", True)
+        )

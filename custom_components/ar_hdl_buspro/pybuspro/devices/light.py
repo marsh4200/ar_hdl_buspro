@@ -25,10 +25,16 @@ class Light(Device):
         self._channel = channel_number
         self._brightness = 0
         self._previous_brightness: int | None = None
+        self._join_module()
         self.register_telegram_received_cb(self._telegram_received_cb)
-        self._call_read_current_status_of_channels(run_from_init=True)
+        # Live status at startup comes from the module-level read queued by
+        # _join_module (one paced read per module, retried until answered).
 
     def _telegram_received_cb(self, telegram) -> None:
+        # Anything from this module proves it is alive.
+        self._heard_from_module(
+            telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse
+        )
         if telegram.operate_code == OperateCode.SingleChannelControlResponse:
             if len(telegram.payload) < 3:
                 return
@@ -40,6 +46,7 @@ class Light(Device):
                 self._brightness = brightness
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
+                self._mark_confirmed()
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.ReadStatusOfChannelsResponse:
             payload = telegram.payload
@@ -49,6 +56,7 @@ class Light(Device):
                 self._brightness = telegram.payload[self._channel]
                 self._set_previous_brightness(self._brightness)
                 self._got_initial_status = True
+                self._mark_confirmed()
                 self._call_device_updated()
         elif telegram.operate_code == OperateCode.SceneControlResponse:
             self._call_read_current_status_of_channels()
@@ -66,19 +74,14 @@ class Light(Device):
         await self._set(intensity, running_time_seconds)
 
     async def read_status(self) -> None:
-        """Request a fresh read of this channel's current status.
+        """Re-read this channel's live status from the module.
 
-        A single on-demand request (no delay, no retry loop) -- used to
-        resync entity state right after the gateway link comes back (see
-        ARHDLBaseEntity._handle_gateway_availability in entity.py), not as
-        a periodic poll. See AirConditioner._call_read_current_status in
-        climate.py for why continuous/periodic polling was reverted on
-        this bus for IR-module channels; this only fires on a reconnect
-        event, never on a timer, so that history doesn't apply here.
+        Used right after the gateway link comes back (see ARHDLBaseEntity.
+        _handle_gateway_availability in entity.py). Goes through the paced
+        per-module queue, so every channel of a module asking at once still
+        puts one read on the bus, and it is retried until the module answers.
         """
-        reader = _ReadStatusOfChannels(self._buspro)
-        reader.subnet_id, reader.device_id = self._device_address
-        await reader.send()
+        self._request_live_status()
 
     @property
     def device_identifier(self) -> str:
@@ -105,6 +108,8 @@ class Light(Device):
         self._brightness = intensity
         self._set_previous_brightness(self._brightness)
 
+        if self._defer_if_busy(intensity, running_time_seconds):
+            return  # shown now, sent when the previous command is answered
         minutes, seconds = Generics.calculate_minutes_seconds(running_time_seconds)
         self._note_command(intensity)
         scc = _SingleChannelControl(self._buspro)

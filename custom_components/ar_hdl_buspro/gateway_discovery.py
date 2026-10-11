@@ -104,7 +104,7 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
                 telegram = self._helper.build_telegram_from_udp_data(data, addr)
                 if telegram is not None and telegram.source_address:
                     src = telegram.source_address
-                    if (src[0], src[1]) not in ((200, 200), (0, 0), (255, 255)):
+                    if (src[0], src[1]) not in ((200, 200), (250, 250), (0, 0), (255, 255)):
                         gw.bus_addresses.add(f"{src[0]}.{src[1]}")
         except Exception as err:  # noqa: BLE001 - discovery must never blow up
             _LOGGER.debug("Discovery datagram parse error: %s", err)

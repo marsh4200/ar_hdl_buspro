@@ -58,7 +58,7 @@ _LOGGER = logging.getLogger(__name__)
 _BROADCAST: tuple[int, int] = (255, 255)
 
 # Source addresses we should never treat as a real device:
-#   (200, 200) is pybuspro's own default sender id
+#   (200, 200) is pybuspro's old default sender id (other clients still use it)
 #   (0, 0)     is a null/unset address
 #   (255, 255) is the broadcast address itself
 _IGNORED_SOURCES = {(200, 200), (0, 0), (255, 255), HA_VIRTUAL_ADDRESS}

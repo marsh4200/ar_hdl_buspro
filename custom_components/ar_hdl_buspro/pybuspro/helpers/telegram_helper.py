@@ -22,6 +22,17 @@ _LOGGER = logging.getLogger(__name__)
 _LEGACY_ADVERTISED_IP = (192, 168, 1, 15)
 
 
+
+# Home Assistant's own address on the bus (same as const.HA_VIRTUAL_ADDRESS,
+# the address keypad buttons target). Replies to reads are addressed back to
+# the sender, and an HDL IP gateway keeps a reply addressed to ITS OWN subnet
+# on the bus instead of forwarding it to the network. pybuspro's old default
+# sender 200.200 sits on subnet 200 - so on a bus whose modules are 200.x,
+# every status read went unanswered as far as Home Assistant could tell, while
+# broadcasts (button presses, 255.255) still arrived. Subnet 250 is reserved
+# for Home Assistant here and must not be used by real devices.
+HA_SOURCE_ADDRESS = (250, 250)
+
 class TelegramHelper:
     """Encode/decode HDL Buspro telegrams to/from UDP byte buffers."""
 
@@ -120,7 +131,7 @@ class TelegramHelper:
         if telegram.payload is None:
             telegram.payload = []
         if telegram.source_address is None:
-            telegram.source_address = [200, 200]
+            telegram.source_address = list(HA_SOURCE_ADDRESS)
         if telegram.source_device_type is None:
             telegram.source_device_type = DeviceType.PyBusPro
         return telegram
@@ -143,8 +154,7 @@ class TelegramHelper:
         if telegram.source_address is not None:
             sender_subnet_id, sender_device_id = telegram.source_address
         else:
-            sender_subnet_id = 200
-            sender_device_id = 200
+            sender_subnet_id, sender_device_id = HA_SOURCE_ADDRESS
 
         send_buf.append(sender_subnet_id)
         send_buf.append(sender_device_id)
