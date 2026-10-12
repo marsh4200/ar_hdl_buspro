@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png?v=2" width="600" alt="AR HDL BUSPRO: HDL Buspro for Home Assistant" />
+  <img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/hdl_ha_logo_bounce.png" width="600" alt="AR HDL BUSPRO: HDL Buspro for Home Assistant" />
 </p>
 
 <h1 align="center">HDL Buspro &amp; Wireless Buspro for Home Assistant</h1>
