@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import logging
 
-from ..helpers.telegram_helper import TelegramHelper
+from ..helpers.telegram_helper import HA_SOURCE_ADDRESS, TelegramHelper
 from .udp_client import UDPClient
+
+# Same frame from two different IPs within this many seconds = one frame.
+_DUP_WINDOW = 0.5
 
 
 class NetworkInterface:
@@ -38,34 +41,84 @@ class NetworkInterface:
         When the owning Buspro client has resolved the gateway's IP(s), drop
         anything that didn't come from them.
         """
+        if self.callback is None:
+            return
         allowed = getattr(self.buspro, "allowed_source_ips", None)
-        if allowed and address and address[0] not in allowed:
-            # Warn ONCE per foreign source IP, at WARNING, not debug.
-            # A dropped frame here is indistinguishable from a device that
-            # never answered: the entity just sits at its default state. With
-            # only a debug line on a non-default logger, an installation whose
-            # gateway IP changed -- or one with a second gateway relaying part
-            # of the bus -- looks exactly like broken hardware, with nothing
-            # in the log to say otherwise. Once per IP keeps it out of the way
-            # while still being impossible to miss the first time.
-            seen = self.buspro.dropped_source_ips
-            if address[0] not in seen:
-                seen.add(address[0])
+        foreign = bool(allowed and address and address[0] not in allowed)
+
+        # The same bus frame can arrive twice: once from the configured
+        # gateway and once from a second HDL IP device on the same bus (a
+        # wireless mesh gateway, a second IP module). Drop the copy that
+        # comes from a DIFFERENT IP within a short window, so replies and
+        # keypad presses are never handled twice. Repeats from the same IP
+        # (a button pressed twice quickly) are real and kept.
+        if address and len(data) > 16:
+            now = self.buspro.loop.time()
+            recent = self.__dict__.setdefault("_recent_frames", {})
+            if len(recent) > 256:
+                for key in [k for k, v in recent.items() if now - v[0] > _DUP_WINDOW]:
+                    del recent[key]
+            key = bytes(data[16:])
+            seen = recent.get(key)
+            if seen is not None and now - seen[0] < _DUP_WINDOW and seen[1] != address[0]:
+                return
+            recent[key] = (now, address[0])
+
+        telegram = self._th.build_telegram_from_udp_data(data, address)
+        if telegram is None:
+            return
+
+        if foreign and not self._relevant_to_this_entry(telegram):
+            # Not one of our devices and not addressed to Home Assistant:
+            # another installation, or HDL software on a PC. Drop it, and
+            # say so once per IP.
+            dropped = self.buspro.dropped_source_ips
+            if address[0] not in dropped:
+                dropped.add(address[0])
                 self.buspro.logger.warning(
-                    "Ignoring HDL telegrams from %s: it is not this entry's "
-                    "gateway (%s). If devices on this bus are reached through "
-                    "%s, their broadcasts are being discarded -- check the "
-                    "gateway host in the integration options.",
+                    "Ignoring HDL telegrams from %s for devices that are not "
+                    "configured here (gateway is %s). Telegrams from %s for "
+                    "this entry's own devices are still accepted.",
                     address[0],
                     ", ".join(sorted(allowed)) or "unset",
                     address[0],
                 )
             return
-        if self.callback is None:
-            return
-        telegram = self._th.build_telegram_from_udp_data(data, address)
-        if telegram is not None:
-            self.callback(telegram)
+        if foreign:
+            relays = self.__dict__.setdefault("_relay_ips_logged", set())
+            if address[0] not in relays:
+                relays.add(address[0])
+                self.buspro.logger.info(
+                    "Accepting telegrams for this entry's devices relayed via %s "
+                    "(a second HDL IP device on the bus, e.g. a wireless gateway)",
+                    address[0],
+                )
+        self.callback(telegram)
+
+    def _relevant_to_this_entry(self, telegram) -> bool:
+        """Is a telegram from a non-gateway IP one we should still act on?
+
+        Up to 5.0.17 everything from another IP was dropped. On a site whose
+        wireless devices reach the network through their own HDL IP gateway,
+        that silently discarded their replies and button presses - lights
+        changed but Home Assistant never heard about it. Now such a telegram
+        is accepted when it comes FROM a device configured in this entry, or
+        is addressed TO Home Assistant (keypad buttons, LED confirmations,
+        read replies). Phantom devices from other installations still never
+        appear: their sources are not configured here.
+        """
+        target = telegram.target_address
+        if target is not None and tuple(target) == tuple(HA_SOURCE_ADDRESS):
+            return True
+        source = telegram.source_address
+        if source is None:
+            return False
+        source = tuple(source)
+        for cb in getattr(self.buspro, "_telegram_received_cbs", ()):
+            addr = cb.get("device_address")
+            if addr is not None and tuple(addr) == source:
+                return True
+        return False
 
     async def _send_message(self, message) -> None:
         if self.udp_client is not None:

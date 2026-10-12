@@ -6,8 +6,10 @@ Copyright (c) 2026 Marsh - AR Smart Home (arsmarthome.co.za).
 
 Covers: after a restart every channel shows what its module reports, with
 one paced status read per module (not per channel) retried until answered;
-a command to a dead module is reverted and the module's channels go
-unavailable; they come back when it answers.
+an unanswered command keeps the commanded state (a lost reply looks exactly
+like a lost command, so it is never guessed back to the old level); a module
+that answers reads goes unavailable until it answers again; every live module
+is re-read periodically so a missed telegram can't leave the state wrong.
 """
 import asyncio
 import importlib
@@ -134,7 +136,7 @@ async def test_reconnect_rereads_once_per_module():
     assert chans[6].is_on is True
 
 
-async def test_dead_module_reverts_and_goes_unavailable():
+async def test_dead_module_keeps_command_and_goes_unavailable():
     bus = FakeBus(asyncio.get_running_loop())
     sw = switch_mod.Switch(bus, (1, 10), 1)
     sibling = switch_mod.Switch(bus, (1, 10), 2)
@@ -143,7 +145,7 @@ async def test_dead_module_reverts_and_goes_unavailable():
     await sw.set_on()
     assert sw.is_on is True, "optimistic state shows straight away"
     await asyncio.sleep(0.5)  # ack + resend + read + wait
-    assert sw.is_on is False, "unanswered command must be reverted"
+    assert sw.is_on is True, "unconfirmed command must not be guessed back to OFF"
     assert not sw.responsive and not sibling.responsive
 
 
@@ -170,15 +172,20 @@ async def test_live_module_unaffected():
     assert sw.is_on is True and sw.responsive
 
 
-async def test_wireless_panel_reverts_but_stays_available():
+async def test_lost_reply_does_not_show_light_off():
+    """The field bug: light really switched ON, its reply was lost on the
+    wireless mesh, and Home Assistant reverted the entity to OFF."""
     bus = FakeBus(asyncio.get_running_loop(), answers_reads=False)
     sw = switch_mod.Switch(bus, (1, 10), 1)
     await sw.set_off()
     await asyncio.sleep(0.1)
-    bus.online[(1, 10)] = False
+    real_reply = bus.reply
+    bus.reply = lambda *a: None          # module acts, but replies are lost
     await sw.set_on()
     await asyncio.sleep(0.5)
-    assert sw.is_on is False and sw.responsive
+    bus.reply = real_reply
+    assert bus.modules[(1, 10)][0] == 100, "light is really on"
+    assert sw.is_on is True and sw.responsive, "HA must not show it OFF"
 
 
 async def test_silent_panel_is_left_alone_and_harmless():
@@ -204,6 +211,40 @@ async def test_reads_are_sent_from_home_assistants_own_subnet():
     buf = bytes(th_mod.TelegramHelper(bus).build_send_buffer(reader.telegram))
     sender = (buf[17], buf[18])  # after IP(4) + HDLMIRACLE(10) + AAAA + len
     assert sender == (250, 250), f"sender {sender}"
+
+
+async def test_periodic_resync_heals_a_missed_change():
+    old = device_mod._RESYNC_SECONDS
+    device_mod._RESYNC_SECONDS = 0.3
+    try:
+        bus = FakeBus(asyncio.get_running_loop(), n_modules=2)
+        a = switch_mod.Switch(bus, (1, 10), 4)
+        b = switch_mod.Switch(bus, (1, 11), 2)
+        await asyncio.sleep(0.2)
+        assert not a.is_on and not b.is_on
+        # Switched at the wall, but the broadcast never reached HA.
+        bus.modules[(1, 10)][3] = 100
+        bus.modules[(1, 11)][1] = 40
+        await asyncio.sleep(0.6)
+        assert a.is_on and b.is_on, "periodic read must pick up missed changes"
+    finally:
+        device_mod._RESYNC_SECONDS = old
+
+
+async def test_resync_skips_a_module_mid_click():
+    old = device_mod._RESYNC_SECONDS
+    device_mod._RESYNC_SECONDS = 0.3
+    try:
+        bus = FakeBus(asyncio.get_running_loop())
+        sw = switch_mod.Switch(bus, (1, 10), 1)
+        await asyncio.sleep(0.2)
+        sw._awaiting_ack = True          # a command is waiting for its reply
+        sw._inflight = [(bus.loop.time() + 10, 100, 1)]
+        before = bus.reads()
+        await asyncio.sleep(0.5)
+        assert bus.reads() == before, "must not read a module mid-click"
+    finally:
+        device_mod._RESYNC_SECONDS = old
 
 
 async def main():

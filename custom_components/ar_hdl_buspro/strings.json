@@ -208,9 +208,10 @@
       },
       "detect_gateway": {
         "title": "Detect gateway",
-        "description": "Found {count} HDL Buspro gateway(s) on your network. Selecting one updates this entry and reloads the integration.",
+        "description": "Found {count} HDL Buspro gateway(s) on your network. Choose a gateway, then whether to **add it as a new hub** (this hub is left exactly as it is) or **move this hub** to it (replaces this hub's gateway and reloads).",
         "data": {
-          "gateway_choice": "Gateway"
+          "gateway_choice": "Gateway",
+          "gateway_action": "What to do"
         }
       }
     },
@@ -246,7 +247,9 @@
       "device_not_found": "The selected device could not be found.",
       "gateway_unavailable": "The gateway is not connected, so the bus cannot be scanned. Check the connection and try again.",
       "no_devices_found": "No devices responded during the scan. Make sure the gateway IP and local IP are correct and try a longer listen duration.",
-      "no_gateways_found": "No HDL gateways answered the broadcast probe on UDP/6000. Home Assistant may be on a different network segment, or broadcasts are blocked; enter the address via Gateway settings instead."
+      "no_gateways_found": "No HDL gateways answered the broadcast probe on UDP/6000. Home Assistant may be on a different network segment, or broadcasts are blocked; enter the address via Gateway settings instead.",
+      "hub_added": "Gateway {host} is being added as a new hub. It will appear on the integration page in a moment; this hub was not changed.",
+      "gateway_already_added": "Gateway {host} is already added as {hub}. Nothing was changed."
     }
   },
   "selector": {

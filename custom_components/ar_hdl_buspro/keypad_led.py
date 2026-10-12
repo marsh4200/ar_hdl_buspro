@@ -81,6 +81,15 @@ LED_ACK_TIMEOUT = 0.6
 LED_ATTEMPTS = 2
 LED_REPEAT_SECONDS = 1.0
 
+# When a relay/light changes on the BUS (a keypad press, another keypad,
+# logic, a timer), the linked LEDs are set this long after the LAST change,
+# once per delay, each time with the load's live state. Writing at the same
+# instant as the relay's reply loses the race: the pressed keypad is still
+# applying its own LED state for the press and overwrites ours, so the LED
+# could stay on with the light off. Same settle pattern as the HA keypad
+# buttons (KEYPAD_PRESS_LED_DELAYS in switch.py).
+LED_FOLLOW_DELAYS = (0.5, 1.5)
+
 
 def _op_bytes(op) -> bytes | None:
     value = getattr(op, "value", op)
@@ -139,6 +148,10 @@ class KeypadLedSync:
         self._links = parse_keypad_leds(value)
         self._last: bool | None = None
         self._pending: asyncio.TimerHandle | None = None
+        # Last load (relay/light) state seen, and the settle timers that set
+        # the LEDs after a change on the bus (see follow()).
+        self._load: bool | None = None
+        self._follow: list[asyncio.TimerHandle] = []
         # Bumped on every push; an older push still retrying stops as soon
         # as a newer one starts, so a stale state can never be re-sent.
         self._gen = 0
@@ -149,7 +162,7 @@ class KeypadLedSync:
     def active(self) -> bool:
         return bool(self._links)
 
-    async def push(self, on: bool, force: bool = False) -> None:
+    async def push(self, on: bool, force: bool = False, repeat: bool = True) -> None:
         """Set the linked buttons' LEDs to `on`.
 
         Without `force` nothing is sent if the LEDs were already set to this
@@ -177,7 +190,7 @@ class KeypadLedSync:
             *(self._write(link, on, gen) for link in self._links),
             return_exceptions=True,
         )
-        if force and unconfirmed:
+        if force and repeat and unconfirmed:
             # No way to know these arrived, so say it once more after the
             # bus has settled -- unless a newer state has been sent since.
             loop = asyncio.get_running_loop()
@@ -260,7 +273,47 @@ class KeypadLedSync:
 
         def _fire() -> None:
             self._pending = None
-            on = state() if callable(state) else state
+            on = bool(state() if callable(state) else state)
+            self._load = on
             loop.create_task(self.push(on, force=True))
 
         self._pending = loop.call_later(LED_DEBOUNCE_SECONDS, _fire)
+
+    def follow(self, state) -> None:
+        """The load changed on the bus: set the LEDs once it has settled.
+
+        Called on every status update of the relay/light. Nothing is sent if
+        the load is unchanged and the LEDs were already set to it (status
+        reads repeat the same state). Otherwise the LEDs are forced to the
+        load's LIVE state at each LED_FOLLOW_DELAYS mark after the last
+        change, so the final word is always the relay's real state - never
+        the keypad's own LED handling, and never a stale earlier click.
+        """
+        if not self._links:
+            return
+        on = bool(state() if callable(state) else state)
+        if self._pending is not None:
+            self._load = on
+            return  # a Home Assistant command is about to set them anyway
+        if on is self._load and on is self._last and not self._follow:
+            return
+        self._load = on
+        loop = getattr(self._hdl, "loop", None)
+        if loop is None:
+            return
+        for handle in self._follow:
+            handle.cancel()
+        self._follow = []
+        last = len(LED_FOLLOW_DELAYS) - 1
+
+        def _fire(index: int) -> None:
+            if index == last:
+                self._follow = []
+            if self._pending is not None:
+                return  # a Home Assistant command will set them
+            now = bool(state() if callable(state) else state)
+            self._load = now
+            loop.create_task(self.push(now, force=True, repeat=False))
+
+        for index, delay in enumerate(LED_FOLLOW_DELAYS):
+            self._follow.append(loop.call_later(delay, _fire, index))

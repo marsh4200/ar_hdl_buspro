@@ -23,6 +23,7 @@ keypad_led = importlib.import_module("arhdl.keypad_led")
 keypad_led.LED_DEBOUNCE_SECONDS = 0.05
 keypad_led.LED_ACK_TIMEOUT = 0.1
 keypad_led.LED_REPEAT_SECONDS = 0.2
+keypad_led.LED_FOLLOW_DELAYS = (0.1, 0.3)
 OC = enums.OperateCode
 
 
@@ -123,6 +124,75 @@ async def test_newer_state_cancels_old_repeat():
     await sync.push(False, force=True)
     await asyncio.sleep(0.3)
     assert [s for *_, s in bus.sent] == [1, 0, 0], bus.sent
+
+
+async def test_relay_change_beats_keypad_overwrite():
+    """Keypad sets its own (wrong) LED right after the relay reply - the
+    follow-up write after settling must leave the LED matching the relay."""
+    loop = asyncio.get_running_loop()
+    bus = FakeKeypadBus(loop, drop=99)  # non-confirming keypad
+    sync = keypad_led.KeypadLedSync(bus, "2.1:2")
+    relay = {"on": True}
+    sync.follow(lambda: relay["on"])          # startup: relay on
+    await asyncio.sleep(0.4)
+    bus.drop = 0
+    relay["on"] = False                        # light goes off on the bus
+    sync.follow(lambda: relay["on"])
+    await asyncio.sleep(0.03)
+    bus.led[((2, 1), 2)] = 1                   # keypad overwrites: LED stays on
+    await asyncio.sleep(0.4)
+    assert bus.led == {((2, 1), 2): 0}, bus.led
+
+
+async def test_follow_recovers_lost_frame():
+    loop = asyncio.get_running_loop()
+    bus = FakeKeypadBus(loop, drop=1)
+    sync = keypad_led.KeypadLedSync(bus, "2.1:2")
+    sync.follow(lambda: True)
+    await asyncio.sleep(0.4)
+    assert bus.led == {((2, 1), 2): 1}, bus.led
+
+
+async def test_follow_uses_final_state_after_flapping():
+    loop = asyncio.get_running_loop()
+    bus = FakeKeypadBus(loop)
+    sync = keypad_led.KeypadLedSync(bus, "2.1:2")
+    relay = {"on": False}
+    for i in range(5):                         # ON OFF ON OFF ON
+        relay["on"] = i % 2 == 0
+        sync.follow(lambda: relay["on"])
+        await asyncio.sleep(0.02)
+    relay["on"] = False                        # ...and it ends OFF
+    sync.follow(lambda: relay["on"])
+    await asyncio.sleep(0.4)
+    assert bus.led == {((2, 1), 2): 0}, bus.led
+    assert all(s == 0 for *_, s in bus.sent), bus.sent
+
+
+async def test_repeated_status_reads_do_not_spam():
+    loop = asyncio.get_running_loop()
+    bus = FakeKeypadBus(loop)
+    sync = keypad_led.KeypadLedSync(bus, "2.1:2")
+    sync.follow(lambda: True)
+    await asyncio.sleep(0.4)
+    sent = len(bus.sent)
+    for _ in range(5):
+        sync.follow(lambda: True)              # same state again
+    await asyncio.sleep(0.4)
+    assert len(bus.sent) == sent, bus.sent
+
+
+async def test_ha_command_reply_does_not_double_send():
+    loop = asyncio.get_running_loop()
+    bus = FakeKeypadBus(loop)
+    _learned(bus, (2, 1))
+    sync = keypad_led.KeypadLedSync(bus, "2.1:2")
+    sync.push_soon(lambda: True)
+    sync.follow(lambda: True)                  # relay reply while pending
+    await asyncio.sleep(0.15)
+    sync.follow(lambda: True)                  # late duplicate reply
+    await asyncio.sleep(0.4)
+    assert len(bus.sent) == 1, bus.sent
 
 
 async def main():

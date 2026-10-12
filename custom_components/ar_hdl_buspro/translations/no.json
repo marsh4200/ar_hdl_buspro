@@ -170,7 +170,8 @@
         "title": "Finn gateway",
         "description": "Fant {count} HDL Buspro-gateway(er) på nettverket. Velger du en, oppdateres oppføringen og integrasjonen lastes på nytt.",
         "data": {
-          "gateway_choice": "Gateway"
+          "gateway_choice": "Gateway",
+          "gateway_action": "Hva skal gjøres"
         }
       },
       "license_contact": {
@@ -203,7 +204,9 @@
       "device_not_found": "Den valgte enheten ble ikke funnet.",
       "gateway_unavailable": "Gatewayen er ikke tilkoblet, så bussen kan ikke skannes. Sjekk tilkoblingen og prøv igjen.",
       "no_devices_found": "Ingen enheter svarte under skanningen. Kontroller at gateway-IP og lokal IP er riktige, og prøv en lengre lyttevarighet.",
-      "no_gateways_found": "Ingen HDL-gatewayer svarte på broadcast-søket på UDP/6000. Home Assistant kan være på et annet nettverkssegment, eller broadcast er blokkert; skriv inn adressen under Gateway-innstillinger i stedet."
+      "no_gateways_found": "Ingen HDL-gatewayer svarte på broadcast-søket på UDP/6000. Home Assistant kan være på et annet nettverkssegment, eller broadcast er blokkert; skriv inn adressen under Gateway-innstillinger i stedet.",
+      "hub_added": "Gateway {host} legges til som en ny hub. Denne huben ble ikke endret.",
+      "gateway_already_added": "Gateway {host} er allerede lagt til som {hub}. Ingenting ble endret."
     }
   },
   "selector": {
