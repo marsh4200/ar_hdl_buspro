@@ -536,8 +536,12 @@ AR HDL BUSPRO is proprietary, licensed software (see [LICENSE](LICENSE)). It is 
 
 Each Home Assistant install generates its own **Server ID** the first time the integration is set up. It's shown on the Licence step during setup, and any time under **Settings → Devices & Services → AR HDL BUSPRO → Configure → Licence**.
 
-A new install runs for **2 days** with no key so it can be evaluated. After that, entities report unavailable until a licence key is entered. Nothing is deleted: your gateway, devices and scan results stay exactly as they were and come straight back once a valid key is entered.
+**Getting a licence**
 
-To get a key, go to [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za), enter your Server ID, and you'll be sent your licence key. Verification is offline: no internet connection is needed at the client site, either to activate or to keep running.
+1. Open the **Licence** step (shown during setup, or later under **Configure → Licence**). Leave the licence server address as it is and press **Submit**.
+2. Enter your **name** and **email** and press **Request licence**. Nothing is sent until both are filled in.
+3. Your request is sent for approval. Once it's approved, the integration activates by itself, or you can open **Licence** and press **Submit** again to check straight away.
+
+**Alternatively**, request a licence at [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za) with your Server ID. You'll be sent a licence key to paste into the **Licence key** box on the same screen.
 
 <p align="center"><sub>Made in South Africa by <a href="https://arsmarthome.co.za">AR Smart Home</a> · Screenshots are illustrations built from the integration's own wording; your Home Assistant theme may look slightly different.</sub></p>
