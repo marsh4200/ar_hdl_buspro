@@ -15,6 +15,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_IMPORT,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -724,6 +725,18 @@ def _validate_gateway_inputs(host: str, port: int) -> str | None:
 CHOICE_MANUAL = "manual"
 CHOICE_RESCAN = "rescan"
 CONF_GATEWAY_CHOICE = "gateway_choice"
+CONF_GATEWAY_ACTION = "gateway_action"
+ACTION_ADD_HUB = "add_hub"
+ACTION_MOVE_HUB = "move_hub"
+
+
+def _configured_gateways(hass) -> dict[str, str]:
+    """Gateway host -> entry title, for every AR HDL hub already added."""
+    return {
+        entry.data.get(CONF_GATEWAY_HOST): entry.title
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.data.get(CONF_GATEWAY_HOST)
+    }
 GATEWAY_DISCOVERY_TIMEOUT = 3.0
 
 
@@ -1081,10 +1094,19 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
             # blocked broadcasts, ...) -- fall back to manual entry.
             return await self.async_step_manual()
 
+        # Gateways that already have a hub are labelled, and the default
+        # selection is the first one that does NOT - picking an added one
+        # only ends in "already configured".
+        added = _configured_gateways(self.hass)
         options = [
-            selector.SelectOptionDict(value=gw.ip, label=gw.label)
+            selector.SelectOptionDict(
+                value=gw.ip,
+                label=gw.label + ("  (already added)" if gw.ip in added else ""),
+            )
             for gw in self._discovered_gateways
         ]
+        new_gateways = [gw.ip for gw in self._discovered_gateways if gw.ip not in added]
+        default_choice = new_gateways[0] if new_gateways else CHOICE_MANUAL
         options.append(
             selector.SelectOptionDict(value=CHOICE_RESCAN, label="Scan again")
         )
@@ -1099,7 +1121,7 @@ class ARHDLConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(
                         CONF_GATEWAY_CHOICE,
-                        default=self._discovered_gateways[0].ip,
+                        default=default_choice,
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options,
@@ -1575,6 +1597,38 @@ class ARHDLOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             host = user_input[CONF_GATEWAY_CHOICE]
+            action = user_input.get(CONF_GATEWAY_ACTION, ACTION_ADD_HUB)
+            added = _configured_gateways(self.hass)
+            if action == ACTION_ADD_HUB:
+                # Up to 5.0.18 picking a gateway here always REPLACED this
+                # hub's gateway, so "adding" a second hub overwrote the first.
+                # Adding now creates a separate hub entry and leaves this one
+                # exactly as it is.
+                if host in added:
+                    return self.async_abort(
+                        reason="gateway_already_added",
+                        description_placeholders={"host": host, "hub": added[host]},
+                    )
+                self.hass.async_create_task(
+                    self.hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": SOURCE_IMPORT},
+                        data={
+                            CONF_GATEWAY_HOST: host,
+                            CONF_GATEWAY_PORT: DEFAULT_PORT,
+                            CONF_LOCAL_IP: self._entry.data.get(CONF_LOCAL_IP, ""),
+                        },
+                    )
+                )
+                return self.async_abort(
+                    reason="hub_added", description_placeholders={"host": host}
+                )
+            # Move: only on purpose, and never onto a gateway another hub has.
+            if host in added and host != self._entry.data.get(CONF_GATEWAY_HOST):
+                return self.async_abort(
+                    reason="gateway_already_added",
+                    description_placeholders={"host": host, "hub": added[host]},
+                )
             self.hass.config_entries.async_update_entry(
                 self._entry,
                 data={
@@ -1601,25 +1655,50 @@ class ARHDLOptionsFlow(OptionsFlow):
             return self.async_abort(reason="no_gateways_found")
 
         current = self._entry.data.get(CONF_GATEWAY_HOST)
+        added = _configured_gateways(self.hass)
+
+        def _tag(ip: str) -> str:
+            if ip == current:
+                return "  ✓ this hub"
+            if ip in added:
+                return f"  (already added: {added[ip]})"
+            return ""
+
         options = [
-            selector.SelectOptionDict(
-                value=gw.ip,
-                label=gw.label + ("  ✓ current" if gw.ip == current else ""),
-            )
+            selector.SelectOptionDict(value=gw.ip, label=gw.label + _tag(gw.ip))
             for gw in gateways
         ]
+        new_gateways = [gw.ip for gw in gateways if gw.ip not in added]
+        default_choice = new_gateways[0] if new_gateways else gateways[0].ip
         return self.async_show_form(
             step_id="detect_gateway",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_GATEWAY_CHOICE, default=gateways[0].ip
+                        CONF_GATEWAY_CHOICE, default=default_choice
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options,
                             mode=selector.SelectSelectorMode.LIST,
                         )
-                    )
+                    ),
+                    vol.Required(
+                        CONF_GATEWAY_ACTION, default=ACTION_ADD_HUB
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=ACTION_ADD_HUB,
+                                    label="Add it as a new hub (keep this one)",
+                                ),
+                                selector.SelectOptionDict(
+                                    value=ACTION_MOVE_HUB,
+                                    label="Move THIS hub to it (replaces the current gateway)",
+                                ),
+                            ],
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
                 }
             ),
             errors=errors,
