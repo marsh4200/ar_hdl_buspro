@@ -544,4 +544,3 @@ Each Home Assistant install generates its own **Server ID** the first time the i
 
 **Alternatively**, request a licence at [activatelicense.arsmarthome.co.za](https://activatelicense.arsmarthome.co.za) with your Server ID. You'll be sent a licence key to paste into the **Licence key** box on the same screen.
 
-<p align="center"><sub>Made in South Africa by <a href="https://arsmarthome.co.za">AR Smart Home</a> · Screenshots are illustrations built from the integration's own wording; your Home Assistant theme may look slightly different.</sub></p>
