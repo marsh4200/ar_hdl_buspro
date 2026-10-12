@@ -108,8 +108,8 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
             self.async_write_ha_state()
             # The relay changed on the bus (another keypad, logic, a status
             # read): bring linked keypad LEDs along. Only sends on a change.
-            if self._led_sync.active:
-                await self._led_sync.push(self.is_on)
+            # Set once the keypad has settled, with the live state.
+            self._led_sync.follow(lambda: self.is_on)
 
         self._switch.register_device_updated_cb(_after_update)
 

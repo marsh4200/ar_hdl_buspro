@@ -121,8 +121,8 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
         async def _after_update(_device) -> None:
             self.async_write_ha_state()
             # The channel changed on the bus: bring linked keypad LEDs along.
-            if self._led_sync.active:
-                await self._led_sync.push(self.is_on)
+            # Set once the keypad has settled, with the live state.
+            self._led_sync.follow(lambda: self.is_on)
 
         self._light.register_device_updated_cb(_after_update)
 
