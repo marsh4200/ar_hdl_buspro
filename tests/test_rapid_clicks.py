@@ -101,6 +101,21 @@ async def test_stale_replies_do_not_flip_state():
     assert n_cmds == 5, f"expected 5 commands, sent {n_cmds}"
 
 
+async def test_off_then_on_is_sent_immediately():
+    """OFF then straight back ON must not wait for the OFF reply (HDL Studio
+    sends every click at once; holding it caused a visible delay)."""
+    loop = asyncio.get_running_loop()
+    bus = FakeBus(loop, latency=0.8)
+    sw = _make(switch_mod.Switch, bus, 6)
+    await sw.set_off()
+    await asyncio.sleep(0.05)
+    await sw.set_on()
+    cmds = [p for op, p in bus.sent if op == OC.SingleChannelControl]
+    assert [c[1] for c in cmds] == [0, 100], f"ON was held back: {cmds}"
+    await asyncio.sleep(1.2)
+    assert sw.is_on, "stale OFF reply must not win over the newer ON"
+
+
 async def test_slow_bus_does_not_double_traffic():
     loop = asyncio.get_running_loop()
     bus = FakeBus(loop, latency=1.0)  # slower than the old 0.8 s timeout

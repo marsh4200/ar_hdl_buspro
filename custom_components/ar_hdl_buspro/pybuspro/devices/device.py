@@ -73,11 +73,69 @@ def _request_module_read(buspro, address, slow: bool = False) -> None:
     module = _module_state(buspro, address)
     module["needs_read"] = True
     module["attempts"] = _SYNC_FAST_ROUNDS if slow else 0
+    _ensure_sync_running(buspro)
+    _ensure_resync_running(buspro)
+
+
+def _ensure_sync_running(buspro) -> None:
     task = buspro.__dict__.get("_module_sync_task")
     if task is None or task.done():
         buspro._module_sync_task = asyncio.ensure_future(
             _module_sync(buspro), loop=buspro.loop
         )
+
+
+# ----- periodic re-sync -----------------------------------------------------
+# UDP frames do get lost (busy bus, wireless mesh, a keypad press broadcast
+# that never reached the gateway). Without a periodic read, one lost telegram
+# left Home Assistant showing the wrong state until someone operated that
+# light again. Every module that answers status reads is now re-read once per
+# _RESYNC_SECONDS, one paced frame per MODULE (not per channel), and skipped
+# while a command to it is still in flight so the read can't race the click.
+_RESYNC_SECONDS = 60
+
+
+def _module_busy(buspro, module) -> bool:
+    now = buspro.loop.time()
+    for dev in module["devices"]:
+        if getattr(dev, "_awaiting_ack", False):
+            return True
+        for sent_at, *_ in getattr(dev, "_inflight", ()):
+            if now - sent_at < Device._INFLIGHT_WINDOW:
+                return True
+    return False
+
+
+def _ensure_resync_running(buspro) -> None:
+    task = buspro.__dict__.get("_module_resync_task")
+    if task is None or task.done():
+        buspro._module_resync_task = asyncio.ensure_future(
+            _module_resync(buspro), loop=buspro.loop
+        )
+
+
+async def _module_resync(buspro) -> None:
+    """Re-read every live module once per _RESYNC_SECONDS."""
+    while True:
+        await asyncio.sleep(_RESYNC_SECONDS)
+        if buspro.network_interface is None:
+            return  # bus stopped (unload/reconnect); restarted with the next read
+        modules = buspro.__dict__.get("_module_states", {})
+        queued = False
+        for module in modules.values():
+            if (
+                not module["answers_reads"]
+                or module["offline"]
+                or module["needs_read"]
+                or _module_busy(buspro, module)
+            ):
+                continue  # never answers / already being re-asked / mid-click
+            module["needs_read"] = True
+            # A missed poll gets a few quick retries, then the slow cadence.
+            module["attempts"] = max(0, _SYNC_FAST_ROUNDS - 3)
+            queued = True
+        if queued:
+            _ensure_sync_running(buspro)
 
 
 async def _module_sync(buspro) -> None:
@@ -92,6 +150,8 @@ async def _module_sync(buspro) -> None:
             module = modules[address]
             if not module["needs_read"]:
                 continue  # answered while this round was going
+            if module["answers_reads"] and _module_busy(buspro, module):
+                continue  # a click is in flight; read it next round instead
             module["attempts"] += 1
             reader = _ReadStatusOfChannels(buspro)
             reader.subnet_id, reader.device_id = address
@@ -354,23 +414,22 @@ class Device:
         self._awaiting_ack = False
         return not self._send_deferred(level)
 
-    # ----- one command per channel on the bus ------------------------------
-    # Every click used to go straight onto the bus. Each one costs several
-    # frames (command, the module's reply, keypad LED write and its reply),
-    # so clicking on/off quickly on a slow bus - above all the wireless mesh -
-    # built a queue; replies then came back seconds late, were taken as new
-    # changes, and the switch flipped about until the backlog drained. Now a
-    # channel has at most one command waiting for its reply: a click made
-    # meanwhile is shown at once but held, and only the LATEST one is sent
-    # when the reply arrives (or the wait times out).
+    # ----- every click goes straight onto the bus ---------------------------
+    # 5.0.15 and earlier held a click while the previous command on the same
+    # channel was still waiting for its reply, and only sent it when that
+    # reply arrived - or after the full 1.5 s ack timeout if it was late or
+    # lost. That is the "OFF then straight back ON takes a moment" delay.
+    # HDL's own software (Buspro Studio, HDLUDP.AddBufToSndList with
+    # isReSend=false for SingleChannelControl 0x0031) never waits: each
+    # click is one UDP frame, sent immediately, and the module simply acts
+    # on the latest command. We do the same now. Late replies to earlier
+    # clicks are still filtered by _accept_reply, so the entity does not
+    # flip back to an old state while they trickle in.
 
     def _defer_if_busy(self, level, running_time) -> bool:
-        """Hold this command if one is still waiting for its reply."""
-        if not getattr(self, "_awaiting_ack", False):
-            return False
-        self._deferred = (level, running_time)
-        _bump(self._buspro, "clicks_held")
-        return True
+        """Never hold a command (kept so callers don't need changing)."""
+        self._deferred = None
+        return False
 
     def _send_deferred(self, confirmed_level=None) -> bool:
         """Send the held command, if any. True if one was sent."""
@@ -438,10 +497,16 @@ class Device:
             _bump(self._buspro, "unanswered_after_resend")
             self._call_read_current_status_of_channels()
 
-            # If the module stays silent through that read too, the command
-            # never happened: put the entity back to what the bus last
-            # confirmed instead of leaving the optimistic state up forever,
-            # and mark the module unresponsive until it answers again.
+            # If the module stays silent through that read too, we do NOT know
+            # whether the command happened: a lost REPLY looks exactly like a
+            # lost command. Up to 5.0.16 the entity was put back to the old
+            # level here - so a light that really did switch on (reply lost
+            # on the wireless mesh) showed OFF in Home Assistant, and on a
+            # module that never answers reads nothing ever corrected it.
+            # HDL's own tools never guess like this; they show what the module
+            # reports. So: keep the commanded state, and keep asking the
+            # module (a module that answers reads goes unavailable until it
+            # does, then shows its real state).
             await asyncio.sleep(self._ACK_TIMEOUT)
             if getattr(self, "_cmd_seq", 0) != seq:
                 return  # clicked again meanwhile; that click has its own watch
@@ -451,13 +516,12 @@ class Device:
             last = module["last_heard"]
             if last is not None and last >= sent_at:
                 return  # it answered something; its real state was applied
-            _bump(self._buspro, "reverted_unanswered")
+            _bump(self._buspro, "unconfirmed_kept")
             self._buspro.logger.debug(
-                "No answer from %s; reverting channel state", self._device_address
+                "No answer from %s; keeping commanded state and re-reading",
+                self._device_address,
             )
-            self._revert_to_confirmed()
             self._module_went_quiet()
-            self._call_device_updated()
 
         asyncio.ensure_future(_watch(), loop=self._buspro.loop)
 
