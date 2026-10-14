@@ -118,6 +118,14 @@
           "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
         }
       },
+      "scan_climate_limits": {
+        "title": "Temperature range: {device_name}",
+        "description": "New climate entity {device_name} ({address}) — {remaining} left to set. Enter the lowest and highest temperature this unit allows, so the dial in Home Assistant matches it. Leave both at 0 to keep the default range (7–35 °C, or 16–30 °C for touch-panel AC). You can change this later under Edit a device.",
+        "data": {
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
+        }
+      },
       "add_device": {
         "title": "Add a device",
         "description": "Choose what kind of device to add.",
@@ -158,7 +166,9 @@
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
-          "keypad_leds": "Keypad LED buttons"
+          "keypad_leds": "Keypad LED buttons",
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
@@ -204,7 +214,9 @@
           "close_channel": "Close relay channel (relay pair mode)",
           "travel_time": "Full travel time in seconds (relay pair mode)",
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
-          "keypad_leds": "Keypad LED buttons"
+          "keypad_leds": "Keypad LED buttons",
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
