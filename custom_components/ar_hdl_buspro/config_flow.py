@@ -39,6 +39,8 @@ from .const import (
     CLIMATE_KINDS,
     CLIMATE_PRESETS,
     CONF_AC_HVAC_MODES,
+    CONF_MAX_TEMP,
+    CONF_MIN_TEMP,
     CONF_BINARY_KIND,
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
@@ -578,6 +580,22 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
                     translation_key="ac_hvac_mode",
                 )
             ),
+            # Any climate kind: setpoint limits for the HA dial (issue #48).
+            # 0 = keep the built-in default range.
+            vol.Optional(
+                CONF_MIN_TEMP, default=defaults.get(CONF_MIN_TEMP, 0)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=50, step=1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional(
+                CONF_MAX_TEMP, default=defaults.get(CONF_MAX_TEMP, 0)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=50, step=1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
             # DLP panel only (climate_kind = dlp). Ignored for an AC via an
             # IR module -- preset selection isn't meaningful there (see
             # AirConditioner's docstring in pybuspro/devices/climate.py).
@@ -655,6 +673,8 @@ def _normalize_device_input(
         CONF_RELAY_DEVICE,
         CONF_RELAY_CHANNEL,
         CONF_HVAC_NUMBER,
+        CONF_MIN_TEMP,
+        CONF_MAX_TEMP,
     )
     for field in int_fields:
         if field in out and out[field] is not None and out[field] != "":
@@ -1335,6 +1355,10 @@ class ARHDLOptionsFlow(OptionsFlow):
         self._scan_started: float = 0.0
         self._scan_duration: int = DEFAULT_SCAN_DURATION
         self._scan_error: str | None = None
+        # Scan import: new climate entries waiting for their setpoint
+        # limits (issue #48), and the options to save once they're done.
+        self._climate_limit_queue: list[dict[str, Any]] = []
+        self._pending_scan_options: dict[str, Any] | None = None
 
     # ----- helpers ---------------------------------------------------------
     @property
@@ -2079,6 +2103,9 @@ class ARHDLOptionsFlow(OptionsFlow):
                 )
                 for d in devices
             }
+            # Remember which entries already existed so the climate-limits
+            # step below only asks about the ones this import adds.
+            before_import = {id(d) for d in devices}
             added = 0
             skipped_keypads = 0
             for key in sorted(chosen_keys):
@@ -2163,14 +2190,24 @@ class ARHDLOptionsFlow(OptionsFlow):
                     skipped_keypads,
                 )
             _LOGGER.info("AR HDL BUSPRO import: added %d new device entr(y/ies)", added)
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self._entry.options,
-                    CONF_DEVICES: devices,
-                    CONF_DIMMER_CODES: sorted(dimmer_codes),
-                },
-            )
+            pending = {
+                **self._entry.options,
+                CONF_DEVICES: devices,
+                CONF_DIMMER_CODES: sorted(dimmer_codes),
+            }
+            new_climate = [
+                d
+                for d in devices
+                if id(d) not in before_import
+                and d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_CLIMATE
+            ]
+            if new_climate:
+                # One extra screen per new AC / heating entity to set its
+                # min/max setpoint. Leaving 0 keeps the default range.
+                self._climate_limit_queue = new_climate
+                self._pending_scan_options = pending
+                return await self.async_step_scan_climate_limits()
+            return self.async_create_entry(title="", data=pending)
 
         new_count = sum(
             1
@@ -2202,6 +2239,56 @@ class ARHDLOptionsFlow(OptionsFlow):
             description_placeholders={
                 "found": str(len(results)),
                 "new": str(new_count),
+            },
+        )
+
+    async def async_step_scan_climate_limits(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask min/max setpoint for each climate entity a scan just added.
+
+        Nothing is saved until the last one is answered; the whole import
+        (all devices, not only climate) is then saved in one go, exactly as
+        before this step existed.
+        """
+        queue = self._climate_limit_queue
+        if user_input is not None and queue:
+            device = queue.pop(0)
+            for key in (CONF_MIN_TEMP, CONF_MAX_TEMP):
+                try:
+                    value = int(user_input.get(key) or 0)
+                except (TypeError, ValueError):
+                    value = 0
+                if value > 0:
+                    device[key] = value
+        if not queue:
+            data = self._pending_scan_options or dict(self._entry.options)
+            self._pending_scan_options = None
+            return self.async_create_entry(title="", data=data)
+
+        device = queue[0]
+        return self.async_show_form(
+            step_id="scan_climate_limits",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_MIN_TEMP, default=0): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=50, step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(CONF_MAX_TEMP, default=0): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=50, step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={
+                "device_name": str(device.get(CONF_NAME, "?")),
+                "address": f"{device.get(CONF_SUBNET_ID, '?')}.{device.get(CONF_DEVICE_ID, '?')}",
+                "remaining": str(len(queue)),
             },
         )
 

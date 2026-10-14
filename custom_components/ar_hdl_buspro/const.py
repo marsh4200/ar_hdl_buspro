@@ -144,6 +144,12 @@ CONF_HVAC_NUMBER: Final = "hvac_number"
 CONF_AC_HVAC_MODES: Final = "ac_hvac_modes"
 AC_HVAC_MODES: Final = ["cool", "heat", "fan_only", "auto", "dry"]
 
+# Per-device setpoint limits for any climate kind (GitHub issue #48), so
+# the HA dial matches the unit's real range (e.g. 20-28). 0 = keep the
+# entity's built-in default range.
+CONF_MIN_TEMP: Final = "min_temp"
+CONF_MAX_TEMP: Final = "max_temp"
+
 # Device types (used to discriminate entries in the device list)
 DEVICE_TYPE_LIGHT: Final = "light"
 DEVICE_TYPE_SWITCH: Final = "switch"

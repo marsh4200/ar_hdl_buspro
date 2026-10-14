@@ -35,6 +35,8 @@ from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
+    CONF_MAX_TEMP,
+    CONF_MIN_TEMP,
     CONF_HVAC_NUMBER,
     CONF_NAME,
     CONF_PRESET_MODES,
@@ -88,6 +90,26 @@ AC_MODE_TO_HVAC_ACTION = {
     "dry": HVACAction.DRYING,
     "auto": HVACAction.IDLE,
 }
+
+
+def _apply_temp_limits(entity: ClimateEntity, device_cfg: dict[str, Any]) -> None:
+    """Narrow the setpoint range to the user's min/max (issue #48).
+
+    0 or unset keeps the class default; a pair where min >= max is
+    ignored so a typo can't leave the dial unusable.
+    """
+    lo = int(device_cfg.get(CONF_MIN_TEMP, 0) or 0)
+    hi = int(device_cfg.get(CONF_MAX_TEMP, 0) or 0)
+    new_lo = lo if lo > 0 else entity.min_temp
+    new_hi = hi if hi > 0 else entity.max_temp
+    if new_lo >= new_hi:
+        _LOGGER.warning(
+            "%s: ignoring setpoint limits min=%s max=%s (min must be below max)",
+            device_cfg.get(CONF_NAME, "climate"), lo, hi,
+        )
+        return
+    entity._attr_min_temp = new_lo
+    entity._attr_max_temp = new_hi
 
 
 async def async_setup_entry(
@@ -154,6 +176,7 @@ class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
                 channel_number=relay_channel,
             )
 
+        _apply_temp_limits(self, device_cfg)
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
         self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_name = None
@@ -326,6 +349,7 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
             if m in AC_MODE_TO_HA_HVAC_MODE
         ]
 
+        _apply_temp_limits(self, device_cfg)
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
         self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_name = None
@@ -471,6 +495,7 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
             AC_MODE_TO_HA_HVAC_MODE[m] for m in modes
         ]
 
+        _apply_temp_limits(self, device_cfg)
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
         self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_name = None

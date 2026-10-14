@@ -117,6 +117,14 @@
           "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
         }
       },
+      "scan_climate_limits": {
+        "title": "Temperature range: {device_name}",
+        "description": "New climate entity {device_name} ({address}) — {remaining} left to set. Enter the lowest and highest temperature this unit allows, so the dial in Home Assistant matches it. Leave both at 0 to keep the default range (7–35 °C, or 16–30 °C for touch-panel AC). You can change this later under Edit a device.",
+        "data": {
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
+        }
+      },
       "add_device": {
         "title": "Add a device",
         "description": "Choose what kind of device to add.",
@@ -155,7 +163,9 @@
           "curtain_number": "Curtain number (curtain module mode)",
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
-          "travel_time": "Full travel time in seconds (relay pair mode)"
+          "travel_time": "Full travel time in seconds (relay pair mode)",
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
         }
       },
       "edit_device": {
@@ -196,7 +206,9 @@
           "curtain_number": "Curtain number (curtain module mode)",
           "open_channel": "Open relay channel (relay pair mode)",
           "close_channel": "Close relay channel (relay pair mode)",
-          "travel_time": "Full travel time in seconds (relay pair mode)"
+          "travel_time": "Full travel time in seconds (relay pair mode)",
+          "min_temp": "Minimum setpoint °C (0 = default)",
+          "max_temp": "Maximum setpoint °C (0 = default)"
         }
       },
       "remove_device": {
