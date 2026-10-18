@@ -158,6 +158,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Could not connect to AR HDL BUSPRO gateway at {host}:{port}"
         )
 
+    # The socket opening proves nothing (UDP has no connection). Ask a few
+    # configured devices who they are and require an answer through this
+    # gateway, so a gateway that is down fails to load - Home Assistant then
+    # retries on its own and loads it the moment it answers - instead of
+    # loading with entities that accept presses that go nowhere.
+    probe_targets = []
+    for dev in entry.options.get(CONF_DEVICES) or []:
+        try:
+            addr = (int(dev[CONF_SUBNET_ID]), int(dev[CONF_DEVICE_ID]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if addr not in probe_targets:
+            probe_targets.append(addr)
+    if not await gateway.async_verify_reachable(probe_targets):
+        await gateway.async_disconnect()
+        raise ConfigEntryNotReady(
+            f"AR HDL BUSPRO gateway at {host}:{port} is not answering"
+        )
+
     # Stop cleanly on HA shutdown. NOTE: this must be an async handler that
     # awaits the disconnect -- a plain lambda returning the coroutine would
     # never be awaited, so the socket would never actually close.

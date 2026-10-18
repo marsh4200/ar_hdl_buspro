@@ -79,7 +79,7 @@ class ARHDLGateway:
         # its entities kept accepting presses that went nowhere.
         self._link_up = False
         self.liveness = GatewayLiveness(self.hdl, self._handle_reachability)
-        self.hdl.on_gateway_frame = self.liveness.frame_received
+        self.hdl.liveness = self.liveness
         # Home Assistant's own bus address, answering keypad buttons that
         # send a universal switch to it (see virtual_device.py).
         self.virtual = VirtualKeypadResponder(
@@ -201,6 +201,19 @@ class ARHDLGateway:
             "Connected to AR HDL BUSPRO gateway at %s:%s", self.host, self.port
         )
         return True
+
+    async def async_verify_reachable(self, targets, timeout: float = 8.0) -> bool:
+        """Ask the gateway something and wait for any answer (setup check)."""
+        ok = await self.liveness.async_wait_for_answer(targets, timeout)
+        if not ok:
+            _LOGGER.warning(
+                "AR HDL BUSPRO gateway %s:%s did not answer within %.0f s; "
+                "setup will be retried",
+                self.host,
+                self.port,
+                timeout,
+            )
+        return ok
 
     async def async_disconnect(self) -> None:
         """Disconnect cleanly and cancel reconnect."""

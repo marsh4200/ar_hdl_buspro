@@ -54,10 +54,10 @@ class Buspro:
         # Optional hook fired when the UDP transport is lost unexpectedly
         # (not on a clean stop()). Set by the integration's gateway wrapper.
         self.on_connection_lost = None
-        # Optional hook fired for every valid frame from the gateway's own IP
-        # (proof the gateway is alive - UDP alone can't tell). Set by the
-        # integration's gateway wrapper; see transport/liveness.py.
-        self.on_gateway_frame = None
+        # Gateway liveness watchdog (transport/liveness.py), set by the
+        # integration's gateway wrapper. UDP alone can't tell whether the
+        # gateway is there; frames from its IP can.
+        self.liveness = None
 
         # Source-IP allowlist for incoming UDP frames. When non-empty, the
         # network interface drops datagrams from any other IP, so telegrams
