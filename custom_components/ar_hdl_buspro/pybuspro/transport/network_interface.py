@@ -68,6 +68,17 @@ class NetworkInterface:
         if telegram is None:
             return
 
+        # Proof of life for the gateway (see liveness.py). Only frames from
+        # the gateway's own IP count: a second HDL IP device relaying traffic
+        # says nothing about whether commands sent to THIS gateway arrive.
+        if not foreign:
+            on_frame = getattr(self.buspro, "on_gateway_frame", None)
+            if on_frame is not None:
+                try:
+                    on_frame(telegram)
+                except Exception as err:  # noqa: BLE001
+                    self.buspro.logger.debug("on_gateway_frame error: %s", err)
+
         if foreign and not self._relevant_to_this_entry(telegram):
             # Not one of our devices and not addressed to Home Assistant:
             # another installation, or HDL software on a PC. Drop it, and
