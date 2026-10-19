@@ -43,6 +43,12 @@ def dispatch_frame(source_ip: str | None, telegram, receiving_buspro) -> None:
     # crediting whatever arrives on this entry's own socket.
     own = getattr(receiving_buspro, "liveness", None)
     if own is not None and not own._ips:
+        if not own._fallback_logged:
+            own._fallback_logged = True
+            receiving_buspro.logger.warning(
+                "HDL gateway host could not be resolved; ANY HDL frame "
+                "received will count as this gateway being alive"
+            )
         own.frame_received(telegram)
 
 
@@ -85,6 +91,10 @@ class GatewayLiveness:
         # Devices heard replying through this gateway: best probe targets.
         self._heard: dict[tuple, float] = {}
         self._ips: set[str] = set()
+        self._fallback_logged = False
+        self._last_frame: str | None = None  # what last proved it alive
+        # Outcome of the setup check, for the log and diagnostics.
+        self.setup_check: dict = {"result": "not run"}
 
     # ----- lifecycle --------------------------------------------------------
 
@@ -116,19 +126,32 @@ class GatewayLiveness:
 
     def frame_received(self, telegram) -> None:
         """A valid frame arrived from the gateway's IP (event loop)."""
+        source = getattr(telegram, "source_address", None)
+        if source is not None and tuple(source) == tuple(HA_SOURCE_ADDRESS):
+            # Home Assistant's OWN frame reflected back by the gateway. That
+            # can happen with the gateway powered but its bus side dead, so
+            # it proves nothing about the devices behind it.
+            return
+        op = getattr(telegram, "operate_code", None)
+        op = getattr(op, "value", op)
+        try:
+            op_txt = "0x" + bytes(op).hex().upper()
+        except (TypeError, ValueError):
+            op_txt = str(op)
+        self._last_frame = (
+            f"{source[0]}.{source[1]} {op_txt}" if source is not None else op_txt
+        )
         now = self._buspro.loop.time()
         self._last_rx = now
         self._quiet_since = now
         self._probe_at = None
         self._failures = 0
-        source = getattr(telegram, "source_address", None)
         if source is not None:
             source = tuple(source)
-            if source != tuple(HA_SOURCE_ADDRESS):
-                self._heard[source] = now
-                if len(self._heard) > 64:
-                    oldest = min(self._heard, key=self._heard.get)
-                    del self._heard[oldest]
+            self._heard[source] = now
+            if len(self._heard) > 64:
+                oldest = min(self._heard, key=self._heard.get)
+                del self._heard[oldest]
         if not self.reachable:
             self.reachable = True
             self._buspro.logger.info("HDL gateway is answering again")
@@ -243,16 +266,27 @@ class GatewayLiveness:
         Used at setup, so a gateway that is down makes the config entry fail
         to load ("retrying") instead of loading with operable entities.
         True when unlicensed: nothing is sent then, so silence proves nothing.
+        The outcome (and what answered) is kept in `setup_check`.
         """
         if not self._send_permitted():
+            self.setup_check = {
+                "result": "skipped - not licensed, so nothing can be sent",
+            }
             return True
         loop = self._buspro.loop
         asked_at = loop.time()
+        probed = [f"{t[0]}.{t[1]}" for t in (list(targets)[: self.PROBE_TARGETS + 1] or [(255, 255)])]
         resend_at = asked_at + timeout / 2
         await self._send_probes(list(targets)[: self.PROBE_TARGETS + 1] or [(255, 255)])
         resent = False
         while loop.time() - asked_at < timeout:
             if self._last_rx is not None and self._last_rx >= asked_at:
+                self.setup_check = {
+                    "result": "answered",
+                    "answered_by": self._last_frame,
+                    "after_ms": int((self._last_rx - asked_at) * 1000),
+                    "probed": probed,
+                }
                 return True
             if not resent and loop.time() >= resend_at:
                 resent = True  # one lost UDP frame must not fail the setup
@@ -260,7 +294,13 @@ class GatewayLiveness:
                     list(targets)[: self.PROBE_TARGETS + 1] or [(255, 255)]
                 )
             await asyncio.sleep(0.1)
-        return self._last_rx is not None and self._last_rx >= asked_at
+        ok = self._last_rx is not None and self._last_rx >= asked_at
+        self.setup_check = {
+            "result": "answered" if ok else "no answer",
+            "answered_by": self._last_frame if ok else None,
+            "probed": probed,
+        }
+        return ok
 
     def diagnostics(self) -> dict:
         now = self._buspro.loop.time()
@@ -271,4 +311,6 @@ class GatewayLiveness:
             ),
             "unanswered_probes": self._failures,
             "probe_pending": self._probe_at is not None,
+            "last_frame": self._last_frame,
+            "setup_check": self.setup_check,
         }

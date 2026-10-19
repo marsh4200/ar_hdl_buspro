@@ -49,6 +49,12 @@ class FakeNI:
 
     async def send_telegram(self, telegram):
         self.bus.sent.append(telegram)
+        if self.bus.echo_only:
+            # Gateway powered, bus side dead: only our own frame comes back.
+            echo = tg_mod.Telegram()
+            echo.source_address = (250, 250)
+            self.bus.loop.call_later(0.01, self.bus.live.frame_received, echo)
+            return
         if self.bus.gateway_up and self.bus.answer_probes:
             if self.bus.drop_next_replies:
                 self.bus.drop_next_replies -= 1
@@ -67,6 +73,7 @@ class FakeBus:
         self.gateway_up = True
         self.answer_probes = True
         self.drop_next_replies = 0
+        self.echo_only = False
         self.sent = []
         self._telegram_received_cbs = [
             {"device_address": (1, 20)}, {"device_address": (1, 21)},
@@ -214,6 +221,16 @@ async def test_setup_check():
     bus.drop_next_replies = 1
     assert await bus.live.async_wait_for_answer([(1, 20)], 0.4) is True
     print("ok  one lost reply at setup is retried, not a failure")
+
+    bus.echo_only = True
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is False
+    assert bus.live.setup_check["result"] == "no answer"
+    print("ok  our own frame reflected back by the gateway is not an answer")
+    bus.echo_only = False
+
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is True
+    assert bus.live.setup_check["answered_by"].startswith("1.20 "), bus.live.setup_check
+    print("ok  setup check records what answered:", bus.live.setup_check["answered_by"])
 
     bus.licensed = False
     bus.gateway_up = False

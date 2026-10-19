@@ -239,6 +239,23 @@ class ARHDLGateway:
     async def async_verify_reachable(self, targets, timeout: float = 8.0) -> bool:
         """Ask the gateway something and wait for any answer (setup check)."""
         ok = await self.liveness.async_wait_for_answer(targets, timeout)
+        check = self.liveness.setup_check
+        if ok and check.get("result") == "answered":
+            _LOGGER.info(
+                "AR HDL BUSPRO gateway %s:%s answered the setup check "
+                "(%s after %s ms)",
+                self.host,
+                self.port,
+                check.get("answered_by"),
+                check.get("after_ms"),
+            )
+        elif ok:
+            _LOGGER.warning(
+                "AR HDL BUSPRO gateway %s:%s setup check %s",
+                self.host,
+                self.port,
+                check.get("result"),
+            )
         if not ok:
             _LOGGER.warning(
                 "AR HDL BUSPRO gateway %s:%s did not answer within %.0f s; "
