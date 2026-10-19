@@ -154,30 +154,71 @@ def frame(src, target, op, payload):
 
 
 class NIBus:
-    def __init__(self, loop):
+    def __init__(self, loop, ip, devices):
         self.loop = loop
         self.logger = logging.getLogger("t")
-        self.allowed_source_ips = {GW}
+        self.allowed_source_ips = {ip}
         self.dropped_source_ips = set()
         self.advertised_ip = "192.168.88.5"
-        self._telegram_received_cbs = [{"device_address": (1, 20), "callback": None}]
-        self.heard = []
-        self.on_gateway_frame = self.heard.append
+        self._telegram_received_cbs = [{"device_address": d, "callback": None} for d in devices]
+        self.network_interface = None
+        self.liveness = None
 
 
 async def test_only_gateway_ip_counts():
-    bus = NIBus(asyncio.get_running_loop())
-    ni = ni_mod.NetworkInterface(bus, ((GW, 6000), ("", 6000)))
-    ni.register_callback(lambda t: None)
+    """Two entries; frames are credited to the gateway that SENT them."""
+    loop = asyncio.get_running_loop()
+    bus_a = NIBus(loop, GW, [(1, 20)])
+    bus_b = NIBus(loop, OTHER, [(2, 30)])
+    seen_a, seen_b = [], []
+    bus_a.liveness = live_a = L(bus_a, lambda r: None)
+    bus_b.liveness = live_b = L(bus_b, lambda r: None)
+    live_a.frame_received = lambda t: seen_a.append(t)
+    live_b.frame_received = lambda t: seen_b.append(t)
+    live_a.start(); live_b.start()
+    ni_a = ni_mod.NetworkInterface(bus_a, ((GW, 6000), ("", 6000)))
+    ni_b = ni_mod.NetworkInterface(bus_b, ((OTHER, 6000), ("", 6000)))
+    ni_a.register_callback(lambda t: None)
+    ni_b.register_callback(lambda t: None)
+
     f1 = frame((1, 20), (250, 250), OC.SingleChannelControlResponse, [1, 0xF8, 100])
-    ni._udp_request_received(f1, (GW, 6000))
-    assert len(bus.heard) == 1
-    f2 = frame((1, 20), (255, 255), OC.SingleChannelControlResponse, [1, 0xF8, 0])
-    ni._udp_request_received(f2, (OTHER, 6000))
-    assert len(bus.heard) == 1, "relay via another HDL IP device is not proof of life"
-    ni._udp_request_received(b"garbage", (GW, 6000))
-    assert len(bus.heard) == 1, "invalid frames don't count"
-    print("ok  only valid frames from the gateway's own IP count")
+    ni_a._udp_request_received(f1, (GW, 6000))
+    assert len(seen_a) == 1 and not seen_b
+    print("ok  frame from the gateway's own IP counts")
+
+    # Linux SO_REUSEPORT delivered gateway A's unicast reply to entry B's socket.
+    f2 = frame((1, 20), (250, 250), OC.SingleChannelControlResponse, [1, 0xF8, 0])
+    ni_b._udp_request_received(f2, (GW, 6000))
+    assert len(seen_a) == 2 and not seen_b, "credited to A, not B"
+    print("ok  reply landing on the other entry's socket still credits its own gateway")
+
+    ni_a._udp_request_received(b"garbage", (GW, 6000))
+    assert len(seen_a) == 2, "invalid frames don't count"
+    print("ok  invalid frames don't count")
+    live_a.stop(); live_b.stop()
+
+
+async def test_setup_check():
+    loop = asyncio.get_running_loop()
+    bus = FakeBus(loop)
+    bus.gateway_up = False
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is False
+    assert len(probes(bus)) == 2, "asked, then asked once more"
+    print("ok  setup check fails when the gateway is down (entry -> retrying)")
+
+    bus.gateway_up = True
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is True
+    print("ok  setup check passes when the gateway answers")
+
+    bus.gateway_up = True
+    bus.drop_next_replies = 1
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.4) is True
+    print("ok  one lost reply at setup is retried, not a failure")
+
+    bus.licensed = False
+    bus.gateway_up = False
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is True
+    print("ok  unlicensed install still loads (nothing is sent)")
 
 
 async def main():
@@ -186,6 +227,7 @@ async def main():
     await test_one_lost_reply_is_tolerated()
     await test_unlicensed_left_alone()
     await test_only_gateway_ip_counts()
+    await test_setup_check()
     print("\nALL PASSED")
 
 

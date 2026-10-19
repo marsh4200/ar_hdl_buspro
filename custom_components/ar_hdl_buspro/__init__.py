@@ -152,6 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     local_ip = entry.data.get(CONF_LOCAL_IP, "")
 
     gateway = ARHDLGateway(hass, entry.entry_id, host, port, local_ip)
+    await gateway.async_load_known_modules()
 
     if not await gateway.async_connect():
         raise ConfigEntryNotReady(
@@ -341,9 +342,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
-    # Nothing persisted outside HA itself; entry-scoped state has already
-    # been unloaded by async_unload_entry. This hook exists for future
-    # cleanup needs (cached calibration data, etc.).
+    # Entry-scoped state has already been unloaded by async_unload_entry;
+    # drop the list of modules seen answering status reads (gateway.py).
+    from .gateway import modules_store
+
+    await modules_store(hass, entry.entry_id).async_remove()
     _LOGGER.debug("AR HDL BUSPRO entry %s removed", entry.entry_id)
 
 

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 
 from .const import (
     EVENT_KEYPAD_BUTTON,
@@ -30,6 +31,15 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 RECONNECT_DELAYS = [5, 10, 20, 30, 60]  # exponential-ish backoff (seconds)
+
+# Relay/dimmer modules that have ever answered a status read, per entry.
+_MODULES_STORE_VERSION = 1
+_MODULES_STORE_SAVE_DELAY = 30  # seconds; batches the startup burst
+
+
+def modules_store(hass: HomeAssistant, entry_id: str) -> Store:
+    """Storage for the modules this entry has seen answer status reads."""
+    return Store(hass, _MODULES_STORE_VERSION, f"ar_hdl_buspro.modules_{entry_id}")
 
 
 class ARHDLGateway:
@@ -80,6 +90,8 @@ class ARHDLGateway:
         self._link_up = False
         self.liveness = GatewayLiveness(self.hdl, self._handle_reachability)
         self.hdl.liveness = self.liveness
+        self._modules_store = modules_store(hass, entry_id)
+        self.hdl.on_module_answered = self._handle_module_answered
         # Home Assistant's own bus address, answering keypad buttons that
         # send a universal switch to it (see virtual_device.py).
         self.virtual = VirtualKeypadResponder(
@@ -202,6 +214,28 @@ class ARHDLGateway:
         )
         return True
 
+    async def async_load_known_modules(self) -> None:
+        """Load the modules seen answering status reads before a restart."""
+        try:
+            data = await self._modules_store.async_load() or {}
+        except Exception as err:  # noqa: BLE001 - never block setup on this
+            _LOGGER.debug("Could not load known HDL modules: %s", err)
+            return
+        known = set()
+        for item in data.get("modules", []):
+            try:
+                known.add((int(item[0]), int(item[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        self.hdl.known_modules = known
+
+    def _handle_module_answered(self, address: tuple) -> None:
+        """A module answered a status read for the first time ever."""
+        self._modules_store.async_delay_save(
+            lambda: {"modules": sorted(list(a) for a in self.hdl.known_modules)},
+            _MODULES_STORE_SAVE_DELAY,
+        )
+
     async def async_verify_reachable(self, targets, timeout: float = 8.0) -> bool:
         """Ask the gateway something and wait for any answer (setup check)."""
         ok = await self.liveness.async_wait_for_answer(targets, timeout)
@@ -311,6 +345,12 @@ class ARHDLGateway:
             "available": self._available,
             "socket_open": self._link_up,
             "gateway_liveness": self.liveness.diagnostics(),
+            "modules_known_to_answer": len(self.hdl.known_modules),
+            "modules_offline": sorted(
+                f"{a[0]}.{a[1]}"
+                for a, m in getattr(self.hdl, "_module_states", {}).items()
+                if m.get("offline")
+            ),
             # Reply timing for channel commands sent from Home Assistant:
             # how long modules take to confirm, how often a command had to be
             # resent, and the slowest recent replies by module address.

@@ -247,6 +247,71 @@ async def test_resync_skips_a_module_mid_click():
         device_mod._RESYNC_SECONDS = old
 
 
+async def test_module_dying_quietly_goes_unavailable_on_resync():
+    """Nobody presses anything: missed periodic reads alone mark it offline."""
+    old = device_mod._RESYNC_SECONDS
+    device_mod._RESYNC_SECONDS = 0.3
+    try:
+        bus = FakeBus(asyncio.get_running_loop())
+        sw = switch_mod.Switch(bus, (1, 10), 1)
+        await asyncio.sleep(0.2)
+        assert sw.responsive
+        bus.online[(1, 10)] = False      # module loses power
+        await asyncio.sleep(1.0)
+        assert sw.responsive, "a couple of missed reads is not enough"
+        await asyncio.sleep(1.6)
+        assert not sw.responsive, "missed re-sync reads must mark it offline"
+        bus.online[(1, 10)] = True
+        await asyncio.sleep(0.6)
+        assert sw.responsive, "comes back once it answers"
+    finally:
+        device_mod._RESYNC_SECONDS = old
+
+
+async def test_known_module_dead_at_startup_goes_unavailable():
+    bus = FakeBus(asyncio.get_running_loop())
+    bus.known_modules = {(1, 10)}        # answered before the restart
+    bus.online[(1, 10)] = False
+    sw = switch_mod.Switch(bus, (1, 10), 1)
+    await asyncio.sleep(1.5)
+    assert sw.responsive, "still within the startup retries"
+    await asyncio.sleep(1.3)
+    assert not sw.responsive, "known module dead at startup must go offline"
+
+
+async def test_never_answered_module_dead_at_startup_left_alone():
+    # Could be hardware that never answers status reads: don't grey it out.
+    bus = FakeBus(asyncio.get_running_loop())
+    bus.online[(1, 10)] = False
+    sw = switch_mod.Switch(bus, (1, 10), 1)
+    await asyncio.sleep(2.8)
+    assert sw.responsive
+
+
+async def test_first_answer_is_remembered():
+    bus = FakeBus(asyncio.get_running_loop(), n_modules=2)
+    bus.known_modules = {(1, 11)}
+    saved = []
+    bus.on_module_answered = saved.append
+    switch_mod.Switch(bus, (1, 10), 1)
+    switch_mod.Switch(bus, (1, 11), 1)
+    await asyncio.sleep(0.4)
+    assert saved == [(1, 10)], f"only the new module is reported, got {saved}"
+    assert bus.known_modules == {(1, 10), (1, 11)}
+
+
+async def test_gateway_down_does_not_mark_modules_offline():
+    # The gateway check greys everything out; modules must not ALSO be marked
+    # offline (they'd stay grey for a minute after the gateway came back).
+    bus = FakeBus(asyncio.get_running_loop())
+    bus.known_modules = {(1, 10)}
+    bus.liveness = types.SimpleNamespace(reachable=False)
+    bus.online[(1, 10)] = False
+    sw = switch_mod.Switch(bus, (1, 10), 1)
+    await asyncio.sleep(2.8)
+    assert sw.responsive
+
+
 async def main():
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -58,6 +58,11 @@ class Buspro:
         # integration's gateway wrapper. UDP alone can't tell whether the
         # gateway is there; frames from its IP can.
         self.liveness = None
+        # Relay/dimmer modules that have ever answered a status read (loaded
+        # from and saved to HA storage by the gateway wrapper), so one that is
+        # dead at startup can still be marked offline - see devices/device.py.
+        self.known_modules: set[tuple] = set()
+        self.on_module_answered = None
 
         # Source-IP allowlist for incoming UDP frames. When non-empty, the
         # network interface drops datagrams from any other IP, so telegrams
