@@ -37,19 +37,9 @@ def dispatch_frame(source_ip: str | None, telegram, receiving_buspro) -> None:
         live.frame_received(telegram)
         if live._buspro is receiving_buspro:
             credited = True
-    if credited:
-        return
-    # Gateway host could not be resolved (no source filter): fall back to
-    # crediting whatever arrives on this entry's own socket.
-    own = getattr(receiving_buspro, "liveness", None)
-    if own is not None and not own._ips:
-        if not own._fallback_logged:
-            own._fallback_logged = True
-            receiving_buspro.logger.warning(
-                "HDL gateway host could not be resolved; ANY HDL frame "
-                "received will count as this gateway being alive"
-            )
-        own.frame_received(telegram)
+    # A watchdog whose gateway host could not be resolved is credited with
+    # nothing: crediting "any frame" made an unplugged gateway look alive off
+    # a second gateway's traffic on the same network.
 
 
 # 0x000E "read device information": answered by every HDL Buspro device and
@@ -91,7 +81,6 @@ class GatewayLiveness:
         # Devices heard replying through this gateway: best probe targets.
         self._heard: dict[tuple, float] = {}
         self._ips: set[str] = set()
-        self._fallback_logged = False
         self._last_frame: str | None = None  # what last proved it alive
         # Outcome of the setup check, for the log and diagnostics.
         self.setup_check: dict = {"result": "not run"}
@@ -268,6 +257,9 @@ class GatewayLiveness:
         True when unlicensed: nothing is sent then, so silence proves nothing.
         The outcome (and what answered) is kept in `setup_check`.
         """
+        if not self._ips:
+            self.setup_check = {"result": "gateway host could not be resolved"}
+            return False
         if not self._send_permitted():
             self.setup_check = {
                 "result": "skipped - not licensed, so nothing can be sent",

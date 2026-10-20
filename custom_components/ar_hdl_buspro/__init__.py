@@ -7,6 +7,7 @@
 # check in licensing.py is prohibited.
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -139,7 +140,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # still set up -- entities appear but report unavailable -- so the owner
     # can see exactly what they have and enter a key from the options flow
     # without rebuilding their whole configuration.
-    manager = await async_get_manager(hass)
+    # Serialised: on a restart Home Assistant sets up every gateway entry at
+    # once. async_get_manager publishes the manager before it has finished
+    # loading from disk, so a second entry used to get a half-loaded one,
+    # read the trial as EXPIRED, and treat its bus as unlicensed - which also
+    # skipped the gateway setup check and the liveness watchdog, so an
+    # unplugged second gateway loaded and never went unavailable.
+    lock = hass.data.setdefault(f"{DOMAIN}_license_lock", asyncio.Lock())
+    async with lock:
+        manager = await async_get_manager(hass)
     # Mirror the trial anchor into this entry's data now that it exists, so
     # the window cannot be restarted by clearing .storage alone.
     await manager.async_sync_anchor(entry)

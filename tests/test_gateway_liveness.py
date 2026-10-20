@@ -69,6 +69,7 @@ class FakeBus:
         self.loop = loop
         self.logger = logging.getLogger("t")
         self.gateway_address_send_receive = ((GW, 6000), ("", 6000))
+        self.allowed_source_ips = {GW}
         self.licensed = True
         self.gateway_up = True
         self.answer_probes = True
@@ -208,6 +209,7 @@ async def test_only_gateway_ip_counts():
 async def test_setup_check():
     loop = asyncio.get_running_loop()
     bus = FakeBus(loop)
+    bus.live._ips = {GW}
     bus.gateway_up = False
     assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is False
     assert len(probes(bus)) == 2, "asked, then asked once more"
@@ -231,6 +233,11 @@ async def test_setup_check():
     assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is True
     assert bus.live.setup_check["answered_by"].startswith("1.20 "), bus.live.setup_check
     print("ok  setup check records what answered:", bus.live.setup_check["answered_by"])
+
+    bus.live._ips = set()
+    assert await bus.live.async_wait_for_answer([(1, 20)], 0.3) is False
+    print("ok  gateway host that doesn't resolve fails setup")
+    bus.live._ips = {GW}
 
     bus.licensed = False
     bus.gateway_up = False
