@@ -43,14 +43,25 @@ _SYNC_PACING = 0.15          # gap between reads to different modules
 _SYNC_FAST_RETRY = 3         # seconds between rounds while a module is new
 _SYNC_FAST_ROUNDS = 10       # ~30 s of fast retries per module
 _SYNC_SLOW_RETRY = 60        # then keep asking once a minute until it answers
+# Unanswered status reads before a module that is KNOWN to answer them is
+# marked offline (its channels go unavailable until it answers again).
+# Before this, only a failed command did that, so a dead module went on
+# showing its last state - and accepting presses - until someone tried it.
+# Startup: 10 fast reads, ~30 s. Periodic re-sync: 3 fast + 2 slow, ~3 min.
+_OFFLINE_AFTER_STARTUP_MISSES = 10
+_OFFLINE_AFTER_RESYNC_MISSES = 5
 
 
 def _module_state(buspro, address) -> dict:
     """Shared state for every channel of one module (subnet, device).
 
     `last_heard`: loop time of the last telegram FROM this module.
-    `answers_reads`: has it ever answered ReadStatusOfChannels (wireless relay
-    panels never do, so they are never marked unresponsive).
+    `answers_reads`: has it answered ReadStatusOfChannels since startup.
+    `known`: has it EVER answered one (remembered across restarts via
+    buspro.known_modules), so one that is dead at startup can be marked
+    offline too. A module that never answers reads is never marked offline.
+    `unanswered` / `miss_limit`: status reads sent since it was last heard,
+    and how many of those mark it offline (see _OFFLINE_AFTER_*).
     `offline`: it stopped answering a command and a status read.
     `needs_read` / `attempts`: live-status read still owed (see _module_sync).
     """
@@ -60,7 +71,10 @@ def _module_state(buspro, address) -> dict:
         {
             "last_heard": None,
             "answers_reads": False,
+            "known": tuple(address) in getattr(buspro, "known_modules", ()),
             "offline": False,
+            "unanswered": 0,
+            "miss_limit": _OFFLINE_AFTER_STARTUP_MISSES,
             "devices": [],
             "needs_read": False,
             "attempts": 0,
@@ -73,6 +87,8 @@ def _request_module_read(buspro, address, slow: bool = False) -> None:
     module = _module_state(buspro, address)
     module["needs_read"] = True
     module["attempts"] = _SYNC_FAST_ROUNDS if slow else 0
+    module["unanswered"] = 0
+    module["miss_limit"] = _OFFLINE_AFTER_STARTUP_MISSES
     _ensure_sync_running(buspro)
     _ensure_resync_running(buspro)
 
@@ -133,6 +149,8 @@ async def _module_resync(buspro) -> None:
             module["needs_read"] = True
             # A missed poll gets a few quick retries, then the slow cadence.
             module["attempts"] = max(0, _SYNC_FAST_ROUNDS - 3)
+            module["unanswered"] = 0
+            module["miss_limit"] = _OFFLINE_AFTER_RESYNC_MISSES
             queued = True
         if queued:
             _ensure_sync_running(buspro)
@@ -152,6 +170,17 @@ async def _module_sync(buspro) -> None:
                 continue  # answered while this round was going
             if module["answers_reads"] and _module_busy(buspro, module):
                 continue  # a click is in flight; read it next round instead
+            if not _counting_misses(buspro):
+                # Gateway down or install unlicensed: silence says nothing
+                # about this module (the gateway check covers the first).
+                module["unanswered"] = 0
+            elif (
+                not module["offline"]
+                and (module["answers_reads"] or module["known"])
+                and module["unanswered"] >= module["miss_limit"]
+            ):
+                _mark_module_offline(buspro, address, module)
+            module["unanswered"] += 1
             module["attempts"] += 1
             reader = _ReadStatusOfChannels(buspro)
             reader.subnet_id, reader.device_id = address
@@ -166,6 +195,43 @@ async def _module_sync(buspro) -> None:
         fast = any(m["attempts"] < _SYNC_FAST_ROUNDS for m in still)
         await asyncio.sleep(_SYNC_FAST_RETRY if fast else _SYNC_SLOW_RETRY)
 
+
+
+def _counting_misses(buspro) -> bool:
+    """Do unanswered reads mean anything right now?"""
+    live = getattr(buspro, "liveness", None)
+    if live is not None and not live.reachable:
+        return False
+    check = getattr(buspro.network_interface, "_send_permitted", None)
+    return True if check is None else bool(check())
+
+
+def _mark_module_offline(buspro, address, module) -> None:
+    """Mark a module unresponsive; it comes back the moment it is heard."""
+    module["offline"] = True
+    buspro.logger.warning(
+        "HDL module %s.%s did not answer %s status reads; marking its "
+        "channels unavailable",
+        address[0], address[1], module["unanswered"],
+    )
+    for dev in list(module["devices"]):
+        dev._call_device_updated()
+
+
+def _remember_module(buspro, address, module) -> None:
+    """First status answer from a module: remember it across restarts."""
+    if module["known"]:
+        return
+    module["known"] = True
+    known = getattr(buspro, "known_modules", None)
+    if known is not None:
+        known.add(tuple(address))
+    hook = getattr(buspro, "on_module_answered", None)
+    if hook is not None:
+        try:
+            hook(tuple(address))
+        except Exception as err:  # noqa: BLE001
+            buspro.logger.debug("on_module_answered error: %s", err)
 
 
 def _stats(buspro) -> dict:
@@ -261,9 +327,11 @@ class Device:
         if module is None:
             return
         module["last_heard"] = self._buspro.loop.time()
+        module["unanswered"] = 0
         if is_status_read:
             module["answers_reads"] = True
             module["needs_read"] = False
+            _remember_module(self._buspro, self._device_address, module)
         if not module["offline"]:
             return
         module["offline"] = False
@@ -280,7 +348,9 @@ class Device:
     def _module_went_quiet(self) -> None:
         """Mark this module unresponsive and keep asking until it answers."""
         module = self._module
-        if module is None or module["offline"] or not module["answers_reads"]:
+        if module is None or module["offline"] or not (
+            module["answers_reads"] or module["known"]
+        ):
             return
         module["offline"] = True
         self._buspro.logger.warning(

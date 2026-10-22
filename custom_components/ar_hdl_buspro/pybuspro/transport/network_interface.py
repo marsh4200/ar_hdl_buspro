@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from ..helpers.telegram_helper import HA_SOURCE_ADDRESS, TelegramHelper
+from .liveness import dispatch_frame
 from .udp_client import UDPClient
 
 # Same frame from two different IPs within this many seconds = one frame.
@@ -67,6 +68,14 @@ class NetworkInterface:
         telegram = self._th.build_telegram_from_udp_data(data, address)
         if telegram is None:
             return
+
+        # Proof of life, credited to the gateway that SENT it (see
+        # liveness.py) - frames relayed by another HDL IP device say nothing
+        # about whether commands sent to this gateway arrive.
+        try:
+            dispatch_frame(address[0] if address else None, telegram, self.buspro)
+        except Exception as err:  # noqa: BLE001
+            self.buspro.logger.debug("Gateway liveness dispatch error: %s", err)
 
         if foreign and not self._relevant_to_this_entry(telegram):
             # Not one of our devices and not addressed to Home Assistant:

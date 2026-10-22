@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 
 from .const import (
     EVENT_KEYPAD_BUTTON,
@@ -21,6 +22,7 @@ from .const import (
 )
 from .licensing import DATA_LICENSE, get_unlock
 from .pybuspro.buspro import Buspro
+from .pybuspro.transport.liveness import GatewayLiveness
 from .virtual_device import VirtualKeypadResponder
 
 if TYPE_CHECKING:
@@ -29,6 +31,15 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 RECONNECT_DELAYS = [5, 10, 20, 30, 60]  # exponential-ish backoff (seconds)
+
+# Relay/dimmer modules that have ever answered a status read, per entry.
+_MODULES_STORE_VERSION = 1
+_MODULES_STORE_SAVE_DELAY = 30  # seconds; batches the startup burst
+
+
+def modules_store(hass: HomeAssistant, entry_id: str) -> Store:
+    """Storage for the modules this entry has seen answer status reads."""
+    return Store(hass, _MODULES_STORE_VERSION, f"ar_hdl_buspro.modules_{entry_id}")
 
 
 class ARHDLGateway:
@@ -72,6 +83,15 @@ class ARHDLGateway:
         # When the UDP transport dies unexpectedly (interface change, docker
         # network flap, etc.) mark unavailable and start reconnecting.
         self.hdl.on_connection_lost = self._handle_connection_lost
+        # The socket being open says nothing about the gateway (UDP has no
+        # connection), so `available` also needs frames FROM the gateway.
+        # Without this an unplugged gateway stayed "online" indefinitely and
+        # its entities kept accepting presses that went nowhere.
+        self._link_up = False
+        self.liveness = GatewayLiveness(self.hdl, self._handle_reachability)
+        self.hdl.liveness = self.liveness
+        self._modules_store = modules_store(hass, entry_id)
+        self.hdl.on_module_answered = self._handle_module_answered
         # Home Assistant's own bus address, answering keypad buttons that
         # send a universal switch to it (see virtual_device.py).
         self.virtual = VirtualKeypadResponder(
@@ -87,6 +107,17 @@ class ARHDLGateway:
     def available(self) -> bool:
         """Return True if the gateway is currently reachable."""
         return self._available
+
+    def _set_available(self) -> None:
+        """Recompute availability (socket open AND gateway answering)."""
+        self._available = self._link_up and self.liveness.reachable
+        self._notify_availability()
+
+    def _handle_reachability(self, reachable: bool) -> None:
+        """Liveness watchdog verdict changed (called from the event loop)."""
+        if self._stop_requested:
+            return
+        self._set_available()
 
     async def _async_refresh_source_filter(self) -> None:
         """Resolve the configured host and install the source-IP allowlist.
@@ -171,20 +202,74 @@ class ARHDLGateway:
                 self.port,
                 err,
             )
-            self._available = False
-            self._notify_availability()
+            self._link_up = False
+            self._set_available()
             return False
 
-        self._available = True
-        self._notify_availability()
+        self._link_up = True
+        self.liveness.start()
+        self._set_available()
         _LOGGER.info(
             "Connected to AR HDL BUSPRO gateway at %s:%s", self.host, self.port
         )
         return True
 
+    async def async_load_known_modules(self) -> None:
+        """Load the modules seen answering status reads before a restart."""
+        try:
+            data = await self._modules_store.async_load() or {}
+        except Exception as err:  # noqa: BLE001 - never block setup on this
+            _LOGGER.debug("Could not load known HDL modules: %s", err)
+            return
+        known = set()
+        for item in data.get("modules", []):
+            try:
+                known.add((int(item[0]), int(item[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        self.hdl.known_modules = known
+
+    def _handle_module_answered(self, address: tuple) -> None:
+        """A module answered a status read for the first time ever."""
+        self._modules_store.async_delay_save(
+            lambda: {"modules": sorted(list(a) for a in self.hdl.known_modules)},
+            _MODULES_STORE_SAVE_DELAY,
+        )
+
+    async def async_verify_reachable(self, targets, timeout: float = 8.0) -> bool:
+        """Ask the gateway something and wait for any answer (setup check)."""
+        ok = await self.liveness.async_wait_for_answer(targets, timeout)
+        check = self.liveness.setup_check
+        if ok and check.get("result") == "answered":
+            _LOGGER.info(
+                "AR HDL BUSPRO gateway %s:%s answered the setup check "
+                "(%s after %s ms)",
+                self.host,
+                self.port,
+                check.get("answered_by"),
+                check.get("after_ms"),
+            )
+        elif ok:
+            _LOGGER.warning(
+                "AR HDL BUSPRO gateway %s:%s setup check %s",
+                self.host,
+                self.port,
+                check.get("result"),
+            )
+        if not ok:
+            _LOGGER.warning(
+                "AR HDL BUSPRO gateway %s:%s did not answer within %.0f s; "
+                "setup will be retried",
+                self.host,
+                self.port,
+                timeout,
+            )
+        return ok
+
     async def async_disconnect(self) -> None:
         """Disconnect cleanly and cancel reconnect."""
         self._stop_requested = True
+        self.liveness.stop()
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
             try:
@@ -198,8 +283,8 @@ class ARHDLGateway:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Error stopping HDL client: %s", err)
 
-        self._available = False
-        self._notify_availability()
+        self._link_up = False
+        self._set_available()
 
     def _handle_connection_lost(self) -> None:
         """React to an unexpected transport loss (called from the event loop)."""
@@ -211,8 +296,9 @@ class ARHDLGateway:
                 self.host,
                 self.port,
             )
-        self._available = False
-        self._notify_availability()
+        self.liveness.stop()
+        self._link_up = False
+        self._set_available()
         self.async_schedule_reconnect()
 
     def async_schedule_reconnect(self) -> None:
@@ -274,6 +360,14 @@ class ARHDLGateway:
             # discarding -- a second gateway, or a gateway whose IP changed.
             "dropped_source_ips": sorted(self.hdl.dropped_source_ips),
             "available": self._available,
+            "socket_open": self._link_up,
+            "gateway_liveness": self.liveness.diagnostics(),
+            "modules_known_to_answer": len(self.hdl.known_modules),
+            "modules_offline": sorted(
+                f"{a[0]}.{a[1]}"
+                for a, m in getattr(self.hdl, "_module_states", {}).items()
+                if m.get("offline")
+            ),
             # Reply timing for channel commands sent from Home Assistant:
             # how long modules take to confirm, how often a command had to be
             # resent, and the slowest recent replies by module address.

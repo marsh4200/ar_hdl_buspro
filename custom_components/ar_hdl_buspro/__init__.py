@@ -7,6 +7,7 @@
 # check in licensing.py is prohibited.
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -139,7 +140,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # still set up -- entities appear but report unavailable -- so the owner
     # can see exactly what they have and enter a key from the options flow
     # without rebuilding their whole configuration.
-    manager = await async_get_manager(hass)
+    # Serialised: on a restart Home Assistant sets up every gateway entry at
+    # once. async_get_manager publishes the manager before it has finished
+    # loading from disk, so a second entry used to get a half-loaded one,
+    # read the trial as EXPIRED, and treat its bus as unlicensed - which also
+    # skipped the gateway setup check and the liveness watchdog, so an
+    # unplugged second gateway loaded and never went unavailable.
+    lock = hass.data.setdefault(f"{DOMAIN}_license_lock", asyncio.Lock())
+    async with lock:
+        manager = await async_get_manager(hass)
     # Mirror the trial anchor into this entry's data now that it exists, so
     # the window cannot be restarted by clearing .storage alone.
     await manager.async_sync_anchor(entry)
@@ -152,10 +161,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     local_ip = entry.data.get(CONF_LOCAL_IP, "")
 
     gateway = ARHDLGateway(hass, entry.entry_id, host, port, local_ip)
+    await gateway.async_load_known_modules()
 
     if not await gateway.async_connect():
         raise ConfigEntryNotReady(
             f"Could not connect to AR HDL BUSPRO gateway at {host}:{port}"
+        )
+
+    # The socket opening proves nothing (UDP has no connection). Ask a few
+    # configured devices who they are and require an answer through this
+    # gateway, so a gateway that is down fails to load - Home Assistant then
+    # retries on its own and loads it the moment it answers - instead of
+    # loading with entities that accept presses that go nowhere.
+    probe_targets = []
+    for dev in entry.options.get(CONF_DEVICES) or []:
+        try:
+            addr = (int(dev[CONF_SUBNET_ID]), int(dev[CONF_DEVICE_ID]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if addr not in probe_targets:
+            probe_targets.append(addr)
+    if not await gateway.async_verify_reachable(probe_targets):
+        await gateway.async_disconnect()
+        raise ConfigEntryNotReady(
+            f"AR HDL BUSPRO gateway at {host}:{port} is not answering"
         )
 
     # Stop cleanly on HA shutdown. NOTE: this must be an async handler that
@@ -322,9 +351,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
-    # Nothing persisted outside HA itself; entry-scoped state has already
-    # been unloaded by async_unload_entry. This hook exists for future
-    # cleanup needs (cached calibration data, etc.).
+    # Entry-scoped state has already been unloaded by async_unload_entry;
+    # drop the list of modules seen answering status reads (gateway.py).
+    from .gateway import modules_store
+
+    await modules_store(hass, entry.entry_id).async_remove()
     _LOGGER.debug("AR HDL BUSPRO entry %s removed", entry.entry_id)
 
 
