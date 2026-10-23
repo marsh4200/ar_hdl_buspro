@@ -116,7 +116,14 @@ from .const import (
     DEVICE_TYPE_UNIVERSAL_SWITCH,
     DEVICE_TYPES,
     DOMAIN,
+    CONF_DALI_MEMBERS,
+    DALI_ADDRESS_COUNT,
+    DALI_GROUP_CHANNEL_BASE,
+    DALI_MAX_GROUPS,
+    DALI_READ_ADDRESSES_REPLY,
+    DALI_READ_ZONES_REPLY,
     HA_VIRTUAL_ADDRESS,
+    HDL_DALI_TYPE_CODES,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_AMBIGUOUS_COUNT_CODES,
@@ -772,6 +779,61 @@ def _disc_name(disc) -> str:
     return remark if remark else f"HDL {disc.address}"
 
 
+def _dali_channel(address: int) -> int:
+    """DALI short address -> HDL channel (address 0 is channel 64)."""
+    return address if address else DALI_ADDRESS_COUNT
+
+
+def _dali_address(channel: int) -> int:
+    """HDL channel (1-64) -> DALI short address."""
+    return 0 if channel == DALI_ADDRESS_COUNT else channel
+
+
+def _dali_channel_count(disc) -> int:
+    """Channels on a DALI controller: the catalogue's count, else 64."""
+    entry = catalog_entry(disc.type_code)
+    plan = channel_plan_from_functions(entry[3], "light") if entry else None
+    if plan and 0 < len(plan) <= DALI_ADDRESS_COUNT:
+        return len(plan)
+    return DALI_ADDRESS_COUNT
+
+
+def _dali_fitted_channels(disc) -> list[int] | None:
+    """Channels with a ballast fitted, from the 0xA008 address read.
+
+    None when the controller didn't answer (or answered something that
+    doesn't look like the address list), so the caller imports every
+    channel instead of none.
+    """
+    payload = (getattr(disc, "payloads", None) or {}).get(DALI_READ_ADDRESSES_REPLY)
+    if not payload or len(payload) < DALI_ADDRESS_COUNT:
+        return None
+    count = _dali_channel_count(disc)
+    fitted = sorted(
+        _dali_channel(address)
+        for address, flag in enumerate(payload[:DALI_ADDRESS_COUNT])
+        if int(flag) == 0xFF
+    )
+    fitted = [ch for ch in fitted if ch <= count or count == DALI_ADDRESS_COUNT]
+    return fitted or None
+
+
+def _dali_groups(disc) -> dict[int, list[int]]:
+    """{group: [member channels]} from the controller's zone read (0x0004)."""
+    payload = (getattr(disc, "payloads", None) or {}).get(DALI_READ_ZONES_REPLY)
+    if not payload:
+        return {}
+    zone_count = int(payload[0])
+    if not 1 <= zone_count <= DALI_MAX_GROUPS:
+        return {}
+    groups: dict[int, list[int]] = {}
+    for index, zone in enumerate(payload[1 : 1 + DALI_ADDRESS_COUNT]):
+        zone = int(zone)
+        if 1 <= zone <= zone_count:
+            groups.setdefault(zone, []).append(index + 1)
+    return groups
+
+
 def _disc_channel_plan(disc, dtype: str) -> list[tuple[int, str]] | None:
     """Channel -> entity type list for a light/switch/cover import.
 
@@ -790,6 +852,11 @@ def _disc_channel_plan(disc, dtype: str) -> list[tuple[int, str]] | None:
     if dtype not in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SWITCH, DEVICE_TYPE_COVER):
         return None
     code = disc.type_code
+    if code in HDL_DALI_TYPE_CODES and dtype == DEVICE_TYPE_LIGHT:
+        # Only the addresses with a ballast, when the controller says.
+        fitted = _dali_fitted_channels(disc)
+        channels = fitted or list(range(1, _dali_channel_count(disc) + 1))
+        return [(ch, DEVICE_TYPE_LIGHT) for ch in channels]
     want = "cover" if dtype == DEVICE_TYPE_COVER else "switch"
 
     def uniform(count: int) -> list[tuple[int, str]]:
@@ -1899,6 +1966,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             dimmer_codes = self._saved_dimmer_codes()
         if (
             disc.type_code in HDL_DIMMER_TYPE_CODES
+            or disc.type_code in HDL_DALI_TYPE_CODES
             or disc.type_code in dimmer_codes
         ):
             return DEVICE_TYPE_LIGHT
@@ -2156,13 +2224,23 @@ class ARHDLOptionsFlow(OptionsFlow):
                         eff_channel,
                     ) in existing_triples:
                         continue
-                    devices.append(
-                        self._build_imported_device(disc, ctype, channel)
-                    )
+                    imported = self._build_imported_device(disc, ctype, channel)
+                    if disc.type_code in HDL_DALI_TYPE_CODES and channel:
+                        imported[CONF_NAME] = (
+                            f"{_disc_name(disc)} DALI {_dali_address(channel)}"
+                        )
+                    devices.append(imported)
                     existing_triples.add(
                         (disc.subnet_id, disc.device_id, eff_channel)
                     )
                     added += 1
+                if (
+                    dtype == DEVICE_TYPE_LIGHT
+                    and disc.type_code in HDL_DALI_TYPE_CODES
+                ):
+                    added += self._import_dali_groups(
+                        disc, devices, existing_triples, plan
+                    )
                 if dtype == DEVICE_TYPE_CLIMATE and catalog_family(
                     disc.type_code
                 ) == "touch_panel":
@@ -2498,6 +2576,30 @@ class ARHDLOptionsFlow(OptionsFlow):
             added += 1
         return added
 
+    def _import_dali_groups(self, disc, devices, existing_triples, plan) -> int:
+        """One light per DALI group (HDL zone) that has imported members.
+
+        Group g is controlled on channel 64 + g; its state is taken from its
+        member channels (see ARHDLDaliGroupLight in light.py).
+        """
+        imported = {ch for ch, _kind in (plan or [])}
+        added = 0
+        for group, members in sorted(_dali_groups(disc).items()):
+            members = [ch for ch in members if ch in imported]
+            if not members:
+                continue
+            channel = DALI_GROUP_CHANNEL_BASE + group
+            triple = (disc.subnet_id, disc.device_id, channel)
+            if triple in existing_triples:
+                continue
+            group_cfg = self._build_imported_device(disc, DEVICE_TYPE_LIGHT, channel)
+            group_cfg[CONF_NAME] = f"{_disc_name(disc)} DALI group {group}"
+            group_cfg[CONF_DALI_MEMBERS] = members
+            devices.append(group_cfg)
+            existing_triples.add(triple)
+            added += 1
+        return added
+
     @staticmethod
     def _build_imported_device(
         disc, dtype: str, channel: int | None = None
@@ -2674,6 +2776,9 @@ class ARHDLOptionsFlow(OptionsFlow):
         if user_input is not None:
             updated = _normalize_device_input(dtype, user_input)
             updated["id"] = target["id"]
+            # Not on the form: a DALI group keeps its member channels.
+            if CONF_DALI_MEMBERS in target:
+                updated[CONF_DALI_MEMBERS] = target[CONF_DALI_MEMBERS]
             new_devices = [
                 updated if d["id"] == target["id"] else d for d in devices
             ]

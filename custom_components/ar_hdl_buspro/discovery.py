@@ -32,6 +32,9 @@ import time
 from dataclasses import dataclass, field
 
 from .const import (
+    DALI_READ_ADDRESSES_OP,
+    DALI_READ_ZONES_OP,
+    HDL_DALI_TYPE_CODES,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_KEYPAD_TYPE_CODES,
@@ -508,6 +511,9 @@ class BusScanner:
             await self._identify_unknown_devices()
             # Phase 4 - read keypad button programming (keypad LED sync).
             await self._read_keypad_buttons()
+            # Phase 5 - DALI controllers: which addresses have a ballast, and
+            # which group (HDL zone) each address is in.
+            await self._read_dali_layout()
         finally:
             # Restore the previous catch-all so normal operation is untouched.
             buspro.callback_all_messages = previous_cb
@@ -743,6 +749,23 @@ class BusScanner:
                 if dev.button_targets.get(button, {}).get(target_no, (0,))[0]
                 not in (0, 255)
             ]
+
+    async def _read_dali_layout(self) -> None:
+        """Ask each DALI controller for its fitted addresses and groups.
+
+        Both replies are kept by the catch-all in ``dev.payloads`` (keys
+        DALI_READ_ADDRESSES_REPLY / DALI_READ_ZONES_REPLY) and decoded at
+        import. A controller that doesn't answer imports all its channels.
+        """
+        dali = [d for d in self._found.values() if d.type_code in HDL_DALI_TYPE_CODES]
+        if not dali or self._buspro.network_interface is None:
+            return
+        for _round in range(2):
+            for dev in dali:
+                address = (dev.subnet_id, dev.device_id)
+                await self._send_directed(address, DALI_READ_ADDRESSES_OP, [1])
+                await self._send_directed(address, DALI_READ_ZONES_OP, [])
+            await asyncio.sleep(_DIRECTED_LISTEN)
 
     def _log_summary(self, found: list[DiscoveredDevice], duration: float) -> None:
         """Log a human-readable summary of the scan at INFO level."""

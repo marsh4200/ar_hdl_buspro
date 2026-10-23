@@ -583,6 +583,35 @@ HDL_DIMMER_TYPE_CODES: Final = {
     "0x027E",  # dimmer module
 }
 
+# HDL DALI controllers (MC48-DALI, MC64-DALI(.431), MC64-DALI2.431,
+# AC64-DALI.431), from the HDL Setup Tool's DALI device lists. They behave as
+# dimmers on the bus with these differences:
+#   - channels are DALI short addresses: channel N = address N for 1-63, and
+#     channel 64 = address 0;
+#   - channels 65-80 are DALI groups 1-16 (the HDL "zones"), controlled with
+#     the same single-channel command;
+#   - 0xA008 [1] returns 64 bytes, one per address 0-63, 0xFF = ballast
+#     fitted; 0x0004 returns [zone count, zone of channel 1 .. 64].
+HDL_DALI_TYPE_CODES: Final = frozenset(
+    {
+        "0x0028", "0x0029",  # HDL-MC48-DALI
+        "0x002A", "0x002B",  # HDL-MC64-DALI
+        "0x10CC", "0x10CD", "0x10CE", "0x10CF",  # HDL-MC64-DALI.431
+        "0x10D0", "0x10D1", "0x10D2",            # HDL-MC64-DALI.431
+        "0x10D3",            # HDL-MC64-DALI2.431
+        "0x37DD",            # HDL-AC64-DALI.431
+    }
+)
+DALI_ADDRESS_COUNT: Final = 64
+DALI_GROUP_CHANNEL_BASE: Final = 64  # group g -> channel 64 + g
+DALI_MAX_GROUPS: Final = 16
+DALI_READ_ADDRESSES_OP: Final = b"\xA0\x08"
+DALI_READ_ADDRESSES_REPLY: Final = "0xA009"
+DALI_READ_ZONES_OP: Final = b"\x00\x04"
+DALI_READ_ZONES_REPLY: Final = "0x0005"
+# A DALI group light: the member channels whose state the group shows.
+CONF_DALI_MEMBERS: Final = "dali_members"
+
 # Dispatcher signals
 SIGNAL_DEVICE_ADDED: Final = "ar_hdl_buspro_device_added_{entry_id}_{platform}"
 SIGNAL_GATEWAY_AVAILABILITY: Final = "ar_hdl_buspro_gateway_availability_{entry_id}"
