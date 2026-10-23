@@ -81,6 +81,14 @@ _ACTION_CLOSE = 2
 
 # Native percentage motors: the curtain byte is 16 + curtain number.
 _PCT_OFFSET = 16
+# Motors that take a third byte on every curtain command, as the HDL Setup
+# Tool sends it: [16 + n, pct, 0] for a position and [n, action, 1] for
+# open / close / stop. Without it the motor reads whatever follows in the
+# frame as that byte (seen on 0x25E8: some positions worked, 25% and 0%
+# stopped at ~42%). Taken from the motor's own device type on the bus.
+_LONG_FORM_TYPE_CODES = frozenset({0x25E8})  # HDL-MWM65B.20
+# Offset of the source device type in a raw HDL frame (udp_data).
+_UDP_DEVICE_TYPE_INDEX = 19
 # Position replies above 100 that are states, not positions.
 _PCT_TRACK_UNKNOWN = 221  # "fail to get the length of the track, reset the module"
 _PCT_TRACK_MEASURING = 238  # "busy getting the length of the track"
@@ -209,6 +217,9 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         # only answers the 3-byte read). Whichever read the motor answered.
         self._pct_form = 2
         self._probe_form = 2
+        # Device type from the motor's own frames; decides the command form.
+        self._type_code: int | None = None
+        self._long_form = False
         self._native_position: int | None = None
         self._native_target: int | None = None
         self._track_state: str | None = None
@@ -260,9 +271,36 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Percentage probe failed for %s", self.device_identifier)
 
+    def _note_device_type(self, telegram) -> None:
+        """Learn the module's device type from a frame it sent."""
+        udp = getattr(telegram, "udp_data", None)
+        if not udp or len(udp) <= _UDP_DEVICE_TYPE_INDEX + 1:
+            return
+        try:
+            code = (int(udp[_UDP_DEVICE_TYPE_INDEX]) << 8) | int(
+                udp[_UDP_DEVICE_TYPE_INDEX + 1]
+            )
+        except (TypeError, ValueError):
+            return
+        self._type_code = code
+        if code in _LONG_FORM_TYPE_CODES:
+            self._long_form = True
+            self._pct_form = 3
+            _LOGGER.debug(
+                "%s is type 0x%04X: using 3-byte curtain commands",
+                self.device_identifier,
+                code,
+            )
+
+    def _action_payload(self, action: int) -> list[int]:
+        """Open / close / stop payload in the form this motor expects."""
+        return [self._curtain_number, action] + ([1] if self._long_form else [])
+
     def _telegram_received(self, telegram) -> None:
         op = telegram.operate_code
         payload = telegram.payload or []
+        if self._type_code is None:
+            self._note_device_type(telegram)
         if op in (
             OperateCode.CurtainSwitchControlResponse,
             OperateCode.ReadStatusOfCurtainSwitchResponse,
@@ -312,7 +350,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         """A [16 + n, value] frame: real position, or a track state."""
         if not self._native:
             self._native = True
-            self._pct_form = self._probe_form
+            self._pct_form = 3 if self._long_form else self._probe_form
             # Any time-based move in flight no longer applies.
             self._cancel_move()
             _LOGGER.debug(
@@ -410,7 +448,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         """Open / close / stop on a native motor, then follow the position."""
         self._cancel_move()
         await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, action]
+            OperateCode.CurtainSwitchControl, self._action_payload(action)
         )
         self._status = action
         self._native_target = target
@@ -470,7 +508,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         """Fire `action` on the wire, then track/estimate position toward `target`."""
         self._cancel_move()
         await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, action]
+            OperateCode.CurtainSwitchControl, self._action_payload(action)
         )
         self._status = action
         self._moving_dir = 1 if action == _ACTION_OPEN else -1
@@ -502,7 +540,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
                 # left to the module's own limit switches, same as before.
                 await self._send(
                     OperateCode.CurtainSwitchControl,
-                    [self._curtain_number, _ACTION_STOP],
+                    self._action_payload(_ACTION_STOP),
                 )
                 self._status = _ACTION_STOP
         except asyncio.CancelledError:
@@ -573,7 +611,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
             return
         self._cancel_move()
         await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, _ACTION_STOP]
+            OperateCode.CurtainSwitchControl, self._action_payload(_ACTION_STOP)
         )
         self._status = _ACTION_STOP
         self._moving_dir = 0
