@@ -71,9 +71,9 @@ Sorry to anyone who had devices come in as the wrong type on earlier versions. S
 
 | Platform | HDL hardware | Notes |
 |---|---|---|
-| **Light** | Dimmer modules (MDT0601, MD0602, MRDA06 0-10V, …), MRCU dimmer channels, relay channels | Dimmable or on/off, ramp time, keypad LED sync |
+| **Light** | Dimmer modules (MDT0601, MD0602, MRDA06 0-10V, …), DALI controllers (MC48-DALI, MC64-DALI, MC64-DALI2, AC64-DALI), MRCU dimmer channels, relay channels | Dimmable or on/off, ramp time, keypad LED sync, DALI groups |
 | **Switch** | Relay modules (MR0410, MR0816, MR1210, MR1616, …), MRCU relays, Buspro wireless panels with built-in relays | One entity per relay channel, keypad LED sync |
-| **Cover** | Curtain modules (MW02 / MWM / MVSM families) **and** relay-pair curtains | Open / close / stop plus an estimated position |
+| **Cover** | Curtain modules (MW02 / MWM / MVSM families) **and** relay-pair curtains | Open / close / stop plus position: real on HDL curtain motors, estimated elsewhere |
 | **Climate** | Floor heating (DLP panels), AC via an IR module, AC via a touch panel | See [Air conditioning](#air-conditioning) |
 | **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M, temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
 | **Binary sensor** | Motion, dry-contact zones, universal switches, channel status | One entity per dry-contact zone |
@@ -347,11 +347,17 @@ Multi-sensors import as a **bundle** under one device.
 
 Touch panels report humidity through HDL's analog-value read, the same way HDL's own software does; importing a Granite Display adds both sensors. By hand: *Add a device → Sensor*, sensor kind **humidity**, hardware kind **panel**. Every sensor exposes `last_telegram` and `raw_payload` attributes so you can see exactly what the hardware sent.
 
+### DALI
+
+HDL DALI controllers import as **one dimmable light per DALI address** that has a ballast fitted, named by address (e.g. *Lobby DALI 12*). If the controller doesn't report its fitted addresses, all its channels are imported. Each **DALI group** with fitted members also gets a light of its own: it switches and dims the whole group in one command and shows the brightest member's level.
+
 ### Curtains
 
 Curtain modules (MW02, MWM and MVSM) import as **covers** with open / close / stop; a two-curtain module splits into two covers.
 
-The **position slider** is driven by **travel time** (default 30 s, per device). It's an *estimate*, because HDL's curtain command has no percentage field. Fully open and fully closed are always exact (the module's limit switches decide), and the estimate resyncs whenever the module reports a real endpoint. **Recalibrate via nearest endpoint before repositioning** (off by default, under *Edit a device*) runs to the nearer endpoint first.
+**HDL curtain and roller motors** (MWM / MVSM families) report their own position, so the **position slider** sends a real percentage and shows where the curtain actually is, including after a keypad or remote moves it and after a restart. This is detected automatically; nothing to set.
+
+On **curtain controllers without a position report** (MW02 / MW04) the slider is driven by **travel time** (default 30 s, per device). It's an *estimate*, because those modules take no percentage. Fully open and fully closed are always exact (the module's limit switches decide), and the estimate resyncs whenever the module reports a real endpoint. **Recalibrate via nearest endpoint before repositioning** (off by default, under *Edit a device*) runs to the nearer endpoint first.
 
 **Relay-pair curtains** (a motor on two relay channels plus a travel timer) are added by hand: *Add a device → Cover → mode: relay pair*.
 

@@ -92,6 +92,13 @@ _PCT_PROBE_WAIT = 2.0
 _PCT_POLL_INTERVAL = 1.0
 _PCT_POLL_STABLE_READS = 3
 _PCT_POLL_MAX = 180.0
+# Some motors are slow to start, or only update their reported position at
+# the end of travel. An unchanged position doesn't count as "stopped" until
+# it has moved at least once, or this long has passed.
+_PCT_POLL_GRACE = 20.0
+# Read the position again this long after a move has settled (seconds after
+# the poll ends), to catch a final position the motor didn't push.
+_PCT_FOLLOWUP_READS = (2.0, 5.0, 10.0)
 
 
 async def async_setup_entry(
@@ -206,6 +213,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         self._native_target: int | None = None
         self._track_state: str | None = None
         self._poll_task: asyncio.Task | None = None
+        self._followup_task: asyncio.Task | None = None
         self._probe_task: asyncio.Task | None = None
         # Re-read the position after a gateway reconnect (entity.py).
         self._resync_device = self
@@ -275,6 +283,8 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
                 if action == _ACTION_STOP:
                     self._moving_dir = 0
                     self._native_target = None
+                    # The motor stopped: read where it actually ended up.
+                    self._schedule_followup_reads()
                 elif action in (_ACTION_OPEN, _ACTION_CLOSE):
                     self._moving_dir = 1 if action == _ACTION_OPEN else -1
                     self._ensure_poll()
@@ -331,13 +341,14 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
 
     def _ensure_poll(self) -> None:
         """Follow a native move by reading the position until it settles."""
+        self._cancel_followup()
         if self._poll_task and not self._poll_task.done():
             return
         self._poll_task = self.hass.async_create_task(self._poll_native())
 
     async def _poll_native(self) -> None:
         start = time.monotonic()
-        last = self._native_position
+        first = last = self._native_position
         stable = 0
         try:
             while time.monotonic() - start < _PCT_POLL_MAX:
@@ -346,9 +357,11 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
                     break
                 await self._send_pct_read(self._pct_form)
                 if self._native_position == last:
-                    stable += 1
-                    if stable >= _PCT_POLL_STABLE_READS:
-                        break
+                    moved = self._native_position != first
+                    if moved or time.monotonic() - start >= _PCT_POLL_GRACE:
+                        stable += 1
+                        if stable >= _PCT_POLL_STABLE_READS:
+                            break
                 else:
                     stable = 0
                     last = self._native_position
@@ -357,11 +370,29 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
                 self._moving_dir = 0
                 self._native_target = None
                 self.async_write_ha_state()
+            self._schedule_followup_reads()
 
     def _cancel_poll(self) -> None:
         if self._poll_task and not self._poll_task.done():
             self._poll_task.cancel()
         self._poll_task = None
+
+    def _schedule_followup_reads(self) -> None:
+        """Read the position a few more times after a move has settled."""
+        self._cancel_followup()
+        self._followup_task = self.hass.async_create_task(self._followup_reads())
+
+    async def _followup_reads(self) -> None:
+        waited = 0.0
+        for at in _PCT_FOLLOWUP_READS:
+            await asyncio.sleep(at - waited)
+            waited = at
+            await self._send_pct_read(self._pct_form)
+
+    def _cancel_followup(self) -> None:
+        if self._followup_task and not self._followup_task.done():
+            self._followup_task.cancel()
+        self._followup_task = None
 
     async def _native_move(self, target: int) -> None:
         """Send the motor to `target` percent; it stops there by itself."""
@@ -387,6 +418,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
             self._moving_dir = 0
             self._cancel_poll()
             await self._send_pct_read(self._pct_form)
+            self._schedule_followup_reads()
         else:
             self._moving_dir = 1 if action == _ACTION_OPEN else -1
             self._ensure_poll()
@@ -551,6 +583,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         """Cancel any in-flight travel, poll or probe task."""
         self._cancel_move()
         self._cancel_poll()
+        self._cancel_followup()
         if self._probe_task and not self._probe_task.done():
             self._probe_task.cancel()
         self._probe_task = None
