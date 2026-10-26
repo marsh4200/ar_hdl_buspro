@@ -333,9 +333,23 @@ class AirConditioner(Device):
         # Last full 13-int payload observed for this HVAC No., or None if
         # nothing has been seen yet.
         self._raw_payload: list[int] | None = None
+        self._stopped = False
 
         self.register_telegram_received_cb(self._telegram_received_cb)
         self._call_read_current_status(run_from_init=True)
+
+    def stop(self) -> None:
+        """Stop the startup read retries and detach from the bus.
+
+        Used when a panel AC slot turns out to speak another protocol (see
+        AutoPanelAc in dlp_ac.py), so this reader doesn't keep asking.
+        """
+        self._stopped = True
+        self.unregister_telegram_received_cb(self._telegram_received_cb)
+
+    @property
+    def supported_modes(self) -> list[str]:
+        return list(self.MODE_TO_BYTE)
 
     def _telegram_received_cb(self, telegram) -> None:
         if telegram.operate_code not in (
@@ -467,7 +481,7 @@ class AirConditioner(Device):
         async def _read():
             if run_from_init:
                 await asyncio.sleep(5)
-            while self._raw_payload is None:
+            while self._raw_payload is None and not self._stopped:
                 try:
                     await self.read_status()
                 except Exception:  # noqa: BLE001

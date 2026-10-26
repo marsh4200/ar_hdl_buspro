@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..helpers.enums import OperateCode
 from ..helpers.generics import Generics
-from .control import _ReadStatusOfChannels, _SingleChannelControl
+from .control import _GenericControl, _ReadStatusOfChannels, _SingleChannelControl
 from .device import Device
 
 
@@ -72,6 +72,29 @@ class Light(Device):
     async def set_brightness(self, intensity: int, running_time_seconds: int = 0) -> None:
         """Set the light brightness (0–100)."""
         await self._set(intensity, running_time_seconds)
+
+    async def set_dali_colour(
+        self, intensity: int, dali_type: int, values: list[int]
+    ) -> None:
+        """Set a DALI-2 colour channel: brightness 0-100 plus its colour.
+
+        0xE45C [channel, brightness, 0xFE, 0, 0, type, c1..c6] - HDL Studio's
+        own colour output (UserDimmerControl.OutputDALICCT). For RGB types
+        the colour bytes are 0-255 per primary; for CCT (type 2) they are
+        Kelvin high byte, Kelvin low byte.
+        """
+        intensity = max(0, min(100, int(intensity)))
+        colour = [max(0, min(255, int(v))) for v in values][:6]
+        colour += [0] * (6 - len(colour))
+        ctrl = _GenericControl(self._buspro)
+        ctrl.subnet_id, ctrl.device_id = self._device_address
+        ctrl.operate_code = OperateCode.ControlDALIColour
+        ctrl.payload = [self._channel, intensity, 0xFE, 0, 0, int(dali_type)] + colour
+        self._brightness = intensity
+        self._set_previous_brightness(intensity)
+        await ctrl.send()
+        # The colour reply isn't documented; read the channel level back.
+        self._call_read_current_status_of_channels()
 
     async def read_status(self) -> None:
         """Re-read this channel's live status from the module.

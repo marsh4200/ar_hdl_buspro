@@ -123,7 +123,15 @@
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
           "keypad_leds": "Tastatur-LED-knapper",
           "min_temp": "Minimum settpunkt °C (0 = standard)",
-          "max_temp": "Maksimum settpunkt °C (0 = standard)"
+          "max_temp": "Maksimum settpunkt °C (0 = standard)",
+          "ac_protocol": "AC-protokoll for DLP-panel (kun DLP AC; auto = spør panelet)",
+          "light_color": "DALI-2 fargekanal (ingen = vanlig dimmer)",
+          "rgb_mode": "Fargetype",
+          "red_channel": "Rød kanal",
+          "green_channel": "Grønn kanal",
+          "blue_channel": "Blå kanal",
+          "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
+          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene"
         },
         "data_description": {
           "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
@@ -165,7 +173,15 @@
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
           "keypad_leds": "Tastatur-LED-knapper",
           "min_temp": "Minimum settpunkt °C (0 = standard)",
-          "max_temp": "Maksimum settpunkt °C (0 = standard)"
+          "max_temp": "Maksimum settpunkt °C (0 = standard)",
+          "ac_protocol": "AC-protokoll for DLP-panel (kun DLP AC; auto = spør panelet)",
+          "light_color": "DALI-2 fargekanal (ingen = vanlig dimmer)",
+          "rgb_mode": "Fargetype",
+          "red_channel": "Rød kanal",
+          "green_channel": "Grønn kanal",
+          "blue_channel": "Blå kanal",
+          "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
+          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene"
         },
         "data_description": {
           "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
@@ -209,7 +225,11 @@
       "contact_name_required": "Skriv inn et navn.",
       "invalid_email": "Skriv inn en gyldig e-postadresse.",
       "contact_required": "Skriv inn navn og e-post først - ingen lisens blir forespurt uten dem.",
-      "no_devices_selected": "Kryss av for minst én enhet."
+      "no_devices_selected": "Kryss av for minst én enhet.",
+      "rgb_channels_missing": "Gi hver farge et kanalnummer (RGBW trenger også hvit kanal).",
+      "rgb_channels_duplicate": "Hver farge trenger sin egen kanal - samme kanal er brukt to ganger.",
+      "rgb_channel_in_group": "En av disse kanalene tilhører allerede en RGB-gruppe på denne modulen.",
+      "rgb_channel_in_use": "Disse kanalene har allerede lys eller brytere. Kryss av for 'Erstatt' for å flytte dem inn i RGB-gruppen."
     },
     "abort": {
       "no_devices": "Ingen enheter er konfigurert ennå.",
@@ -231,7 +251,8 @@
         "binary_sensor": "Binær sensor",
         "climate": "Klima",
         "cover": "Cover / Curtain",
-        "keypad_button": "Tastaturknapp (sender til Home Assistant)"
+        "keypad_button": "Tastaturknapp (sender til Home Assistant)",
+        "rgb_light": "RGB / RGBW-lys (gruppe av dimmerkanaler)"
       }
     },
     "sensor_kind": {
@@ -272,6 +293,35 @@
       "options": {
         "curtain_module": "HDL curtain module",
         "relay_pair": "Two relay channels (open/close pair)"
+      }
+    },
+    "climate_kind": {
+      "options": {
+        "dlp_ac": "Klimaanlegg på DLP-panel"
+      }
+    },
+    "ac_protocol": {
+      "options": {
+        "auto": "Automatisk (spør panelet)",
+        "dlp_classic": "Klassisk DLP (0xE0EC / 0xE0EE)",
+        "dlp_precise": "OLED TILE DLP (0x19AE / 0x19B0)",
+        "hvac": "HVAC-protokoll (0x1938 / 0x193A)"
+      }
+    },
+    "light_color": {
+      "options": {
+        "none": "Ingen - vanlig dimmerkanal",
+        "cct": "Justerbar hvit (CCT)",
+        "rgb": "RGB",
+        "rgbw": "RGBW",
+        "rgbcw": "RGBCW (RGB + kald + varm hvit)",
+        "rgbwaf": "RGBWAF"
+      }
+    },
+    "rgb_mode": {
+      "options": {
+        "rgb": "RGB (3 kanaler)",
+        "rgbw": "RGBW (4 kanaler)"
       }
     }
   },

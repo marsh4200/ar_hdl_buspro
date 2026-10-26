@@ -130,7 +130,30 @@ CLIMATE_KIND_AC_IR: Final = "ac_ir"
 # HDL-MPTL4C.48 0x0890). Subnet/Device are the PANEL's address, HVAC No. is
 # the panel's AC slot, temperature_channel is the panel's own sensor channel.
 CLIMATE_KIND_AC_PANEL: Final = "ac_panel"
-CLIMATE_KINDS: Final = [CLIMATE_KIND_DLP, CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL]
+# AC page of a DLP panel. HDL Studio drives it with a different protocol per
+# panel generation (see pybuspro/devices/dlp_ac.py), picked by CONF_AC_PROTOCOL.
+# A saved "ac_panel" entry also finds this out by itself at runtime (an older
+# scan imported DLP ACs as ac_panel, which a DLP never answers).
+CLIMATE_KIND_DLP_AC: Final = "dlp_ac"
+CLIMATE_KINDS: Final = [
+    CLIMATE_KIND_DLP,
+    CLIMATE_KIND_AC_IR,
+    CLIMATE_KIND_AC_PANEL,
+    CLIMATE_KIND_DLP_AC,
+]
+CONF_AC_PROTOCOL: Final = "ac_protocol"
+AC_PROTOCOL_AUTO: Final = "auto"          # ask the panel, use what it answers
+AC_PROTOCOL_DLP_CLASSIC: Final = "dlp_classic"  # 0xE0EC / 0xE0EE
+AC_PROTOCOL_DLP_PRECISE: Final = "dlp_precise"  # 0x19AE / 0x19B0 (OLED TILE)
+AC_PROTOCOL_HVAC: Final = "hvac"          # 0x1938 / 0x193A (as an IR module)
+AC_PROTOCOLS: Final = [
+    AC_PROTOCOL_AUTO,
+    AC_PROTOCOL_DLP_CLASSIC,
+    AC_PROTOCOL_DLP_PRECISE,
+    AC_PROTOCOL_HVAC,
+]
+# DLP AC modes/fan speeds (same order HDL uses for every AC page).
+DLP_AC_HVAC_MODES: Final = ["cool", "heat", "fan_only", "auto", "dry"]
 # Modes a panel AC slot can actually select (field 6: 0 cool, 1 heat).
 PANEL_AC_HVAC_MODES: Final = ["cool", "heat"]
 # "HVAC No." (1-4): which of the IR module's live AC channels this entity
@@ -177,6 +200,53 @@ EVENT_KEYPAD_BUTTON: Final = "ar_hdl_buspro_keypad_button"
 # Keypad button-target type for "universal switch" (0xE001 reply byte 2).
 TARGET_TYPE_UNIVERSAL_SWITCH: Final = 88
 
+# One colour light made of several channels of a plain dimmer module (e.g. a
+# 6-channel LED dimmer wired as R, G, B [, W]). The module itself knows
+# nothing about colour; the grouping lives only in this integration.
+DEVICE_TYPE_RGB_LIGHT: Final = "rgb_light"
+CONF_RGB_MODE: Final = "rgb_mode"           # "rgb" or "rgbw"
+RGB_MODE_RGB: Final = "rgb"
+RGB_MODE_RGBW: Final = "rgbw"
+RGB_MODES: Final = [RGB_MODE_RGB, RGB_MODE_RGBW]
+CONF_RED_CHANNEL: Final = "red_channel"
+CONF_GREEN_CHANNEL: Final = "green_channel"
+CONF_BLUE_CHANNEL: Final = "blue_channel"
+CONF_WHITE_CHANNEL: Final = "white_channel"
+# Add form only (not stored): remove plain light/switch entries already set
+# up on the channels this group takes over.
+CONF_REPLACE_CHANNELS: Final = "replace_channels"
+
+# DALI-2 channel colour type on a "light" entry (CONF_LIGHT_COLOR). Empty /
+# missing = an ordinary dimmer channel, exactly as before.
+CONF_LIGHT_COLOR: Final = "light_color"
+LIGHT_COLOR_NONE: Final = "none"
+LIGHT_COLOR_CCT: Final = "cct"
+LIGHT_COLOR_RGB: Final = "rgb"
+LIGHT_COLOR_RGBW: Final = "rgbw"
+LIGHT_COLOR_RGBCW: Final = "rgbcw"
+LIGHT_COLOR_RGBWAF: Final = "rgbwaf"
+LIGHT_COLORS: Final = [
+    LIGHT_COLOR_NONE,
+    LIGHT_COLOR_CCT,
+    LIGHT_COLOR_RGB,
+    LIGHT_COLOR_RGBW,
+    LIGHT_COLOR_RGBCW,
+    LIGHT_COLOR_RGBWAF,
+]
+# DALI-2 controllers that report a per-channel type (0xF016 [0x0B]); HDL
+# Studio's DALINew2DimmerDeviceTypeLists.
+DALI2_COLOUR_TYPE_CODES: Final = frozenset({0x10D4, 0x10D6, 0x10D7})
+# Channel type byte (0xF016 [0x0B] reply) -> light colour kind. 0 = on/off,
+# 1 = plain dimming, 7 = XY (not offered: brightness only).
+DALI2_TYPE_TO_LIGHT_COLOR: Final = {
+    2: LIGHT_COLOR_CCT,
+    3: LIGHT_COLOR_RGB,
+    4: LIGHT_COLOR_RGBW,
+    5: LIGHT_COLOR_RGBCW,
+    6: LIGHT_COLOR_RGBWAF,
+}
+LIGHT_COLOR_TO_DALI2_TYPE: Final = {v: k for k, v in DALI2_TYPE_TO_LIGHT_COLOR.items()}
+
 DEVICE_TYPES: Final = [
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SWITCH,
@@ -186,6 +256,7 @@ DEVICE_TYPES: Final = [
     DEVICE_TYPE_BINARY_SENSOR,
     DEVICE_TYPE_CLIMATE,
     DEVICE_TYPE_KEYPAD_BUTTON,
+    DEVICE_TYPE_RGB_LIGHT,
 ]
 
 # Cover modes
@@ -537,6 +608,10 @@ HDL_TYPE_NAMES: Final = {
     "0x02F5": "Mesh gateway",
     "0x0455": "Logic module",
     "0x08CA": "Granite Display keypad",
+    "0x10D4": "DALI-2 controller (64ch, colour)",
+    "0x10D5": "DALI-2 controller (64ch)",
+    "0x10D6": "DALI-2 controller (64ch, colour)",
+    "0x10D7": "DALI-2 controller (64ch, colour)",
 }
 
 # Pseudo device type used only by the discovery flow: keypads/wall panels are
@@ -581,6 +656,14 @@ HDL_DIMMER_TYPE_CODES: Final = {
     "0x0011",  # HDL-MRDA06 / SB-DN-6B0-10v 6ch 0-10V dimmer
     "0x164B",  # dimmer module
     "0x027E",  # dimmer module
+    # DALI-2 controllers (HDL Studio DALI2DimmerDeviceTypeLists; newer than
+    # the generated catalogue). 0x10D4/0x10D6/0x10D7 also report a colour
+    # type per channel - see DALI2_COLOUR_TYPE_CODES.
+    "0x10D3",
+    "0x10D4",
+    "0x10D5",
+    "0x10D6",
+    "0x10D7",
 }
 
 # Dispatcher signals

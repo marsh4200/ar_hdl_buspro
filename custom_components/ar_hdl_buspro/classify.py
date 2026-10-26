@@ -300,3 +300,31 @@ def panel_features(type_code, family: str, ops, self_functions) -> list[str]:
     if ac:
         features.append(PANEL_FEATURE_AC)
     return features
+
+
+# ----- DLP AC page: which protocol does this panel use? ---------------------
+# HDL Studio (ACCommon.ReadCurrentStatus) picks the AC protocol by type code:
+# high-precision OLED TILE DLPs use 0x19AE/0x19B0, 0x08DF uses the HVAC
+# protocol 0x1938/0x193A, every other DLP the classic 0xE0EC/0xE0EE page.
+DLP_AC_PRECISE_CODES = frozenset({0x088F, 0x08BE, 0x08C1, 0x08C2, 0x08C4, 0x08C5})
+DLP_AC_HVAC_CODES = frozenset({0x08DF})
+
+
+def is_dlp_panel(type_code: str | None) -> bool:
+    """True for a DLP-style panel (not an Enviro/Granite touch panel)."""
+    if catalog_family(type_code) == "dlp_panel":
+        return True
+    value = code_int(type_code)
+    return value is not None and (
+        value in DLP_AC_PRECISE_CODES or value in DLP_AC_HVAC_CODES
+    )
+
+
+def dlp_ac_protocol(type_code: str | None) -> str:
+    """AC protocol for a DLP panel: 'dlp_precise', 'hvac' or 'dlp_classic'."""
+    value = code_int(type_code)
+    if value is not None and value in DLP_AC_PRECISE_CODES:
+        return "dlp_precise"
+    if value is not None and value in DLP_AC_HVAC_CODES:
+        return "hvac"
+    return "dlp_classic"

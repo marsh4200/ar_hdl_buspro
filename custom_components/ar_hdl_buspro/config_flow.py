@@ -36,7 +36,26 @@ from .const import (
     CLIMATE_KIND_AC_IR,
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
+    CLIMATE_KIND_DLP_AC,
     CLIMATE_KINDS,
+    AC_PROTOCOL_AUTO,
+    AC_PROTOCOLS,
+    CONF_AC_PROTOCOL,
+    DLP_AC_HVAC_MODES,
+    CONF_LIGHT_COLOR,
+    CONF_RGB_MODE,
+    CONF_RED_CHANNEL,
+    CONF_GREEN_CHANNEL,
+    CONF_BLUE_CHANNEL,
+    CONF_WHITE_CHANNEL,
+    CONF_REPLACE_CHANNELS,
+    DEVICE_TYPE_RGB_LIGHT,
+    RGB_MODE_RGB,
+    RGB_MODE_RGBW,
+    RGB_MODES,
+    DALI2_TYPE_TO_LIGHT_COLOR,
+    LIGHT_COLOR_NONE,
+    LIGHT_COLORS,
     CLIMATE_PRESETS,
     CONF_AC_HVAC_MODES,
     CONF_MAX_TEMP,
@@ -148,8 +167,10 @@ from .classify import (
     catalog_family,
     catalog_name,
     channel_plan_from_functions,
+    dlp_ac_protocol,
     dry_contact_zones,
     function_summary,
+    is_dlp_panel,
     panel_features,
     panel_has_humidity,
     rcu_plan,
@@ -276,6 +297,17 @@ def _light_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_DIMMABLE, default=defaults.get(CONF_DIMMABLE, True)
             ): selector.BooleanSelector(),
+            # DALI-2 colour channel only; "none" = ordinary dimmer channel.
+            vol.Optional(
+                CONF_LIGHT_COLOR,
+                default=defaults.get(CONF_LIGHT_COLOR) or LIGHT_COLOR_NONE,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=LIGHT_COLORS,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_LIGHT_COLOR,
+                )
+            ),
             vol.Optional(
                 CONF_RUNNING_TIME,
                 default=defaults.get(CONF_RUNNING_TIME, DEFAULT_RUNNING_TIME),
@@ -555,6 +587,19 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=8, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            # DLP panel AC only (climate_kind = dlp_ac): which AC protocol the
+            # panel speaks. "auto" asks the panel; the bus scan fills in the
+            # one HDL Studio uses for that panel's type code.
+            vol.Optional(
+                CONF_AC_PROTOCOL,
+                default=defaults.get(CONF_AC_PROTOCOL, AC_PROTOCOL_AUTO),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=AC_PROTOCOLS,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_AC_PROTOCOL,
+                )
+            ),
             # Touch-panel AC only: the panel's own temperature-sensor channel
             # (0xE3E7), used for the room temperature. 0 = don't read one.
             vol.Optional(
@@ -635,6 +680,111 @@ def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _channel_box(key: str, default: int, minimum: int = 1) -> dict:
+    return {
+        vol.Required(key, default=default): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=minimum, max=64, mode=selector.NumberSelectorMode.BOX
+            )
+        )
+    }
+
+
+def _rgb_light_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """One colour light made of 3 or 4 channels of a dimmer module."""
+    fields = {
+        **_common_address_fields(defaults),
+        vol.Required(
+            CONF_RGB_MODE, default=defaults.get(CONF_RGB_MODE, RGB_MODE_RGB)
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=RGB_MODES,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                translation_key=CONF_RGB_MODE,
+            )
+        ),
+        **_channel_box(CONF_RED_CHANNEL, defaults.get(CONF_RED_CHANNEL, 1)),
+        **_channel_box(CONF_GREEN_CHANNEL, defaults.get(CONF_GREEN_CHANNEL, 2)),
+        **_channel_box(CONF_BLUE_CHANNEL, defaults.get(CONF_BLUE_CHANNEL, 3)),
+        # RGBW only; ignored for RGB.
+        **_channel_box(
+            CONF_WHITE_CHANNEL, defaults.get(CONF_WHITE_CHANNEL, 0), minimum=0
+        ),
+    }
+    if not defaults:
+        # Add form only: take over plain lights already on these channels.
+        fields[
+            vol.Optional(CONF_REPLACE_CHANNELS, default=True)
+        ] = selector.BooleanSelector()
+    return vol.Schema(fields)
+
+
+def _rgb_group_channels(device: dict[str, Any]) -> list[int]:
+    """Channels an RGB group entry uses (empty for any other entry)."""
+    if device.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_RGB_LIGHT:
+        return []
+    keys = [CONF_RED_CHANNEL, CONF_GREEN_CHANNEL, CONF_BLUE_CHANNEL]
+    if device.get(CONF_RGB_MODE) == RGB_MODE_RGBW:
+        keys.append(CONF_WHITE_CHANNEL)
+    out = []
+    for key in keys:
+        try:
+            out.append(int(device.get(key)))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _channel_conflicts(
+    device: dict[str, Any], devices: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Entries that use the same channel(s) of the same module as `device`.
+
+    Returns (plain light/switch entries, other RGB groups). The entry being
+    edited (same id) is never its own conflict.
+    """
+    addr = (device.get(CONF_SUBNET_ID), device.get(CONF_DEVICE_ID))
+    if device.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_RGB_LIGHT:
+        mine = set(_rgb_group_channels(device))
+    elif device.get(CONF_DEVICE_TYPE) in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SWITCH):
+        try:
+            mine = {int(device.get(CONF_CHANNEL))}
+        except (TypeError, ValueError):
+            mine = set()
+    else:
+        return [], []
+    plain: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = []
+    for other in devices:
+        if other.get("id") and other.get("id") == device.get("id"):
+            continue
+        if (other.get(CONF_SUBNET_ID), other.get(CONF_DEVICE_ID)) != addr:
+            continue
+        otype = other.get(CONF_DEVICE_TYPE)
+        if otype == DEVICE_TYPE_RGB_LIGHT:
+            if mine & set(_rgb_group_channels(other)):
+                groups.append(other)
+        elif otype in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SWITCH):
+            try:
+                ch = int(other.get(CONF_CHANNEL))
+            except (TypeError, ValueError):
+                continue
+            if ch in mine:
+                plain.append(other)
+    return plain, groups
+
+
+def _validate_rgb_group(device: dict[str, Any]) -> str | None:
+    """Error key for a bad RGB group, or None."""
+    channels = _rgb_group_channels(device)
+    wanted = 4 if device.get(CONF_RGB_MODE) == RGB_MODE_RGBW else 3
+    if len(channels) != wanted or any(ch < 1 for ch in channels):
+        return "rgb_channels_missing"
+    if len(set(channels)) != len(channels):
+        return "rgb_channels_duplicate"
+    return None
+
+
 DEVICE_SCHEMA_BUILDERS = {
     DEVICE_TYPE_LIGHT: _light_schema,
     DEVICE_TYPE_SWITCH: _switch_schema,
@@ -644,6 +794,7 @@ DEVICE_SCHEMA_BUILDERS = {
     DEVICE_TYPE_COVER: _cover_schema,
     DEVICE_TYPE_CLIMATE: _climate_schema,
     DEVICE_TYPE_KEYPAD_BUTTON: _keypad_button_schema,
+    DEVICE_TYPE_RGB_LIGHT: _rgb_light_schema,
 }
 
 
@@ -675,6 +826,10 @@ def _normalize_device_input(
         CONF_HVAC_NUMBER,
         CONF_MIN_TEMP,
         CONF_MAX_TEMP,
+        CONF_RED_CHANNEL,
+        CONF_GREEN_CHANNEL,
+        CONF_BLUE_CHANNEL,
+        CONF_WHITE_CHANNEL,
     )
     for field in int_fields:
         if field in out and out[field] is not None and out[field] != "":
@@ -682,6 +837,13 @@ def _normalize_device_input(
                 out[field] = int(out[field])
             except (TypeError, ValueError):
                 pass
+    # Form-only flag, never stored.
+    out.pop(CONF_REPLACE_CHANNELS, None)
+    if out.get(CONF_LIGHT_COLOR) in (None, "", LIGHT_COLOR_NONE):
+        # A plain dimmer channel stores exactly what it always did.
+        out.pop(CONF_LIGHT_COLOR, None)
+    if device_type == DEVICE_TYPE_RGB_LIGHT and out.get(CONF_RGB_MODE) != RGB_MODE_RGBW:
+        out.pop(CONF_WHITE_CHANNEL, None)
     if device_type == DEVICE_TYPE_KEYPAD_BUTTON:
         # Keypad buttons live at Home Assistant's own bus address.
         out[CONF_SUBNET_ID], out[CONF_DEVICE_ID] = HA_VIRTUAL_ADDRESS
@@ -706,12 +868,14 @@ def _device_summary(device: dict[str, Any]) -> str:
         ch is None
         and dtype == DEVICE_TYPE_CLIMATE
         and device.get(CONF_CLIMATE_KIND)
-        in (CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL)
+        in (CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL, CLIMATE_KIND_DLP_AC)
     ):
         # Several AC entities can share one IR module's address, only
         # distinguished by HVAC No. -- show it so the device list (and
         # edit/remove pickers) don't display identical-looking rows.
         ch = device.get(CONF_HVAC_NUMBER)
+    if ch is None and dtype == DEVICE_TYPE_RGB_LIGHT:
+        ch = "/".join(str(c) for c in _rgb_group_channels(device)) or None
     addr = f"{sub}.{dev}" + (f".{ch}" if ch is not None else "")
     return f"{name} [{dtype} @ {addr}]"
 
@@ -953,7 +1117,7 @@ def _panel_feature_configured(devices, disc, feature: str) -> bool:
         ):
             return True
         if feature == PANEL_FEATURE_AC and dtype == DEVICE_TYPE_CLIMATE and (
-            kind == CLIMATE_KIND_AC_PANEL
+            kind in (CLIMATE_KIND_AC_PANEL, CLIMATE_KIND_DLP_AC)
         ):
             return True
     return False
@@ -2005,6 +2169,10 @@ class ARHDLOptionsFlow(OptionsFlow):
                 parts.append(f"{len(plan)}ch")
         elif role == DEVICE_TYPE_BINARY_SENSOR and _disc_zones(disc):
             parts.append(f"{_disc_zones(disc)} zones")
+        dali = getattr(disc, "dali_channel_types", None) or []
+        colour = sum(1 for t in dali if t in DALI2_TYPE_TO_LIGHT_COLOR)
+        if colour:
+            parts.append(f"{colour} colour ch")
         # Our own table first (field-confirmed names), then HDL's catalogue,
         # then the vendored enum name.
         friendly = (
@@ -2103,6 +2271,13 @@ class ARHDLOptionsFlow(OptionsFlow):
                 )
                 for d in devices
             }
+            # Channels taken by an RGB group stay with the group: a re-scan
+            # must not add plain lights on them again.
+            for d in devices:
+                for ch in _rgb_group_channels(d):
+                    existing_triples.add(
+                        (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID), ch)
+                    )
             # Remember which entries already existed so the climate-limits
             # step below only asks about the ones this import adds.
             before_import = {id(d) for d in devices}
@@ -2326,6 +2501,20 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
             return 1
         if feature == PANEL_FEATURE_AC:
+            if is_dlp_panel(disc.type_code):
+                # A DLP's AC page has its own protocol (dlp_ac.py); the
+                # Enviro/Granite one below is never answered by a DLP.
+                devices.append(
+                    {
+                        **base,
+                        CONF_NAME: f"{name} AC",
+                        CONF_CLIMATE_KIND: CLIMATE_KIND_DLP_AC,
+                        CONF_AC_PROTOCOL: dlp_ac_protocol(disc.type_code),
+                        CONF_HVAC_NUMBER: 1,
+                        CONF_AC_HVAC_MODES: list(DLP_AC_HVAC_MODES),
+                    }
+                )
+                return 1
             devices.append(
                 {
                     **base,
@@ -2527,6 +2716,16 @@ class ARHDLOptionsFlow(OptionsFlow):
                     CONF_RUNNING_TIME: DEFAULT_RUNNING_TIME,
                 }
             )
+            # DALI-2 controller that reported this channel's type: colour
+            # channels get a colour light, on/off channels an on/off one.
+            types_ = getattr(disc, "dali_channel_types", None) or []
+            idx = (channel or 1) - 1
+            if 0 <= idx < len(types_):
+                colour = DALI2_TYPE_TO_LIGHT_COLOR.get(types_[idx])
+                if colour:
+                    base[CONF_LIGHT_COLOR] = colour
+                elif types_[idx] == 0:
+                    base[CONF_DIMMABLE] = False
         elif dtype == DEVICE_TYPE_SWITCH:
             base[CONF_CHANNEL] = channel or 1
         elif dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
@@ -2611,19 +2810,54 @@ class ARHDLOptionsFlow(OptionsFlow):
         """Show the type-specific add form."""
         dtype = self._adding_device_type or DEVICE_TYPE_LIGHT
         schema_builder = DEVICE_SCHEMA_BUILDERS[dtype]
+        errors: dict[str, str] = {}
 
         if user_input is not None:
+            replace = bool(user_input.get(CONF_REPLACE_CHANNELS, False))
             device = _normalize_device_input(dtype, user_input)
             device["id"] = uuid.uuid4().hex
             devices = self.devices
-            devices.append(device)
-            return self._save_devices(devices)
+            error = self._channel_error(device, devices, replace)
+            if error:
+                errors["base"] = error
+            else:
+                if dtype == DEVICE_TYPE_RGB_LIGHT and replace:
+                    plain, _groups = _channel_conflicts(device, devices)
+                    gone = {d["id"] for d in plain if d.get("id")}
+                    for d in plain:
+                        self._purge_registry_for_device(d)
+                    devices = [d for d in devices if d.get("id") not in gone]
+                devices.append(device)
+                return self._save_devices(devices)
 
         return self.async_show_form(
             step_id="add_device_form",
             data_schema=schema_builder({}),
+            errors=errors,
             description_placeholders={"device_type": dtype},
         )
+
+    @staticmethod
+    def _channel_error(
+        device: dict[str, Any], devices: list[dict[str, Any]], replace: bool = False
+    ) -> str | None:
+        """Keep each channel owned by one entry (plain light or RGB group)."""
+        dtype = device.get(CONF_DEVICE_TYPE)
+        if dtype == DEVICE_TYPE_RGB_LIGHT:
+            error = _validate_rgb_group(device)
+            if error:
+                return error
+            plain, groups = _channel_conflicts(device, devices)
+            if groups:
+                return "rgb_channel_in_group"
+            if plain and not replace:
+                return "rgb_channel_in_use"
+            return None
+        if dtype in (DEVICE_TYPE_LIGHT, DEVICE_TYPE_SWITCH):
+            _plain, groups = _channel_conflicts(device, devices)
+            if groups:
+                return "rgb_channel_in_group"
+        return None
 
     # ----- edit device: pick one, then show the matching form --------------
     async def async_step_edit_device(
@@ -2671,16 +2905,22 @@ class ARHDLOptionsFlow(OptionsFlow):
         dtype = target[CONF_DEVICE_TYPE]
         schema_builder = DEVICE_SCHEMA_BUILDERS[dtype]
 
+        errors: dict[str, str] = {}
         if user_input is not None:
             updated = _normalize_device_input(dtype, user_input)
             updated["id"] = target["id"]
-            new_devices = [
-                updated if d["id"] == target["id"] else d for d in devices
-            ]
-            return self._save_devices(new_devices)
+            error = self._channel_error(updated, devices)
+            if error:
+                errors["base"] = error
+            else:
+                new_devices = [
+                    updated if d["id"] == target["id"] else d for d in devices
+                ]
+                return self._save_devices(new_devices)
 
         return self.async_show_form(
             step_id="edit_device_form",
+            errors=errors,
             data_schema=schema_builder(target),
             description_placeholders={
                 "device_type": dtype,

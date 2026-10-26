@@ -168,7 +168,15 @@
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
           "keypad_leds": "Keypad LED buttons",
           "min_temp": "Minimum setpoint °C (0 = default)",
-          "max_temp": "Maximum setpoint °C (0 = default)"
+          "max_temp": "Maximum setpoint °C (0 = default)",
+          "ac_protocol": "DLP panel AC protocol (DLP AC only; auto = ask the panel)",
+          "light_color": "DALI-2 colour channel type (none = ordinary dimmer)",
+          "rgb_mode": "Colour type",
+          "red_channel": "Red channel",
+          "green_channel": "Green channel",
+          "blue_channel": "Blue channel",
+          "white_channel": "White channel (RGBW only, 0 = none)",
+          "replace_channels": "Replace lights/switches already set up on these channels"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
@@ -216,7 +224,15 @@
           "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning",
           "keypad_leds": "Keypad LED buttons",
           "min_temp": "Minimum setpoint °C (0 = default)",
-          "max_temp": "Maximum setpoint °C (0 = default)"
+          "max_temp": "Maximum setpoint °C (0 = default)",
+          "ac_protocol": "DLP panel AC protocol (DLP AC only; auto = ask the panel)",
+          "light_color": "DALI-2 colour channel type (none = ordinary dimmer)",
+          "rgb_mode": "Colour type",
+          "red_channel": "Red channel",
+          "green_channel": "Green channel",
+          "blue_channel": "Blue channel",
+          "white_channel": "White channel (RGBW only, 0 = none)",
+          "replace_channels": "Replace lights/switches already set up on these channels"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
@@ -264,7 +280,11 @@
       "contact_name_required": "Enter a name.",
       "invalid_email": "Enter a valid email address.",
       "contact_required": "Enter a name and email first - no licence is requested without them.",
-      "no_devices_selected": "Tick at least one device to remove."
+      "no_devices_selected": "Tick at least one device to remove.",
+      "rgb_channels_missing": "Give every colour a channel number (RGBW also needs the white channel).",
+      "rgb_channels_duplicate": "Each colour needs its own channel - the same channel is used twice.",
+      "rgb_channel_in_group": "One of these channels already belongs to an RGB group on this module.",
+      "rgb_channel_in_use": "These channels already have lights or switches set up. Tick 'Replace' to move them into this RGB group."
     },
     "abort": {
       "no_devices": "No devices are configured yet.",
@@ -286,7 +306,8 @@
         "binary_sensor": "Binary sensor",
         "climate": "Climate",
         "cover": "Cover / Curtain",
-        "keypad_button": "Keypad button (sends to Home Assistant)"
+        "keypad_button": "Keypad button (sends to Home Assistant)",
+        "rgb_light": "RGB / RGBW light (group of dimmer channels)"
       }
     },
     "sensor_kind": {
@@ -336,7 +357,8 @@
       "options": {
         "dlp": "DLP panel (floor heating / thermostat)",
         "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)",
-        "ac_panel": "Air conditioner via touch panel (HDL Enviro / Granite)"
+        "ac_panel": "Air conditioner via touch panel (HDL Enviro / Granite)",
+        "dlp_ac": "Air conditioner on a DLP panel"
       }
     },
     "ac_hvac_mode": {
@@ -346,6 +368,30 @@
         "fan_only": "Fan only",
         "auto": "Auto",
         "dry": "Dry"
+      }
+    },
+    "ac_protocol": {
+      "options": {
+        "auto": "Auto-detect (ask the panel)",
+        "dlp_classic": "Classic DLP (0xE0EC / 0xE0EE)",
+        "dlp_precise": "OLED TILE DLP (0x19AE / 0x19B0)",
+        "hvac": "HVAC protocol (0x1938 / 0x193A)"
+      }
+    },
+    "light_color": {
+      "options": {
+        "none": "None - ordinary dimmer channel",
+        "cct": "Tunable white (CCT)",
+        "rgb": "RGB",
+        "rgbw": "RGBW",
+        "rgbcw": "RGBCW (RGB + cold + warm white)",
+        "rgbwaf": "RGBWAF"
+      }
+    },
+    "rgb_mode": {
+      "options": {
+        "rgb": "RGB (3 channels)",
+        "rgbw": "RGBW (4 channels)"
       }
     }
   },

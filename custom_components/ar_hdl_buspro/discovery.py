@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 
 from .const import (
+    DALI2_COLOUR_TYPE_CODES,
     HDL_DIMMER_TYPE_CODES,
     HDL_DRY_CONTACT_ZONES,
     HDL_KEYPAD_TYPE_CODES,
@@ -44,6 +45,7 @@ from .classify import (
     PANEL_FAMILIES,
     catalog_entry,
     catalog_family,
+    code_int,
     function_summary,
     parse_module_reply,
     triples,
@@ -131,10 +133,18 @@ _KEYPAD_LISTEN = 1.5
 _KEYPAD_MAX_TARGETS = 4      # targets read per button (stops early when empty)
 _KEYPAD_DEFAULT_BUTTONS = 8  # when neither the device nor the catalogue says
 _KEYPAD_MAX_BUTTONS = 32
+# DALI-2 per-channel type (HDL Studio Dimmer.ReadDALIChannelCurrentType):
+# request [0x0B] -> reply [0x0B, type per channel]. Asked only of the DALI-2
+# controllers that support it.
+_DALI_CURRENT_TYPE = 0x0B
+_DALI_LISTEN = 1.5
+_DALI_ROUNDS = 2
+DALI_PHASE_MAX_SECONDS = 6.0
 SCAN_TIMEOUT_MARGIN = (
     DIRECTED_PHASE_MAX_SECONDS
     + IDENTIFY_PHASE_MAX_SECONDS
     + KEYPAD_PHASE_MAX_SECONDS
+    + DALI_PHASE_MAX_SECONDS
     + 5.0
 )
 
@@ -235,6 +245,10 @@ class DiscoveredDevice:
     button_targets: dict[int, dict[int, tuple[int, int, int, int, int]]] = field(
         default_factory=dict
     )
+    # DALI-2 controllers only: per-channel type from 0xF016 [0x0B]
+    # (index 0 = channel 1). 0 on/off, 1 dimming, 2 CCT, 3 RGB, 4 RGBW,
+    # 5 RGBCW, 6 RGBWAF, 7 XY. None if never read / never answered.
+    dali_channel_types: list[int] | None = None
 
     @property
     def address(self) -> str:
@@ -283,6 +297,12 @@ class DiscoveredDevice:
             reported += f" buttons=[{', '.join(links)}]"
         if self.self_functions:
             reported = f" self-reported=[{function_summary(self.self_functions) or self.self_functions}]"
+        if self.dali_channel_types:
+            colour = [
+                f"ch{i}={t}" for i, t in enumerate(self.dali_channel_types, 1) if t >= 2
+            ]
+            if colour:
+                reported += f" dali-colour=[{', '.join(colour)}]"
         return (
             f"{self.address}{name} type={self.type_code}({self.type_name}) "
             f"{chans}{hint}{reported} replied=[{ops}]"
@@ -372,6 +392,20 @@ class BusScanner:
                     dev.self_functions = functions
                 if remark and not dev.remark:
                     dev.remark = self._decode_remark(list(remark.encode("latin-1")))
+
+            if op_name == "ReadDALIChannelInfoResponse":
+                payload = list(getattr(telegram, "payload", None) or [])
+                # [0x0B, type ch1, type ch2, ...]; other sub-commands share
+                # this reply code, so only the current-type answer is used.
+                if len(payload) >= 2 and int(payload[0]) == _DALI_CURRENT_TYPE:
+                    types_ = []
+                    for raw in payload[1:65]:
+                        try:
+                            value = int(raw)
+                        except (TypeError, ValueError):
+                            value = 1
+                        types_.append(value if 0 <= value <= 7 else 1)
+                    dev.dali_channel_types = types_
 
             if op_name == "ReadDryContactStatusResponse":
                 payload = getattr(telegram, "payload", None) or []
@@ -508,6 +542,8 @@ class BusScanner:
             await self._identify_unknown_devices()
             # Phase 4 - read keypad button programming (keypad LED sync).
             await self._read_keypad_buttons()
+            # Phase 5 - DALI-2 controllers: which channels are colour lights.
+            await self._read_dali_channel_types()
         finally:
             # Restore the previous catch-all so normal operation is untouched.
             buspro.callback_all_messages = previous_cb
@@ -743,6 +779,31 @@ class BusScanner:
                 if dev.button_targets.get(button, {}).get(target_no, (0,))[0]
                 not in (0, 255)
             ]
+
+    async def _read_dali_channel_types(self) -> None:
+        """Ask each colour-capable DALI-2 controller for its channel types."""
+        if self._buspro.network_interface is None:
+            return
+        targets = [
+            d for d in self._found.values()
+            if code_int(d.type_code) in DALI2_COLOUR_TYPE_CODES
+        ]
+        if not targets:
+            return
+        deadline = time.monotonic() + DALI_PHASE_MAX_SECONDS
+        for _round in range(_DALI_ROUNDS):
+            pending = [d for d in targets if d.dali_channel_types is None]
+            if not pending or time.monotonic() >= deadline:
+                break
+            for dev in pending:
+                await self._send_directed(
+                    (dev.subnet_id, dev.device_id),
+                    OperateCode.ReadDALIChannelInfo,
+                    [_DALI_CURRENT_TYPE],
+                )
+            await asyncio.sleep(
+                min(_DALI_LISTEN, max(deadline - time.monotonic(), 0.0))
+            )
 
     def _log_summary(self, found: list[DiscoveredDevice], duration: float) -> None:
         """Log a human-readable summary of the scan at INFO level."""

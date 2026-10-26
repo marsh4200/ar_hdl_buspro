@@ -163,6 +163,36 @@ class OperateCode(Enum):
     # Touch-panel AC page (HDL Enviro / Granite family). One field per frame:
     # [field, value, ac_channel]; read request is [field, ch, ch]. See
     # pybuspro/devices/panel_ac.py for the field map and provenance.
+    # DLP panel AC page, as HDL Studio drives it (ACCommon.ReadCurrentStatus /
+    # SaveCurrentStatus, frmDLP.btnSaveControl_Click). Classic DLPs:
+    #   0xE0EC read, no payload -> 0xE0ED [power, cool, mode<<4|fan, lock,
+    #     room, heat, running, auto, dry, swing]
+    #   0xE0EE write [power, cool, mode<<4|fan, lock, heat, auto, dry, swing]
+    # OLED TILE DLPs ("high precision", setpoints with a decimal byte):
+    #   0x19AE read [ac] -> 0x19AF; 0x19B0 write (14 bytes). See dlp_ac.py.
+    ReadDLPAC = b"\xE0\xEC"
+    ReadDLPACResponse = b"\xE0\xED"
+    ControlDLPAC = b"\xE0\xEE"
+    ControlDLPACResponse = b"\xE0\xEF"
+    ReadDLPPreciseAC = b"\x19\xAE"
+    ReadDLPPreciseACResponse = b"\x19\xAF"
+    ControlDLPPreciseAC = b"\x19\xB0"
+    ControlDLPPreciseACResponse = b"\x19\xB1"
+
+    # DALI-2 controller (HDL Studio Dimmer.ReadDALIChannelCurrentType):
+    #   0xF016 [0x0B] -> 0xF017 [0x0B, type ch1, type ch2, ...]
+    #   type: 0 on/off, 1 dimming, 2 CCT, 3 RGB, 4 RGBW, 5 RGBCW, 6 RGBWAF, 7 XY
+    ReadDALIChannelInfo = b"\xF0\x16"
+    ReadDALIChannelInfoResponse = b"\xF0\x17"
+    # Colour output on a DALI-2 channel (UserDimmerControl.OutputDALICCT):
+    #   [channel, brightness 0-100, 0xFE, 0, 0, type, c1..c6]
+    #   RGB* types: colour bytes 0-255; CCT: Kelvin high, Kelvin low.
+    ControlDALIColour = b"\xE4\x5C"
+    ControlDALIColourResponse = b"\xE4\x5D"
+    # Older DALI controllers with colour temperature: [channel, K hi, K lo].
+    ControlDALIColourTemp = b"\x19\xE2"
+    ControlDALIColourTempResponse = b"\x19\xE3"
+
     ControlPanelAC = b"\xE3\xD8"
     ControlPanelACResponse = b"\xE3\xD9"
     ReadPanelAC = b"\xE3\xDA"
