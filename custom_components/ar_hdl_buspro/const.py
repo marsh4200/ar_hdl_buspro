@@ -200,6 +200,19 @@ EVENT_KEYPAD_BUTTON: Final = "ar_hdl_buspro_keypad_button"
 # Keypad button-target type for "universal switch" (0xE001 reply byte 2).
 TARGET_TYPE_UNIVERSAL_SWITCH: Final = 88
 
+# LED dimmer modules -> channel count. The bus scan offers these as colour
+# lights (an RGB/RGBW group), since an LED dimmer is usually wired to an
+# RGB/RGBW strip - the module itself can't say so.
+LED_DIMMER_CHANNELS: Final = {
+    "0x0265": 6,
+    "0x026E": 6,
+    "0x0287": 6,
+    "0x0288": 6,
+    "0x297E": 6,
+    "0x026F": 4,
+    "0x16A8": 4,
+}
+
 # One colour light made of several channels of a plain dimmer module (e.g. a
 # 6-channel LED dimmer wired as R, G, B [, W]). The module itself knows
 # nothing about colour; the grouping lives only in this integration.
@@ -656,6 +669,17 @@ HDL_DIMMER_TYPE_CODES: Final = {
     "0x0011",  # HDL-MRDA06 / SB-DN-6B0-10v 6ch 0-10V dimmer
     "0x164B",  # dimmer module
     "0x027E",  # dimmer module
+    # HDL LED dimmer modules. The catalogue files the 4-channel one under
+    # "dmx" and some 6-channel ones under no family at all, so without these
+    # pins their channels fell through to "switch" whenever the scan didn't
+    # happen to see them dimmed.
+    "0x0265",  # HDL-MLED0605.432 6ch 5A LED dimmer
+    "0x026E",  # HDL-MDLED0605.432 6ch 5A LED dimmer
+    "0x026F",  # HDL-MDLED0407.432 4ch 7A LED dimmer
+    "0x0287",  # HDL-MDLED0605.432 6ch 5A LED dimmer
+    "0x0288",  # HDL-MDLED0605.432 6ch 5A LED dimmer
+    "0x16A8",  # HDL-MDLED0407-RF.40 4ch wireless LED dimmer
+    "0x297E",  # HDL-ADLED0605.432 6ch 5A LED dimmer
     # DALI-2 controllers (HDL Studio DALI2DimmerDeviceTypeLists; newer than
     # the generated catalogue). 0x10D4/0x10D6/0x10D7 also report a colour
     # type per channel - see DALI2_COLOUR_TYPE_CODES.

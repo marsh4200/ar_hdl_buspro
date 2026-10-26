@@ -306,6 +306,76 @@ async def main():
               got.get(const.CONF_CLIMATE_KIND) == kind
               and got.get(const.CONF_AC_PROTOCOL) == proto)
 
+    # --- scan: LED dimmers are lights and offer colour lights --------------
+    class Disc:
+        def __init__(self, code, dev_id, channels):
+            self.type_code = code
+            self.type_name = "Unknown"
+            self.subnet_id, self.device_id = 1, dev_id
+            self.remark = None
+            self.address = f"1.{dev_id}"
+            self.key = f"1-{dev_id}"
+            self.op_codes = {"ReadStatusOfChannelsResponse"}
+            self.channel_count = channels
+            self.self_functions = None
+            self.dimmer_evidence = False   # never dimmed during the scan
+            self.looks_like_keypad = False
+            self.dali_channel_types = None
+            self.payloads = {}
+
+    led4 = Disc("0x026F", 31, 4)   # HDL-MDLED0407: catalogue family "dmx"
+    led6 = Disc("0x0287", 32, 6)   # HDL-MDLED0605: no catalogue family
+    relay = Disc("0x01C8", 33, 8)  # catalogue mislabels it a dimmer
+    flow2 = cf.ARHDLOptionsFlow.__new__(cf.ARHDLOptionsFlow)
+    flow2.hass = None
+    check("4ch LED dimmer is a light, not a switch",
+          flow2._infer_device_type(led4, set()) == const.DEVICE_TYPE_LIGHT)
+    check("6ch LED dimmer is a light", flow2._infer_device_type(led6, set()) == const.DEVICE_TYPE_LIGHT)
+    check("0x01C8 relay unchanged", flow2._infer_device_type(relay, set()) == const.DEVICE_TYPE_SWITCH)
+    check("4ch LED offers RGBW + RGB", cf._disc_colour_features(led4, "light") == ["rgbw_light", "rgb_lights"])
+    check("plain dimmer offers no colour",
+          cf._disc_colour_features(Disc("0x0260", 34, 6), "light") == [])
+    check("6ch RGB label", "2 x RGB light with colour wheel (ch 1-3, ch 4-6)"
+          in cf._colour_feature_label(led6, "rgb_lights"))
+
+    # The module was imported earlier as 4 switches; now tick RGBW.
+    old_switches = [
+        {"id": f"s{ch}", const.CONF_DEVICE_TYPE: "switch", const.CONF_SUBNET_ID: 1,
+         const.CONF_DEVICE_ID: 31, const.CONF_CHANNEL: ch} for ch in range(1, 5)
+    ]
+    keep = {"id": "other", const.CONF_DEVICE_TYPE: "light", const.CONF_SUBNET_ID: 1,
+            const.CONF_DEVICE_ID: 99, const.CONF_CHANNEL: 1}
+    devs = old_switches + [keep]
+    made = flow2._import_colour_feature(led4, "rgbw_light", devs)
+    check("RGBW group created", len(made) == 1 and made[0][const.CONF_WHITE_CHANNEL] == 4)
+    check("old switches replaced, other devices kept",
+          [d["id"] for d in devs if d[const.CONF_DEVICE_TYPE] != "rgb_light"] == ["other"])
+    check("ticking it again adds nothing", flow2._import_colour_feature(led4, "rgbw_light", devs) == [])
+    check("line shows as configured", cf._panel_feature_configured(devs, led4, "rgbw_light"))
+
+    # Whole scan import: module line + its RGB line ticked together.
+    class Entry2:
+        entry_id = "e1"
+        options = {const.CONF_DEVICES: []}
+
+    flow3 = cf.ARHDLOptionsFlow.__new__(cf.ARHDLOptionsFlow)
+    flow3.hass = None
+    flow3._entry = Entry2()
+    flow3._scan_results = [led6]
+    flow3._pending_scan_options = None
+    flow3._climate_limit_queue = []
+    flow3.async_create_entry = lambda title="", data=None: data
+    flow3.async_show_form = lambda **kw: kw
+    saved = await flow3.async_step_scan_results({
+        const.CONF_DISCOVERED: ["1-32", "1-32|rgb_lights"],
+        const.CONF_SPLIT_CHANNELS: True,
+        const.CONF_DIMMER_CODES: "",
+    })
+    got = saved.get(const.CONF_DEVICES, []) if isinstance(saved, dict) else []
+    kinds = sorted(d[const.CONF_DEVICE_TYPE] for d in got)
+    check("6ch import = 2 RGB lights, no duplicate plain channels",
+          kinds == ["rgb_light", "rgb_light"])
+
     # --- climate entity: DLP AC through the real climate.py ----------------
     climate_mod = importlib.import_module(f"{PKG}.climate")
     dlp_mod = importlib.import_module(f"{PKG}.pybuspro.devices.dlp_ac")

@@ -50,6 +50,7 @@ from .const import (
     CONF_WHITE_CHANNEL,
     CONF_REPLACE_CHANNELS,
     DEVICE_TYPE_RGB_LIGHT,
+    LED_DIMMER_CHANNELS,
     RGB_MODE_RGB,
     RGB_MODE_RGBW,
     RGB_MODES,
@@ -1067,11 +1068,44 @@ def _apply_keypad_links(devices: list, results) -> int:
     return changed
 
 
+# Colour-light lines the scan offers for LED dimmer modules.
+COLOUR_FEATURE_RGB = "rgb_lights"    # RGB on 1-3 (and 4-6 on a 6ch module)
+COLOUR_FEATURE_RGBW = "rgbw_light"   # RGBW on 1-4
+COLOUR_FEATURES = (COLOUR_FEATURE_RGB, COLOUR_FEATURE_RGBW)
+
 _PANEL_FEATURE_LABELS = {
     PANEL_FEATURE_TEMPERATURE: "temperature sensor",
     PANEL_FEATURE_FLOOR_HEATING: "floor heating",
     PANEL_FEATURE_AC: "air conditioner",
 }
+
+
+def _colour_layouts(disc, feature: str) -> list[tuple[str, list[int]]]:
+    """(rgb mode, channels) for each colour light a colour line creates."""
+    count = LED_DIMMER_CHANNELS.get(disc.type_code, 0)
+    if feature == COLOUR_FEATURE_RGBW and count >= 4:
+        return [(RGB_MODE_RGBW, [1, 2, 3, 4])]
+    if feature == COLOUR_FEATURE_RGB and count >= 3:
+        groups = [(RGB_MODE_RGB, [1, 2, 3])]
+        if count >= 6:
+            groups.append((RGB_MODE_RGB, [4, 5, 6]))
+        return groups
+    return []
+
+
+def _disc_colour_features(disc, role: str) -> list[str]:
+    """Colour-light lines to offer for a discovered LED dimmer module."""
+    if role != DEVICE_TYPE_LIGHT or disc.type_code not in LED_DIMMER_CHANNELS:
+        return []
+    return [f for f in (COLOUR_FEATURE_RGBW, COLOUR_FEATURE_RGB) if _colour_layouts(disc, f)]
+
+
+def _colour_feature_label(disc, feature: str) -> str:
+    layouts = _colour_layouts(disc, feature)
+    spans = ", ".join(f"ch {ch[0]}-{ch[-1]}" for _mode, ch in layouts)
+    kind = "RGBW light" if feature == COLOUR_FEATURE_RGBW else "RGB light"
+    count = f"{len(layouts)} x " if len(layouts) > 1 else ""
+    return f"{count}{kind} with colour wheel ({spans})"
 _FEATURE_SEP = "|"
 
 
@@ -1101,6 +1135,15 @@ def _disc_panel_features(disc, role: str) -> list[str]:
 
 def _panel_feature_configured(devices, disc, feature: str) -> bool:
     """Is this panel feature already in the config?"""
+    if feature in COLOUR_FEATURES:
+        wanted = {tuple(ch) for _mode, ch in _colour_layouts(disc, feature)}
+        have = {
+            tuple(_rgb_group_channels(d))
+            for d in devices
+            if (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID))
+            == (disc.subnet_id, disc.device_id)
+        }
+        return bool(wanted) and wanted <= have
     for d in devices:
         if (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID)) != (
             disc.subnet_id,
@@ -2217,6 +2260,7 @@ class ARHDLOptionsFlow(OptionsFlow):
             role = self._infer_device_type(disc)
             already = (disc.subnet_id, disc.device_id) in existing_addrs
             features = _disc_panel_features(disc, role)
+            colour_features = _disc_colour_features(disc, role)
             label = self._discovery_label(disc, role, already)
             if features and (role == ROLE_KEYPAD or role in HDL_NO_ENTITY_ROLES.values()):
                 # The panel line itself imports nothing: point at its
@@ -2239,6 +2283,19 @@ class ARHDLOptionsFlow(OptionsFlow):
                     feature_label = feature_label.replace(
                         "temperature sensor", "temperature + humidity", 1
                     )
+                if _panel_feature_configured(self.devices, disc, feature):
+                    feature_label += "  \u2713 in config"
+                options.append(
+                    selector.SelectOptionDict(
+                        value=f"{disc.key}{_FEATURE_SEP}{feature}",
+                        label=feature_label,
+                    )
+                )
+            for feature in colour_features:
+                feature_label = (
+                    f"{disc.address}  {_colour_feature_label(disc, feature)}"
+                    f"  ·  {name}"
+                )
                 if _panel_feature_configured(self.devices, disc, feature):
                     feature_label += "  \u2713 in config"
                 options.append(
@@ -2283,12 +2340,28 @@ class ARHDLOptionsFlow(OptionsFlow):
             before_import = {id(d) for d in devices}
             added = 0
             skipped_keypads = 0
-            for key in sorted(chosen_keys):
+            def _order(key: str):
+                # Colour lights first, so the module's own line then skips
+                # the channels they took instead of adding plain lights.
+                is_colour = _FEATURE_SEP in key and key.split(_FEATURE_SEP, 1)[1] in COLOUR_FEATURES
+                return (0 if is_colour else 1, key)
+
+            for key in sorted(chosen_keys, key=_order):
                 if _FEATURE_SEP in key:
                     disc_key, feature = key.split(_FEATURE_SEP, 1)
                     disc = by_key.get(disc_key)
-                    if disc is not None:
-                        added += self._import_panel_feature(disc, feature, devices)
+                    if disc is None:
+                        continue
+                    if feature in COLOUR_FEATURES:
+                        new_groups = self._import_colour_feature(disc, feature, devices)
+                        for group in new_groups:
+                            for ch in _rgb_group_channels(group):
+                                existing_triples.add(
+                                    (disc.subnet_id, disc.device_id, ch)
+                                )
+                        added += len(new_groups)
+                        continue
+                    added += self._import_panel_feature(disc, feature, devices)
                     continue
                 disc = by_key.get(key)
                 if disc is None:
@@ -2466,6 +2539,45 @@ class ARHDLOptionsFlow(OptionsFlow):
                 "remaining": str(len(queue)),
             },
         )
+
+    def _import_colour_feature(
+        self, disc, feature: str, devices: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Create the RGB/RGBW light(s) a colour line stands for.
+
+        Plain lights/switches already on those channels are replaced (same
+        as ticking "Replace" when adding a group by hand). A layout that
+        overlaps an existing RGB group is skipped.
+        """
+        name = _disc_name(disc)
+        layouts = _colour_layouts(disc, feature)
+        created: list[dict[str, Any]] = []
+        for index, (mode, channels) in enumerate(layouts, 1):
+            label = "RGBW" if mode == RGB_MODE_RGBW else "RGB"
+            group = {
+                "id": uuid.uuid4().hex,
+                CONF_DEVICE_TYPE: DEVICE_TYPE_RGB_LIGHT,
+                CONF_NAME: f"{name} {label}" + (f" {index}" if len(layouts) > 1 else ""),
+                CONF_SUBNET_ID: disc.subnet_id,
+                CONF_DEVICE_ID: disc.device_id,
+                CONF_RGB_MODE: mode,
+                CONF_RED_CHANNEL: channels[0],
+                CONF_GREEN_CHANNEL: channels[1],
+                CONF_BLUE_CHANNEL: channels[2],
+            }
+            if mode == RGB_MODE_RGBW:
+                group[CONF_WHITE_CHANNEL] = channels[3]
+            plain, groups = _channel_conflicts(group, devices)
+            if groups:
+                continue  # these channels already belong to a colour light
+            gone = {id(d) for d in plain}
+            for d in plain:
+                if getattr(self, "hass", None) is not None:
+                    self._purge_registry_for_device(d)
+            devices[:] = [d for d in devices if id(d) not in gone]
+            devices.append(group)
+            created.append(group)
+        return created
 
     def _import_panel_feature(
         self, disc, feature: str, devices: list[dict[str, Any]]
