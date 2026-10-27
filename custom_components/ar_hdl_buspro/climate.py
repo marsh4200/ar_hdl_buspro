@@ -30,7 +30,12 @@ from .const import (
     AC_HVAC_MODES,
     CLIMATE_KIND_AC_IR,
     CLIMATE_KIND_AC_PANEL,
+    CLIMATE_KIND_DLP_AC,
+    AC_PROTOCOL_AUTO,
+    AC_PROTOCOL_HVAC,
+    CONF_AC_PROTOCOL,
     CONF_AC_HVAC_MODES,
+    DLP_AC_HVAC_MODES,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
@@ -58,6 +63,7 @@ from .gateway import ARHDLGateway
 from .pybuspro.devices.climate import AirConditioner as PyBusproAirConditioner
 from .pybuspro.devices.climate import Climate as PyBusproClimate
 from .pybuspro.devices.climate import ControlFloorHeatingStatus
+from .pybuspro.devices.dlp_ac import AutoPanelAc, DlpAirConditioner
 from .pybuspro.devices.panel_ac import PanelAirConditioner
 from .pybuspro.devices.sensor import Sensor as PyBusproSensor
 from .pybuspro.helpers.enums import OnOffStatus
@@ -128,7 +134,7 @@ async def async_setup_entry(
         kind = device_cfg.get(CONF_CLIMATE_KIND)
         if kind == CLIMATE_KIND_AC_IR:
             entities.append(ARHDLAcClimate(entry, data.gateway, device_cfg))
-        elif kind == CLIMATE_KIND_AC_PANEL:
+        elif kind in (CLIMATE_KIND_AC_PANEL, CLIMATE_KIND_DLP_AC):
             entities.append(ARHDLPanelAcClimate(entry, data.gateway, device_cfg))
         else:
             entities.append(ARHDLDlpClimate(entry, data.gateway, device_cfg))
@@ -448,13 +454,18 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
 
 
 class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
-    """An air conditioner driven from a touch panel's AC page.
+    """An air conditioner driven from a wall panel's AC page.
 
-    HDL Enviro / Granite family panels (e.g. HDL-MPTL4C.48). Subnet/Device
-    are the panel's address, HVAC No. is the panel's AC slot. Power,
-    Cool/Heat mode, per-mode setpoint and fan (auto/low/medium/high) are
-    exposed; swing and setpoint limits are not mapped yet. See
-    pybuspro/devices/panel_ac.py for the protocol.
+    climate_kind = ac_panel: HDL Enviro / Granite family panels (e.g.
+    HDL-MPTL4C.48), field-per-frame protocol in panel_ac.py. Older scans
+    also imported DLP ACs this way, so the entry now asks the panel which
+    AC protocol it answers (AutoPanelAc) - an Enviro/Granite panel answers
+    its own one first and behaves exactly as before.
+
+    climate_kind = dlp_ac: a DLP's AC page, protocol per CONF_AC_PROTOCOL
+    (see pybuspro/devices/dlp_ac.py).
+
+    Subnet/Device are the panel's address, HVAC No. is the panel's AC slot.
     """
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -475,25 +486,50 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
 
         subnet = int(device_cfg[CONF_SUBNET_ID])
         device = int(device_cfg[CONF_DEVICE_ID])
-        ac_channel = int(device_cfg.get(CONF_HVAC_NUMBER, 1))
+        ac_channel = int(device_cfg.get(CONF_HVAC_NUMBER, 1) or 1)
         temp_channel = int(device_cfg.get(CONF_TEMP_CHANNEL, 1) or 0)
+        name = device_cfg.get(CONF_NAME, "")
+        kind = device_cfg.get(CONF_CLIMATE_KIND)
+        address = (subnet, device)
 
-        self._ac = PanelAirConditioner(
-            gateway.hdl,
-            (subnet, device),
-            ac_channel,
-            temperature_channel=temp_channel,
-            name=device_cfg.get(CONF_NAME, ""),
-        )
+        if kind == CLIMATE_KIND_DLP_AC:
+            protocol = device_cfg.get(CONF_AC_PROTOCOL, AC_PROTOCOL_AUTO)
+            if protocol == AC_PROTOCOL_HVAC:
+                self._ac = PyBusproAirConditioner(gateway.hdl, address, ac_channel, name)
+            elif protocol == AC_PROTOCOL_AUTO:
+                self._ac = AutoPanelAc(
+                    gateway.hdl,
+                    None,
+                    DlpAirConditioner(gateway.hdl, address, "auto", name),
+                    PyBusproAirConditioner(gateway.hdl, address, ac_channel, name),
+                )
+            else:
+                self._ac = DlpAirConditioner(gateway.hdl, address, protocol, name)
+            default_modes = DLP_AC_HVAC_MODES
+        else:
+            self._ac = AutoPanelAc(
+                gateway.hdl,
+                PanelAirConditioner(
+                    gateway.hdl,
+                    address,
+                    ac_channel,
+                    temperature_channel=temp_channel,
+                    name=name,
+                ),
+                DlpAirConditioner(gateway.hdl, address, "auto", name),
+                PyBusproAirConditioner(gateway.hdl, address, ac_channel, name),
+            )
+            default_modes = PANEL_AC_HVAC_MODES
         self._resync_device = self._ac
 
-        configured = device_cfg.get(CONF_AC_HVAC_MODES, PANEL_AC_HVAC_MODES)
-        modes = [m for m in PANEL_AC_HVAC_MODES if m in configured] or list(
-            PANEL_AC_HVAC_MODES
+        # Modes the user ticked. An entry left at its kind's default offers
+        # whatever the panel turns out to support.
+        configured = device_cfg.get(CONF_AC_HVAC_MODES)
+        self._configured_modes: list[str] | None = (
+            None
+            if not configured or list(configured) == list(default_modes)
+            else [m for m in configured if m in AC_MODE_TO_HA_HVAC_MODE]
         )
-        self._attr_hvac_modes = [HVACMode.OFF] + [
-            AC_MODE_TO_HA_HVAC_MODE[m] for m in modes
-        ]
 
         _apply_temp_limits(self, device_cfg)
         self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
@@ -506,6 +542,21 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_OFF
         )
 
+    @property
+    def _backend_modes(self) -> list[str]:
+        return list(
+            getattr(self._ac, "supported_modes", None) or PANEL_AC_HVAC_MODES
+        )
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        modes = self._backend_modes
+        if self._configured_modes:
+            modes = [m for m in modes if m in self._configured_modes] or modes
+        return [HVACMode.OFF] + [
+            AC_MODE_TO_HA_HVAC_MODE[m] for m in modes if m in AC_MODE_TO_HA_HVAC_MODE
+        ]
+
     async def async_added_to_hass(self) -> None:
         """Register update callbacks."""
         await super().async_added_to_hass()
@@ -517,7 +568,8 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Stop the panel's background reads."""
-        self._ac.stop()
+        if hasattr(self._ac, "stop"):
+            self._ac.stop()
         await super().async_will_remove_from_hass()
 
     # ----- state ----------------------------------------------------------
@@ -554,10 +606,14 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {
-            "cool_target_temperature": self._ac.cool_target_temperature,
-            "heat_target_temperature": self._ac.heat_target_temperature,
+        attrs = {
+            "cool_target_temperature": getattr(self._ac, "cool_target_temperature", None),
+            "heat_target_temperature": getattr(self._ac, "heat_target_temperature", None),
         }
+        detected = getattr(self._ac, "detected", None)
+        if detected:
+            attrs["ac_protocol"] = detected
+        return attrs
 
     # ----- commands -------------------------------------------------------
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -565,7 +621,7 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
             await self._ac.turn_off()
             return
         mode = HA_HVAC_MODE_TO_AC_MODE.get(hvac_mode)
-        if mode not in PANEL_AC_HVAC_MODES:
+        if mode not in self._backend_modes:
             _LOGGER.warning("Unsupported panel AC mode: %s", hvac_mode)
             return
         await self._ac.set_hvac_mode(mode)

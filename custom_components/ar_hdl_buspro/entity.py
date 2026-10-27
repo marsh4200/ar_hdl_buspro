@@ -19,6 +19,7 @@ from .const import (
     CLIMATE_KIND_AC_IR,
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
+    CLIMATE_KIND_DLP_AC,
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
@@ -31,6 +32,7 @@ from .const import (
     DEVICE_TYPE_COVER,
     DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_RGB_LIGHT,
     DEVICE_TYPE_SENSOR,
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_UNIVERSAL_SWITCH,
@@ -55,11 +57,13 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
     DEVICE_TYPE_SENSOR: "Sensor",
     DEVICE_TYPE_BINARY_SENSOR: "Binary Sensor",
     DEVICE_TYPE_KEYPAD_BUTTON: "Keypad Buttons",
+    DEVICE_TYPE_RGB_LIGHT: "RGB Light",
 }
 _CLIMATE_KIND_LABELS: dict[str, str] = {
     CLIMATE_KIND_DLP: "Climate – Floor Heating",
     CLIMATE_KIND_AC_IR: "Climate – AC via IR Module",
     CLIMATE_KIND_AC_PANEL: "Climate – AC via Touch Panel",
+    CLIMATE_KIND_DLP_AC: "Climate – AC via DLP Panel",
 }
 
 

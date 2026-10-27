@@ -71,10 +71,10 @@ Sorry to anyone who had devices come in as the wrong type on earlier versions. S
 
 | Platform | HDL hardware | Notes |
 |---|---|---|
-| **Light** | Dimmer modules (MDT0601, MD0602, MRDA06 0-10V, …), MRCU dimmer channels, relay channels | Dimmable or on/off, ramp time, keypad LED sync |
+| **Light** | Dimmer modules (MDT0601, MD0602, MRDA06 0-10V, …), MRCU dimmer channels, relay channels, DALI / DALI-2 controllers | Dimmable or on/off, ramp time, keypad LED sync, [colour lights](#colour-lights-rgb-groups-and-dali-2) |
 | **Switch** | Relay modules (MR0410, MR0816, MR1210, MR1616, …), MRCU relays, Buspro wireless panels with built-in relays | One entity per relay channel, keypad LED sync |
 | **Cover** | Curtain modules (MW02 / MWM / MVSM families) **and** relay-pair curtains | Open / close / stop plus an estimated position |
-| **Climate** | Floor heating (DLP panels), AC via an IR module, AC via a touch panel | See [Air conditioning](#air-conditioning) |
+| **Climate** | Floor heating (DLP panels), AC via an IR module, a touch panel or a DLP panel | See [Air conditioning](#air-conditioning) |
 | **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M, temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
 | **Binary sensor** | Motion, dry-contact zones, universal switches, channel status | One entity per dry-contact zone |
 | **Universal switch** | IR modules (HDL-MIRC04.40) and any universal-switch number | Virtual on/off flags for scenes and logic |
@@ -355,9 +355,19 @@ The **position slider** is driven by **travel time** (default 30 s, per device).
 
 **Relay-pair curtains** (a motor on two relay channels plus a travel timer) are added by hand: *Add a device → Cover → mode: relay pair*.
 
+### Colour lights: RGB groups and DALI-2
+
+**LED dimmer wired as RGB / RGBW.** The dimmer module has no idea its channels are colours - HDL Studio keeps that in its own project. For HDL LED dimmer modules (MDLED0407 4-ch, MDLED0605 / MLED0605 / ADLED0605 6-ch) the scan therefore offers extra lines you can tick: **RGBW light with colour wheel (ch 1-4)** and **RGB light with colour wheel** (ch 1-3, plus 4-6 on a 6-channel module). Ticking one creates the colour light and replaces plain lights or switches already on those channels. For any other dimmer, add it under **Configure → Add a device → RGB / RGBW light**: subnet / device of the dimmer, colour type, and which channel is red, green, blue (and white). You get one light with brightness and a colour wheel. Each channel is still an ordinary dimmer channel on the bus, so a keypad or scene changing them moves the colour wheel too. A 6-channel module takes two RGB groups, or one RGBW group plus two plain dimmers.
+
+Leave **Replace lights/switches already set up on these channels** ticked and any plain lights already on those channels are removed, so two entities never fight over one channel. A plain light can't be added on a channel that belongs to a group, and a re-scan won't add plain lights back on grouped channels. Other dimmers are not touched.
+
+**DALI-2 controllers** (`0x10D4`, `0x10D6`, `0x10D7`) report each channel's type, so the scan asks (the same request HDL Studio uses) and imports colour channels as colour lights: tunable white (CCT), RGB, RGBW, RGBCW and RGBWAF. On-off channels import as on/off lights, everything else as ordinary dimmers. You can also set **DALI-2 colour channel type** on any light under *Edit a device*. Brightness uses the normal dimmer command; colour uses HDL's DALI colour command. The controller doesn't report colour back, so the colour shown is the last one set from Home Assistant (kept across restarts).
+
 ### Air conditioning
 
-The scan doesn't find these; add them under **Configure → Add a device → Climate**.
+**DLP panels** - the scan imports a DLP's AC as *Air conditioner on a DLP panel*, using the AC protocol HDL Studio uses for that panel: classic DLPs `0xE0EC` / `0xE0EE`, OLED TILE DLPs `0x19AE` / `0x19B0`, `0x08DF` the HVAC protocol. All five modes (Cool, Heat, Fan, Auto, Dry), fan speed, setpoint and the panel's room temperature. Earlier versions imported DLP ACs as touch-panel ACs, which a DLP never answers; those entries now find the right protocol by themselves at startup (the `ac_protocol` attribute shows what was found) - nothing to re-scan. Your DLP buttons, floor heating and temperature sensor are unchanged.
+
+The scan doesn't find the others; add them under **Configure → Add a device → Climate**.
 
 | | Via an IR module | Via a touch panel |
 |---|---|---|
@@ -375,7 +385,7 @@ The IR mapping comes from real bus captures ([issue #17](https://github.com/mars
 
 Everything the scanner does you can do manually, and everything it imports you can refine:
 
-- **Add a device**: light, switch, universal switch, cover, climate, sensor, binary sensor or keypad button, with subnet / device / channel and type-specific options.
+- **Add a device**: light, RGB / RGBW light, switch, universal switch, cover, climate, sensor, binary sensor or keypad button, with subnet / device / channel and type-specific options.
 - **Edit a device**: name, channel, dimmable, curtain number, cover mode, presets, scan interval, keypad LED buttons…
 - **Remove devices**: tick several and remove them together; the hardware is untouched.
 
@@ -399,6 +409,7 @@ These codes are confirmed from real installations and always take priority. Anyt
 | `0x0890` | Climate | HDL-MPTL4C.48 Granite Display; also imports its temperature and humidity sensors |
 | `0x0260` / `0x026D` / `0x0269` / `0x027E` | Light (dimmer) | MDT0601 / MD0602 / MDT06015 6-ch dimmers |
 | `0x0011` | Light (dimmer) | HDL-MRDA06 / SB-DN-6B0-10v 6-ch 0-10V dimmer |
+| `0x10D3`–`0x10D7` | Light (dimmer / colour) | DALI-2 64-ch controllers; `0x10D4` / `0x10D6` / `0x10D7` also report colour channels |
 | `0x164B` | Light (dimmer) | HDL-MPD01-RF.28 1-ch wireless dimmer |
 | `0x01AC`, `0x01BD`, `0x01BF`, `0x01C1`, `0x01C2` | Switch | Relay modules (4 / 8 / 12 / 16 ch) |
 | `0x0DCE` | Switch + Light | HDL-MRCU home control unit: channels 1–17 and 22 as switches, 18–21 as dimmable lights |
