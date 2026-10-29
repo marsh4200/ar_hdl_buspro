@@ -51,6 +51,7 @@ from .const import (
     CONF_NAME,
     CONF_OPEN_CHANNEL,
     CONF_RECALIBRATE_BEFORE_REPOSITION,
+    CONF_REVERSE_DIRECTION,
     CONF_SUBNET_ID,
     CONF_TRAVEL_TIME,
     COVER_MODE_CURTAIN_MODULE,
@@ -163,6 +164,10 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         self._recalibrate = bool(
             device_cfg.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False)
         )
+        # Motor mounted / wired the other way round: swap open and close
+        # on the wire. Everything above the wire (self._status, position,
+        # the action constants) stays in HA's terms.
+        self._reverse = bool(device_cfg.get(CONF_REVERSE_DIRECTION, False))
         # None -> unknown until the module tells us something.
         self._status: int | None = None
         # Optimistic position: 0 = closed, 100 = open. Assume closed at boot,
@@ -170,6 +175,22 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
         self._position = 0
         self._move_task: asyncio.Task | None = None
         self._moving_dir = 0  # +1 opening, -1 closing, 0 idle
+
+    def _flip(self, action: int) -> int:
+        """Swap open<->close when this curtain is set to reverse direction.
+
+        Applied to every action sent and every status received, so the same
+        call converts HA terms to wire terms and back.
+        """
+        if self._reverse and action in (_ACTION_OPEN, _ACTION_CLOSE):
+            return _ACTION_CLOSE if action == _ACTION_OPEN else _ACTION_OPEN
+        return action
+
+    async def _send_action(self, action: int) -> None:
+        await self._send(
+            OperateCode.CurtainSwitchControl,
+            [self._curtain_number, self._flip(action)],
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register bus callback and request initial status."""
@@ -187,7 +208,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
             OperateCode.ReadStatusOfCurtainSwitchResponse,
         ):
             if len(payload) >= 2 and payload[0] == self._curtain_number:
-                self._status = payload[1]
+                self._status = self._flip(payload[1])
                 # A bus report of fully open/closed is ground truth -- resync
                 # our estimate to it. A STOP report is ambiguous (could be
                 # mid-travel) so we leave the estimated position alone.
@@ -227,9 +248,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
     async def _start_move(self, action: int, target: int) -> None:
         """Fire `action` on the wire, then track/estimate position toward `target`."""
         self._cancel_move()
-        await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, action]
-        )
+        await self._send_action(action)
         self._status = action
         self._moving_dir = 1 if action == _ACTION_OPEN else -1
         self.async_write_ha_state()
@@ -258,10 +277,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
                 # Partial position -- the module has no idea it should stop
                 # here on its own, so tell it explicitly. Full open/close is
                 # left to the module's own limit switches, same as before.
-                await self._send(
-                    OperateCode.CurtainSwitchControl,
-                    [self._curtain_number, _ACTION_STOP],
-                )
+                await self._send_action(_ACTION_STOP)
                 self._status = _ACTION_STOP
         except asyncio.CancelledError:
             # Stopped mid-travel; keep the interpolated position.
@@ -318,9 +334,7 @@ class ARHDLCurtainModuleCover(_ARHDLCoverBase):
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the curtain."""
         self._cancel_move()
-        await self._send(
-            OperateCode.CurtainSwitchControl, [self._curtain_number, _ACTION_STOP]
-        )
+        await self._send_action(_ACTION_STOP)
         self._status = _ACTION_STOP
         self._moving_dir = 0
         self.async_write_ha_state()
@@ -351,6 +365,12 @@ class ARHDLRelayPairCover(_ARHDLCoverBase):
         super().__init__(entry, gateway, device_cfg)
         self._open_channel = int(device_cfg.get(CONF_OPEN_CHANNEL, 1))
         self._close_channel = int(device_cfg.get(CONF_CLOSE_CHANNEL, 2))
+        if device_cfg.get(CONF_REVERSE_DIRECTION, False):
+            # Motor wired the other way round: the "open" relay closes it.
+            self._open_channel, self._close_channel = (
+                self._close_channel,
+                self._open_channel,
+            )
         self._travel_time = max(
             1, int(device_cfg.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME))
         )
