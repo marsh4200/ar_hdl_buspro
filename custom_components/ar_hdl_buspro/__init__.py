@@ -129,8 +129,18 @@ SERVICE_UNIVERSAL_SWITCH_SCHEMA = vol.Schema(
 # Setup / unload
 # ---------------------------------------------------------------------------
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Set up the AR HDL BUSPRO integration (no-op; UI configuration only)."""
+    """Set up the AR HDL BUSPRO integration (UI configuration only).
+
+    Also adds the "HDL Devices" sidebar page (device_manager.py), once per
+    Home Assistant run, so it survives entry reloads.
+    """
     hass.data.setdefault(DOMAIN, {})
+    from homeassistant.loader import async_get_integration
+
+    from .device_manager import async_setup_device_manager
+
+    integration = await async_get_integration(hass, DOMAIN)
+    await async_setup_device_manager(hass, str(integration.version))
     return True
 
 
