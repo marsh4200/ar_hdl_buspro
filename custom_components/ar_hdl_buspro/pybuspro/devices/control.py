@@ -64,6 +64,9 @@ class _Control:
         elif isinstance(control, _ReadFloorHeatingStatus):
             operate_code = OperateCode.ReadFloorHeatingStatus
             payload = []
+        elif isinstance(control, _ReadFloorHeatingConfig):
+            operate_code = OperateCode.ReadFloorHeatingConfig
+            payload = []
         elif isinstance(control, _ReadDryContactStatus):
             operate_code = OperateCode.ReadDryContactStatus
             payload = [1, control.switch_number]
@@ -77,6 +80,11 @@ class _Control:
                 control.day_temperature,
                 control.night_temperature,
                 control.away_temperature,
+                # HeatingType (0 heating, 1 cooling, 2 auto, 3 off). HDL
+                # Studio always sends this 8th byte (PanelFH.SaveCurrentStatus);
+                # DLP panels ignore the 7-byte form, which is why floor
+                # heating on a DLP never switched while its AC page did.
+                0 if control.heating_type is None else control.heating_type,
             ]
         else:
             return None
@@ -152,6 +160,10 @@ class _ReadFloorHeatingStatus(_Control):
     pass
 
 
+class _ReadFloorHeatingConfig(_Control):
+    """Floor-heating configuration read (0x1940); see Climate in climate.py."""
+
+
 class _ReadTemperature(_Control):
     """Channel-addressed temperature read (0xE3E7) for MPTL/panel devices."""
 
@@ -174,6 +186,7 @@ class _ControlFloorHeatingStatus(_Control):
         self.day_temperature = None
         self.night_temperature = None
         self.away_temperature = None
+        self.heating_type = None
 
 
 class _ReadDryContactStatus(_Control):

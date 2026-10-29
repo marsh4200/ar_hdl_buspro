@@ -10,7 +10,19 @@ from ..helpers.enums import (
     TemperatureType,
 )
 from ..helpers.generics import Generics
-from .control import _ControlFloorHeatingStatus, _GenericControl, _ReadFloorHeatingStatus
+from .control import (
+    _ControlFloorHeatingStatus,
+    _GenericControl,
+    _ReadFloorHeatingConfig,
+    _ReadFloorHeatingStatus,
+)
+
+# HeatingType values (HDL Studio userDLPFHControl): 0 heating, 1 cooling,
+# 2 auto, 3 off. Byte 33 of the 0x1941 configuration reply on DLP / OLED
+# panels (PanelFH.ReadFHConfig); panels whose reply is shorter have none.
+_HEATING_TYPES = (0, 1, 2, 3)
+_HEATING_TYPE_INDEX = 33
+_DEFAULT_HEATING_TYPE = 0
 from .device import Device
 
 
@@ -44,6 +56,8 @@ class Climate(Device):
         self._day_temperature = None
         self._night_temperature = None
         self._away_temperature = None
+        # Sent back as byte 8 of every write; read from the panel's config.
+        self._heating_type = None
 
         self.register_telegram_received_cb(self._telegram_received_cb)
         self._call_read_current_heating_status(run_from_init=True)
@@ -79,6 +93,13 @@ class Climate(Device):
         elif op == OperateCode.BroadcastTemperatureResponse:
             self._current_temperature = payload[1]
             self._call_device_updated()
+
+        elif op == OperateCode.ReadFloorHeatingConfigResponse:
+            if (
+                len(payload) > _HEATING_TYPE_INDEX
+                and payload[_HEATING_TYPE_INDEX] in _HEATING_TYPES
+            ):
+                self._heating_type = payload[_HEATING_TYPE_INDEX]
 
     async def read_heating_status(self) -> None:
         """Trigger a read of the current heating status."""
@@ -140,6 +161,9 @@ class Climate(Device):
         cfhs.day_temperature = day_temperature
         cfhs.night_temperature = night_temperature
         cfhs.away_temperature = away_temperature
+        cfhs.heating_type = (
+            _DEFAULT_HEATING_TYPE if self._heating_type is None else self._heating_type
+        )
 
         async def _send():
             await cfhs.send()
@@ -163,8 +187,15 @@ class Climate(Device):
                 await asyncio.sleep(5)
             req = _ReadFloorHeatingStatus(self._buspro)
             req.subnet_id, req.device_id = self._device_address
+            cfg = _ReadFloorHeatingConfig(self._buspro)
+            cfg.subnet_id, cfg.device_id = self._device_address
             try:
                 await req.send()
+                if run_from_init:
+                    # The heating type the panel is set to, so a write
+                    # doesn't switch a cooling/auto panel to heating.
+                    await asyncio.sleep(0.5)
+                    await cfg.send()
             except Exception:  # noqa: BLE001
                 self._buspro.logger.debug(
                     "Initial climate read failed for %s", self._device_address
@@ -199,6 +230,11 @@ class Climate(Device):
     @property
     def away_temperature(self):
         return self._away_temperature
+
+    @property
+    def heating_type(self):
+        """Panel's floor-heating working type (0 heating .. 3 off), if read."""
+        return self._heating_type
 
     @property
     def device_identifier(self) -> str:

@@ -6,7 +6,11 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "network"
+    "frontend",
+    "http",
+    "network",
+    "panel_custom",
+    "websocket_api"
   ],
   "documentation": "https://github.com/marsh4200/ar_hdl_buspro",
   "integration_type": "hub",
@@ -17,5 +21,5 @@
     "ar_hdl_buspro.telegram"
   ],
   "requirements": [],
-  "version": "5.0.18"
+  "version": "5.1.1"
 }

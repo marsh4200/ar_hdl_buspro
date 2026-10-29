@@ -141,6 +141,12 @@ class OperateCode(Enum):
     ReadMotionSensorStatus = b"\xDB\x00"
     ReadMotionSensorStatusResponse = b"\xDB\x01"
 
+    # Floor-heating configuration read. Only its HeatingType byte is used:
+    # HDL Studio (DeviceCommon PanelFH.ReadFHConfig, V1.9.65) takes it from
+    # reply byte 33 on DLP / OLED panels and sends it back as byte 8 of
+    # every ControlFloorHeatingStatus - see pybuspro/devices/climate.py.
+    ReadFloorHeatingConfig = b"\x19\x40"
+    ReadFloorHeatingConfigResponse = b"\x19\x41"
     ReadFloorHeatingStatus = b"\x19\x44"
     ReadFloorHeatingStatusResponse = b"\x19\x45"
     ControlFloorHeatingStatus = b"\x19\x46"
