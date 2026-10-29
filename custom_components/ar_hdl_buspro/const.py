@@ -113,6 +113,13 @@ CONF_TRAVEL_TIME: Final = "travel_time"        # full open<->close travel, secon
 # through part of its range on every adjustment, so it's opt-in per device.
 # See GitHub issue #15.
 CONF_RECALIBRATE_BEFORE_REPOSITION: Final = "recalibrate_before_reposition"
+# Swap open and close for one curtain: for a motor mounted the other way
+# round (or wired reversed), so HA's "open" really opens it. Curtain module:
+# open/close actions are swapped on the wire and in the status the module
+# reports back. Relay pair: the open and close channels are swapped. This
+# only changes Home Assistant: panels and keypads that drive the motor
+# directly still run it the way the motor itself is set up.
+CONF_REVERSE_DIRECTION: Final = "reverse_direction"
 CONF_RELAY_SUBNET: Final = "relay_subnet"
 CONF_RELAY_DEVICE: Final = "relay_device"
 CONF_RELAY_CHANNEL: Final = "relay_channel"

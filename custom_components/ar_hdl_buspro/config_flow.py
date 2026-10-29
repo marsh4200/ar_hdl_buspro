@@ -92,6 +92,7 @@ from .const import (
     CONF_OPEN_CHANNEL,
     CONF_PRESET_MODES,
     CONF_RECALIBRATE_BEFORE_REPOSITION,
+    CONF_REVERSE_DIRECTION,
     CONF_RELAY_CHANNEL,
     CONF_RELAY_DEVICE,
     CONF_RELAY_SUBNET,
@@ -557,6 +558,10 @@ def _cover_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_RECALIBRATE_BEFORE_REPOSITION,
                 default=defaults.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_REVERSE_DIRECTION,
+                default=defaults.get(CONF_REVERSE_DIRECTION, False),
             ): selector.BooleanSelector(),
         }
     )
