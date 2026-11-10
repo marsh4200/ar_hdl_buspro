@@ -107,7 +107,9 @@ from .const import (
     CONF_TEMP_FAHRENHEIT,
     CONF_TEMP_OFFSET,
     CONF_TRAVEL_TIME,
+    CONF_USE_TRAVEL_TIMER,
     COVER_MODE_CURTAIN_MODULE,
+    COVER_MODE_RELAY_PAIR,
     COVER_MODES,
     DEFAULT_TRAVEL_TIME,
     DEFAULT_PORT,
@@ -547,17 +549,11 @@ def _cover_schema(defaults: dict[str, Any]) -> vol.Schema:
                     min=1, max=64, mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            # Off = the HDL system decides the position. On = travel timer;
+            # the seconds are asked on the next screen (cover_timer).
             vol.Optional(
-                CONF_TRAVEL_TIME,
-                default=defaults.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=600, mode=selector.NumberSelectorMode.BOX
-                )
-            ),
-            vol.Optional(
-                CONF_RECALIBRATE_BEFORE_REPOSITION,
-                default=defaults.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False),
+                CONF_USE_TRAVEL_TIMER,
+                default=defaults.get(CONF_USE_TRAVEL_TIMER, False),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_REVERSE_DIRECTION,
@@ -565,6 +561,38 @@ def _cover_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.BooleanSelector(),
         }
     )
+
+
+def _cover_timer_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Second cover screen, shown only when the travel timer is in use."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_TRAVEL_TIME,
+                default=defaults.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=600,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_RECALIBRATE_BEFORE_REPOSITION,
+                default=defaults.get(CONF_RECALIBRATE_BEFORE_REPOSITION, False),
+            ): selector.BooleanSelector(),
+        }
+    )
+
+
+def _cover_needs_timer(device: dict[str, Any]) -> bool:
+    """Relay pairs always run on the timer; curtain modules only when ticked."""
+    if device.get(CONF_DEVICE_TYPE) != DEVICE_TYPE_COVER:
+        return False
+    if device.get(CONF_COVER_MODE) == COVER_MODE_RELAY_PAIR:
+        return True
+    return bool(device.get(CONF_USE_TRAVEL_TIMER, False))
 
 def _climate_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
@@ -1562,6 +1590,9 @@ class ARHDLOptionsFlow(OptionsFlow):
         self._entry = entry
         self._editing_device_id: str | None = None
         self._adding_device_type: str | None = None
+        # Cover waiting for the travel-timer screen, and whether it's an edit.
+        self._pending_cover: dict[str, Any] | None = None
+        self._pending_cover_is_edit = False
         self._scan_results: list[Any] = []
         self._scan_task: asyncio.Task | None = None
         self._scan_started: float = 0.0
@@ -2944,6 +2975,10 @@ class ARHDLOptionsFlow(OptionsFlow):
                     for d in plain:
                         self._purge_registry_for_device(d)
                     devices = [d for d in devices if d.get("id") not in gone]
+                if _cover_needs_timer(device):
+                    self._pending_cover = device
+                    self._pending_cover_is_edit = False
+                    return await self.async_step_cover_timer()
                 devices.append(device)
                 return self._save_devices(devices)
 
@@ -3026,9 +3061,19 @@ class ARHDLOptionsFlow(OptionsFlow):
         if user_input is not None:
             updated = _normalize_device_input(dtype, user_input)
             updated["id"] = target["id"]
+            if dtype == DEVICE_TYPE_COVER:
+                # Timer settings live on their own screen; keep the stored
+                # values so they come back as defaults when it's shown.
+                for key in (CONF_TRAVEL_TIME, CONF_RECALIBRATE_BEFORE_REPOSITION):
+                    if key in target and key not in updated:
+                        updated[key] = target[key]
             error = self._channel_error(updated, devices)
             if error:
                 errors["base"] = error
+            elif _cover_needs_timer(updated):
+                self._pending_cover = updated
+                self._pending_cover_is_edit = True
+                return await self.async_step_cover_timer()
             else:
                 new_devices = [
                     updated if d["id"] == target["id"] else d for d in devices
@@ -3042,6 +3087,35 @@ class ARHDLOptionsFlow(OptionsFlow):
             description_placeholders={
                 "device_type": dtype,
                 "device_name": target.get(CONF_NAME, ""),
+            },
+        )
+
+    async def async_step_cover_timer(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the travel time of a cover that uses the timer."""
+        device = self._pending_cover
+        if device is None:
+            return self.async_abort(reason="device_not_found")
+
+        if user_input is not None:
+            device = {**device, **user_input}
+            device = _normalize_device_input(DEVICE_TYPE_COVER, device)
+            self._pending_cover = None
+            devices = self.devices
+            if self._pending_cover_is_edit:
+                devices = [
+                    device if d["id"] == device["id"] else d for d in devices
+                ]
+            else:
+                devices.append(device)
+            return self._save_devices(devices)
+
+        return self.async_show_form(
+            step_id="cover_timer",
+            data_schema=_cover_timer_schema(device),
+            description_placeholders={
+                "device_name": device.get(CONF_NAME, ""),
             },
         )
 

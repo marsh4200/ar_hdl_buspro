@@ -104,6 +104,11 @@ CONF_CURTAIN_NUMBER: Final = "curtain_number"  # curtain no. on an HDL curtain m
 CONF_OPEN_CHANNEL: Final = "open_channel"      # relay channel driving "open"
 CONF_CLOSE_CHANNEL: Final = "close_channel"    # relay channel driving "close"
 CONF_TRAVEL_TIME: Final = "travel_time"        # full open<->close travel, seconds
+# Curtain module only: on = position from the travel timer (asked for on a
+# second screen); off (default) = the HDL system decides -- real bus
+# position on HDL motors, plain open/close/stop on controllers without one.
+# Relay-pair curtains always use the timer.
+CONF_USE_TRAVEL_TIMER: Final = "use_travel_timer"
 # Recalibration workaround for hardware that mis-lands a partial reposition
 # when starting from an already-uncertain (not fully open/closed) estimated
 # position: run to whichever endpoint (fully open or fully closed) is a
@@ -283,7 +288,7 @@ DEVICE_TYPES: Final = [
 COVER_MODE_CURTAIN_MODULE: Final = "curtain_module"
 COVER_MODE_RELAY_PAIR: Final = "relay_pair"
 COVER_MODES: Final = [COVER_MODE_CURTAIN_MODULE, COVER_MODE_RELAY_PAIR]
-DEFAULT_TRAVEL_TIME: Final = 30
+DEFAULT_TRAVEL_TIME: Final = 15
 
 # Sensor kinds (sensor platform)
 SENSOR_KIND_TEMPERATURE: Final = "temperature"

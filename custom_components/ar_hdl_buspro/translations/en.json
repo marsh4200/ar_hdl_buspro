@@ -177,10 +177,12 @@
           "green_channel": "Green channel",
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
-          "replace_channels": "Replace lights/switches already set up on these channels"
+          "replace_channels": "Replace lights/switches already set up on these channels",
+          "use_travel_timer": "Use travel timer (off = HDL system decides)"
         },
         "data_description": {
-          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
+          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan.",
+          "use_travel_timer": "Off: the curtain runs on the HDL system - real position from HDL motors, plain open / close / stop on controllers without one. On: position comes from a travel timer; you set the seconds on the next screen. Relay-pair curtains always use the timer."
         }
       },
       "edit_device": {
@@ -234,10 +236,12 @@
           "green_channel": "Green channel",
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
-          "replace_channels": "Replace lights/switches already set up on these channels"
+          "replace_channels": "Replace lights/switches already set up on these channels",
+          "use_travel_timer": "Use travel timer (off = HDL system decides)"
         },
         "data_description": {
-          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan."
+          "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan.",
+          "use_travel_timer": "Off: the curtain runs on the HDL system - real position from HDL motors, plain open / close / stop on controllers without one. On: position comes from a travel timer; you set the seconds on the next screen. Relay-pair curtains always use the timer."
         }
       },
       "remove_device": {
@@ -253,6 +257,17 @@
         "data": {
           "gateway_choice": "Gateway",
           "gateway_action": "What to do"
+        }
+      },
+      "cover_timer": {
+        "title": "Travel timer: {device_name}",
+        "description": "How long the curtain takes to run fully open to fully closed. The position slider is worked out from this time.",
+        "data": {
+          "travel_time": "Full travel time (seconds)",
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
+        },
+        "data_description": {
+          "travel_time": "Default 15 s. Time one full run with a stopwatch."
         }
       }
     },

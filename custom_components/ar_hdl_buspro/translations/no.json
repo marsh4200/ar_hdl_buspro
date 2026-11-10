@@ -132,10 +132,12 @@
           "green_channel": "Grønn kanal",
           "blue_channel": "Blå kanal",
           "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
-          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene"
+          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene",
+          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)"
         },
         "data_description": {
-          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
+          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk.",
+          "use_travel_timer": "Av: gardinen styres av HDL-systemet - ekte posisjon fra HDL-motorer, vanlig åpne / lukke / stopp på kontrollere uten. På: posisjonen beregnes fra en timer; sekundene settes på neste skjerm. Relépar-gardiner bruker alltid timer."
         }
       },
       "edit_device": {
@@ -183,10 +185,12 @@
           "green_channel": "Grønn kanal",
           "blue_channel": "Blå kanal",
           "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
-          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene"
+          "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene",
+          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)"
         },
         "data_description": {
-          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk."
+          "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk.",
+          "use_travel_timer": "Av: gardinen styres av HDL-systemet - ekte posisjon fra HDL-motorer, vanlig åpne / lukke / stopp på kontrollere uten. På: posisjonen beregnes fra en timer; sekundene settes på neste skjerm. Relépar-gardiner bruker alltid timer."
         }
       },
       "remove_device": {
@@ -212,6 +216,17 @@
           "contact_email": "E-post"
         },
         "submit": "Be om lisens"
+      },
+      "cover_timer": {
+        "title": "Gangtid-timer: {device_name}",
+        "description": "Hvor lang tid gardinen bruker fra helt åpen til helt lukket. Posisjonsglideren beregnes fra denne tiden.",
+        "data": {
+          "travel_time": "Full gangtid (sekunder)",
+          "recalibrate_before_reposition": "Rekalibrer via nærmeste endepunkt før reposisjonering"
+        },
+        "data_description": {
+          "travel_time": "Standard 15 s. Ta tiden på en full kjøring."
+        }
       }
     },
     "progress": {

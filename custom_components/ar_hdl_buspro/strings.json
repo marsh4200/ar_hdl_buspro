@@ -173,7 +173,8 @@
           "green_channel": "Green channel",
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
-          "replace_channels": "Replace lights/switches already set up on these channels"
+          "replace_channels": "Replace lights/switches already set up on these channels",
+          "use_travel_timer": "Use travel timer (off = HDL system decides)"
         }
       },
       "edit_device": {
@@ -224,7 +225,8 @@
           "green_channel": "Green channel",
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
-          "replace_channels": "Replace lights/switches already set up on these channels"
+          "replace_channels": "Replace lights/switches already set up on these channels",
+          "use_travel_timer": "Use travel timer (off = HDL system decides)"
         }
       },
       "remove_device": {
@@ -240,6 +242,14 @@
         "data": {
           "gateway_choice": "Gateway",
           "gateway_action": "What to do"
+        }
+      },
+      "cover_timer": {
+        "title": "Travel timer: {device_name}",
+        "description": "How long the curtain takes to run fully open to fully closed. The position slider is worked out from this time.",
+        "data": {
+          "travel_time": "Full travel time (seconds)",
+          "recalibrate_before_reposition": "Recalibrate via nearest endpoint before repositioning"
         }
       }
     },
