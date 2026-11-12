@@ -314,7 +314,8 @@
     },
     "climate_kind": {
       "options": {
-        "dlp_ac": "Klimaanlegg på DLP-panel"
+        "dlp_ac": "Klimaanlegg på DLP-panel",
+        "fh_module": "Gulvvarmemodul-kanal (f.eks. HDL-MFH06.432) - HVAC-nr. = kanal 1-6"
       }
     },
     "ac_protocol": {

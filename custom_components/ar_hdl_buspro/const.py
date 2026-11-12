@@ -147,12 +147,32 @@ CLIMATE_KIND_AC_PANEL: Final = "ac_panel"
 # A saved "ac_panel" entry also finds this out by itself at runtime (an older
 # scan imported DLP ACs as ac_panel, which a DLP never answers).
 CLIMATE_KIND_DLP_AC: Final = "dlp_ac"
+# One channel of an HDL floor heating MODULE (HDL-MFH06.432 and family, see
+# pybuspro/devices/floor_heating_module.py). Subnet/Device are the module's
+# address, HVAC No. is the heating channel (1-6). Not the DLP protocol: a
+# module never answers the DLP floor-heating read.
+CLIMATE_KIND_FH_MODULE: Final = "fh_module"
 CLIMATE_KINDS: Final = [
     CLIMATE_KIND_DLP,
     CLIMATE_KIND_AC_IR,
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP_AC,
+    CLIMATE_KIND_FH_MODULE,
 ]
+# Type codes HDL Studio 1.9.65 drives with its floor heating module page
+# (FloorheatingDeviceTypeList.HDLFloorHeatingDeviceType), and how many
+# heating channels each has. 0x00D6/0x00D7 (APM variants) are left out:
+# Studio does not list them with these.
+FH_MODULE_CHANNELS: Final = {
+    "0x00CF": 6,  # HDL-MFH06.432
+    "0x00D0": 6,  # HDL-MFH06.432
+    "0x00D1": 6,  # HDL-MFH06.332
+    "0x00D2": 6,  # HDL-MFH06.332 (first generation)
+    "0x00D3": 6,  # HDL-MFH06.432
+    "0x00D4": 6,  # HDL-MFH06.432
+    "0x00D5": 6,  # HDL-MFH06.432
+    "0x27DF": 6,  # HDL-AFH06.432
+}
 CONF_AC_PROTOCOL: Final = "ac_protocol"
 AC_PROTOCOL_AUTO: Final = "auto"          # ask the panel, use what it answers
 AC_PROTOCOL_DLP_CLASSIC: Final = "dlp_classic"  # 0xE0EC / 0xE0EE
@@ -541,6 +561,9 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     # unused channels afterwards.
     "0x13C2": DEVICE_TYPE_SWITCH,             # wireless relay panel, 3 or 1 relays
     "0x1589": DEVICE_TYPE_SWITCH,             # 1ch relay
+    # HDL floor heating modules: one climate entity per heating channel
+    # (climate_kind fh_module), see FH_MODULE_CHANNELS above.
+    **{code: DEVICE_TYPE_CLIMATE for code in FH_MODULE_CHANNELS},
 }
 
 # Relay/channel count per type code, for hardware where the count is confirmed

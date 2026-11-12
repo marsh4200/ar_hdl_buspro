@@ -31,6 +31,7 @@ from .const import (
     CLIMATE_KIND_AC_IR,
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP_AC,
+    CLIMATE_KIND_FH_MODULE,
     AC_PROTOCOL_AUTO,
     AC_PROTOCOL_HVAC,
     CONF_AC_PROTOCOL,
@@ -64,6 +65,11 @@ from .pybuspro.devices.climate import AirConditioner as PyBusproAirConditioner
 from .pybuspro.devices.climate import Climate as PyBusproClimate
 from .pybuspro.devices.climate import ControlFloorHeatingStatus
 from .pybuspro.devices.dlp_ac import AutoPanelAc, DlpAirConditioner
+from .pybuspro.devices.floor_heating_module import (
+    WORK_COOL,
+    WORK_HEAT,
+    FloorHeatingModule,
+)
 from .pybuspro.devices.panel_ac import PanelAirConditioner
 from .pybuspro.devices.sensor import Sensor as PyBusproSensor
 from .pybuspro.helpers.enums import OnOffStatus
@@ -136,6 +142,8 @@ async def async_setup_entry(
             entities.append(ARHDLAcClimate(entry, data.gateway, device_cfg))
         elif kind in (CLIMATE_KIND_AC_PANEL, CLIMATE_KIND_DLP_AC):
             entities.append(ARHDLPanelAcClimate(entry, data.gateway, device_cfg))
+        elif kind == CLIMATE_KIND_FH_MODULE:
+            entities.append(ARHDLFloorHeatingModuleClimate(entry, data.gateway, device_cfg))
         else:
             entities.append(ARHDLDlpClimate(entry, data.gateway, device_cfg))
 
@@ -301,6 +309,156 @@ class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
             ctrl.normal_temperature = target
 
         await self._climate.control_heating_status(ctrl)
+
+
+class ARHDLFloorHeatingModuleClimate(ARHDLBaseEntity, ClimateEntity):
+    """One channel of an HDL floor heating module (HDL-MFH06.432 family).
+
+    Subnet/Device are the module's address; HVAC No. is the heating channel.
+    Heat/Cool is the channel's work type, Off its on/off bit; presets are
+    the module's own modes (normal/day/night/away), and the setpoint dial
+    edits the active mode's setpoint - all as HDL Studio's floor heating page.
+    """
+
+    _attr_target_temperature_step = 1
+    _attr_min_temp = 5
+    _attr_max_temp = 35
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        gateway: ARHDLGateway,
+        device_cfg: dict[str, Any],
+    ) -> None:
+        super().__init__(entry, gateway, device_cfg)
+        subnet = int(device_cfg[CONF_SUBNET_ID])
+        device = int(device_cfg[CONF_DEVICE_ID])
+        channel = int(device_cfg.get(CONF_HVAC_NUMBER, 1) or 1)
+        self._fh = FloorHeatingModule(
+            gateway.hdl, (subnet, device), channel, device_cfg.get(CONF_NAME, "")
+        )
+        self._preset_modes_cfg: list[str] = list(device_cfg.get(CONF_PRESET_MODES, []))
+        self._limits_cfg = device_cfg
+        _apply_temp_limits(self, device_cfg)
+        self._attr_unique_id = build_unique_id(entry.entry_id, device_cfg)
+        self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
+        self._attr_name = None
+        features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
+        if self._preset_modes_cfg:
+            features |= ClimateEntityFeature.PRESET_MODE
+        self._attr_supported_features = features
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        async def _after_update(_device) -> None:
+            self.async_write_ha_state()
+
+        self._fh.register_device_updated_cb(_after_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._fh.stop()
+        await super().async_will_remove_from_hass()
+
+    # ----- state ----------------------------------------------------------
+    @property
+    def temperature_unit(self) -> str:
+        return (
+            UnitOfTemperature.FAHRENHEIT if self._fh.fahrenheit else UnitOfTemperature.CELSIUS
+        )
+
+    @property
+    def min_temp(self) -> float:
+        if self._fh.fahrenheit and not int(self._limits_cfg.get(CONF_MIN_TEMP, 0) or 0):
+            return 41
+        return self._attr_min_temp
+
+    @property
+    def max_temp(self) -> float:
+        if self._fh.fahrenheit and not int(self._limits_cfg.get(CONF_MAX_TEMP, 0) or 0):
+            return 95
+        return self._attr_max_temp
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        return [HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        if not self._fh.available:
+            return None
+        if not self._fh.is_on:
+            return HVACMode.OFF
+        return HVACMode.COOL if self._fh.work_type == "cool" else HVACMode.HEAT
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        if not self._fh.available:
+            return None
+        if not self._fh.is_on:
+            return HVACAction.OFF
+        if not self._fh.output_percent:
+            return HVACAction.IDLE
+        return HVACAction.COOLING if self._fh.work_type == "cool" else HVACAction.HEATING
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self._fh.current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self._fh.target_temperature
+
+    @property
+    def preset_modes(self) -> list[str] | None:
+        if not self._preset_modes_cfg:
+            return None
+        return [m for m in self._preset_modes_cfg if m in HA_PRESET_TO_HDL]
+
+    @property
+    def preset_mode(self) -> str | None:
+        return HDL_TO_HA_PRESET.get(self._fh.mode, PRESET_NONE)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "channel": self._fh.channel,
+            "work_type": self._fh.work_type,
+            "output_percent": self._fh.output_percent,
+            "hdl_mode": self._fh.mode,
+            "raw_status": self._fh.raw_status,
+        }
+
+    # ----- commands -------------------------------------------------------
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if hvac_mode == HVACMode.OFF:
+            await self._fh.control(on=False)
+        elif hvac_mode == HVACMode.HEAT:
+            await self._fh.control(on=True, work_type=WORK_HEAT)
+        elif hvac_mode == HVACMode.COOL:
+            await self._fh.control(on=True, work_type=WORK_COOL)
+        else:
+            _LOGGER.warning("Unsupported HVAC mode for floor heating: %s", hvac_mode)
+
+    async def async_turn_on(self) -> None:
+        # Keep the channel's own work type (heat or cool) when switching on.
+        await self._fh.control(on=True)
+
+    async def async_turn_off(self) -> None:
+        await self._fh.control(on=False)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        await self._fh.control(mode=HA_PRESET_TO_HDL.get(preset_mode, 1))
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        temperature = kwargs.get(ATTR_TEMPERATURE)
+        if temperature is None:
+            return
+        await self._fh.control(setpoint=int(round(temperature)))
 
 
 class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):

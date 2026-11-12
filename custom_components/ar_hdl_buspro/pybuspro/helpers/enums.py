@@ -146,6 +146,17 @@ class OperateCode(Enum):
     ControlFloorHeatingStatus = b"\x19\x46"
     ControlFloorHeatingStatusResponse = b"\x19\x47"
 
+    # HDL floor heating MODULE (HDL-MFH06.432 / .332 / AFH06.432, 6 channels).
+    # Not the DLP pair above: the module never answers 0x1944. From HDL
+    # Studio 1.9.65 frmFH (btnRefreshStatus_Click / btnSaveTemp_Click):
+    #   0x1C5E read [channel] -> 0x1C5F [channel, 13 status bytes]
+    #   0x1C5C write [channel, 7 control bytes, 0, 0] -> 0x1C5D (same 13)
+    # See pybuspro/devices/floor_heating_module.py for the byte map.
+    ReadFloorHeatingModule = b"\x1C\x5E"
+    ReadFloorHeatingModuleResponse = b"\x1C\x5F"
+    ControlFloorHeatingModule = b"\x1C\x5C"
+    ControlFloorHeatingModuleResponse = b"\x1C\x5D"
+
     # Air conditioner control via an IR emitter module's live AC panel
     # channels (e.g. HDL-MIRC04.40, GitHub issue #17). ControlACStatus and
     # ControlACStatusResponse were confirmed from a real bus capture on that

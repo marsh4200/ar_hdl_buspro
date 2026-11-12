@@ -37,7 +37,9 @@ from .const import (
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
     CLIMATE_KIND_DLP_AC,
+    CLIMATE_KIND_FH_MODULE,
     CLIMATE_KINDS,
+    FH_MODULE_CHANNELS,
     AC_PROTOCOL_AUTO,
     AC_PROTOCOLS,
     CONF_AC_PROTOCOL,
@@ -902,7 +904,12 @@ def _device_summary(device: dict[str, Any]) -> str:
         ch is None
         and dtype == DEVICE_TYPE_CLIMATE
         and device.get(CONF_CLIMATE_KIND)
-        in (CLIMATE_KIND_AC_IR, CLIMATE_KIND_AC_PANEL, CLIMATE_KIND_DLP_AC)
+        in (
+            CLIMATE_KIND_AC_IR,
+            CLIMATE_KIND_AC_PANEL,
+            CLIMATE_KIND_DLP_AC,
+            CLIMATE_KIND_FH_MODULE,
+        )
     ):
         # Several AC entities can share one IR module's address, only
         # distinguished by HVAC No. -- show it so the device list (and
@@ -2415,6 +2422,10 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # motion) so the user isn't left hand-adding the rest.
                     added += self._import_sensor_bundle(disc, devices)
                     continue
+                if dtype == DEVICE_TYPE_CLIMATE and disc.type_code in FH_MODULE_CHANNELS:
+                    # Floor heating module: one climate entity per channel.
+                    added += self._import_fh_module(disc, devices)
+                    continue
                 if dtype == DEVICE_TYPE_BINARY_SENSOR and _disc_zones(disc):
                     # Dry-contact input module: one entity per zone.
                     added += self._import_dry_contact_zones(disc, devices)
@@ -2484,6 +2495,9 @@ class ARHDLOptionsFlow(OptionsFlow):
                 for d in devices
                 if id(d) not in before_import
                 and d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_CLIMATE
+                # Floor heating module channels keep the module's own 5-35
+                # range: no limits screen for each of the six.
+                and d.get(CONF_CLIMATE_KIND) != CLIMATE_KIND_FH_MODULE
             ]
             if new_climate:
                 # One extra screen per new AC / heating entity to set its
@@ -2674,6 +2688,41 @@ class ARHDLOptionsFlow(OptionsFlow):
             )
             return 1
         return 0
+
+    def _import_fh_module(self, disc, devices: list[dict[str, Any]]) -> int:
+        """One climate entity per channel of a floor heating module.
+
+        Channels already imported (same address, kind and channel) are
+        left alone so a re-scan never duplicates. Returns entries added.
+        """
+        name = _disc_name(disc)
+        count = FH_MODULE_CHANNELS.get(disc.type_code, 6)
+        have = {
+            int(d.get(CONF_HVAC_NUMBER, 1) or 1)
+            for d in devices
+            if d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_CLIMATE
+            and d.get(CONF_CLIMATE_KIND) == CLIMATE_KIND_FH_MODULE
+            and (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID))
+            == (disc.subnet_id, disc.device_id)
+        }
+        added = 0
+        for channel in range(1, count + 1):
+            if channel in have:
+                continue
+            devices.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    CONF_DEVICE_TYPE: DEVICE_TYPE_CLIMATE,
+                    CONF_NAME: f"{name} floor heating {channel}",
+                    CONF_SUBNET_ID: disc.subnet_id,
+                    CONF_DEVICE_ID: disc.device_id,
+                    CONF_CLIMATE_KIND: CLIMATE_KIND_FH_MODULE,
+                    CONF_HVAC_NUMBER: channel,
+                    CONF_PRESET_MODES: [PRESET_NONE],
+                }
+            )
+            added += 1
+        return added
 
     def _import_sensor_bundle(
         self, disc, devices: list[dict[str, Any]], hw_override: str | None = None

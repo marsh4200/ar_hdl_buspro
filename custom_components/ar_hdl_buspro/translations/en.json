@@ -375,7 +375,8 @@
         "dlp": "DLP panel (floor heating / thermostat)",
         "ac_ir": "Air conditioner via IR module (e.g. HDL-MIRC04.40)",
         "ac_panel": "Air conditioner via touch panel (HDL Enviro / Granite)",
-        "dlp_ac": "Air conditioner on a DLP panel"
+        "dlp_ac": "Air conditioner on a DLP panel",
+        "fh_module": "Floor heating module channel (e.g. HDL-MFH06.432) - HVAC No. = channel 1-6"
       }
     },
     "ac_hvac_mode": {
