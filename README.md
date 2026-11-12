@@ -185,6 +185,8 @@ You never need to know the gateway's IP up front. HDL gateways broadcast on UDP 
 
 ### The bus scan
 
+Scan results are grouped by type: Dimmers, Colour lights, Relays, Curtains, Climate, Sensors, Dry contact inputs, Keypads and panels, Gateways and logic. Open a group and tick what to import, or switch on *Select everything in this group*.
+
 No need to walk the site writing down subnet, device and channel numbers: the integration interrogates the bus for you. The scan runs in four phases, each time-capped:
 
 | Phase | What happens |
@@ -269,6 +271,15 @@ Each feature imports as its own entity and shows `✓ in config` once it's in.
 **Re-scanning is always safe.** Import never deletes or overwrites a device. Existing (subnet, device, channel) combinations are skipped, and each scan refreshes keypad LED links for the keypads it could read.
 
 </details>
+
+### AR HDL Manager: keypad LED colours
+
+A new **AR HDL Manager** page in the Home Assistant sidebar (admins only) sets the LED colour of each keypad button, for on and for off.
+
+- **Scan bus for keypads** finds the keypads that have adjustable colours. Tick the ones you want and add them to the manager; they stay there after a restart. This scan is separate from the hub's own device scan and adds no entities.
+- Each keypad is drawn with its buttons. Pick a button, choose its on and off colour, and press **Save to keypad**. Nothing is written until you save, and **Read from keypad** shows what the keypad holds now.
+- **Show on / off, on the keypad** lights that button's LED in either state so you can check the colour on the wall. It switches nothing.
+- Keypads without a colour setting are listed by the scan but can't be added.
 
 ### Keypad LED sync
 

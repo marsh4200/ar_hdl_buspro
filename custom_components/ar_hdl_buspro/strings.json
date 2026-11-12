@@ -110,11 +110,76 @@
       },
       "scan_results": {
         "title": "Discovered devices",
-        "description": "Found {found} device(s) on the bus ({new} new). Tick the ones to import. The label shows the inferred type, raw HDL type code and channel count. With “split channels” on, a multi-channel device is imported as one entity per channel; turn it off to import a single entity you can configure by hand. Everything gets sensible defaults you can refine via Edit a device. If a dimmer module was imported as a switch, find its raw type code in the label (or the scan log) and add it to the dimmer type codes box - those codes are remembered and always import as dimmable lights.",
+        "description": "Found {found} device(s) on the bus ({new} new), grouped by type. Open a group and tick the ones to import, or switch on “select everything” for that group. Each line shows the address, raw HDL type code and channel count. With “split channels” on, a multi-channel device is imported as one entity per channel; turn it off to import a single entity you can configure by hand. Everything gets sensible defaults you can refine via Edit a device. If a dimmer module shows up under Relays, find its raw type code in the label (or the scan log) and add it to the dimmer type codes box - those codes are remembered and always import as dimmable lights.",
         "data": {
           "discovered": "Devices to import",
           "split_channels": "Split multi-channel devices into one entity per channel",
           "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
+        },
+        "sections": {
+          "cat_dimmers": {
+            "name": "Dimmers",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_colour": {
+            "name": "Colour lights",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_relays": {
+            "name": "Relays",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_curtains": {
+            "name": "Curtains",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_climate": {
+            "name": "Climate",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_sensors": {
+            "name": "Sensors",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_inputs": {
+            "name": "Dry contact inputs",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_keypads": {
+            "name": "Keypads and panels",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          },
+          "cat_gateways": {
+            "name": "Gateways and logic",
+            "data": {
+              "select_all": "Select everything in this group",
+              "discovered": "Devices to import"
+            }
+          }
         }
       },
       "scan_climate_limits": {

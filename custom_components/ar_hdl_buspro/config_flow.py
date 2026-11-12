@@ -22,6 +22,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
@@ -949,6 +950,34 @@ def _validate_gateway_inputs(host: str, port: int) -> str | None:
 # ---------------------------------------------------------------------------
 CHOICE_MANUAL = "manual"
 CHOICE_RESCAN = "rescan"
+
+# Scan results are shown grouped by what the device is, one collapsible
+# section per group (in this order), instead of one long mixed list.
+SCAN_CAT_DIMMERS = "cat_dimmers"
+SCAN_CAT_COLOUR = "cat_colour"
+SCAN_CAT_RELAYS = "cat_relays"
+SCAN_CAT_CURTAINS = "cat_curtains"
+SCAN_CAT_CLIMATE = "cat_climate"
+SCAN_CAT_SENSORS = "cat_sensors"
+SCAN_CAT_INPUTS = "cat_inputs"
+SCAN_CAT_KEYPADS = "cat_keypads"
+SCAN_CAT_GATEWAYS = "cat_gateways"
+SCAN_CATEGORIES = (
+    SCAN_CAT_DIMMERS,
+    SCAN_CAT_COLOUR,
+    SCAN_CAT_RELAYS,
+    SCAN_CAT_CURTAINS,
+    SCAN_CAT_CLIMATE,
+    SCAN_CAT_SENSORS,
+    SCAN_CAT_INPUTS,
+    SCAN_CAT_KEYPADS,
+    SCAN_CAT_GATEWAYS,
+)
+# Groups that import nothing (or rarely anything) start collapsed.
+SCAN_CATEGORIES_COLLAPSED = frozenset(
+    {SCAN_CAT_INPUTS, SCAN_CAT_KEYPADS, SCAN_CAT_GATEWAYS}
+)
+CONF_SELECT_ALL = "select_all"
 CONF_GATEWAY_CHOICE = "gateway_choice"
 CONF_GATEWAY_ACTION = "gateway_action"
 ACTION_ADD_HUB = "add_hub"
@@ -2237,6 +2266,27 @@ class ARHDLOptionsFlow(OptionsFlow):
             return DEVICE_TYPE_SWITCH
         return DEVICE_TYPE_SWITCH
 
+    @staticmethod
+    def _scan_category(disc, role: str) -> str:
+        """Which scan-results group a discovered device's own line goes in."""
+        if role == ROLE_KEYPAD:
+            return SCAN_CAT_KEYPADS
+        if role in HDL_NO_ENTITY_ROLES.values():
+            return SCAN_CAT_GATEWAYS
+        if role == DEVICE_TYPE_LIGHT:
+            return SCAN_CAT_DIMMERS
+        if role == DEVICE_TYPE_COVER:
+            return SCAN_CAT_CURTAINS
+        if role == DEVICE_TYPE_CLIMATE:
+            return SCAN_CAT_CLIMATE
+        if role == DEVICE_TYPE_SENSOR:
+            return SCAN_CAT_SENSORS
+        if role == DEVICE_TYPE_BINARY_SENSOR:
+            # Dry-contact input modules; presence/motion-only devices sit
+            # with the sensors.
+            return SCAN_CAT_INPUTS if _disc_zones(disc) else SCAN_CAT_SENSORS
+        return SCAN_CAT_RELAYS
+
     def _discovery_label(self, disc, role: str, already: bool) -> str:
         """Build the checklist label for a discovered device."""
         parts = [disc.address, role]
@@ -2298,7 +2348,16 @@ class ARHDLOptionsFlow(OptionsFlow):
             (d.get(CONF_SUBNET_ID), d.get(CONF_DEVICE_ID)) for d in self.devices
         }
 
-        options: list[selector.SelectOptionDict] = []
+        grouped: dict[str, list[selector.SelectOptionDict]] = {
+            cat: [] for cat in SCAN_CATEGORIES
+        }
+        # The same lines as plain keys, for "select everything in this group".
+        group_keys: dict[str, list[str]] = {cat: [] for cat in SCAN_CATEGORIES}
+
+        def _add(cat: str, value: str, label: str) -> None:
+            grouped[cat].append(selector.SelectOptionDict(value=value, label=label))
+            group_keys[cat].append(value)
+
         for disc in results:
             role = self._infer_device_type(disc)
             already = (disc.subnet_id, disc.device_id) in existing_addrs
@@ -2309,11 +2368,10 @@ class ARHDLOptionsFlow(OptionsFlow):
                 # The panel line itself imports nothing: point at its
                 # feature lines instead of looking like a dead option.
                 label = label.replace(
-                    "buttons only, no entities", "buttons — tick its features below"
+                    "buttons only, no entities",
+                    "buttons — its features are under Climate / Sensors",
                 ).replace("  \u2713 in config", "")
-            options.append(
-                selector.SelectOptionDict(value=disc.key, label=label)
-            )
+            _add(self._scan_category(disc, role), disc.key, label)
             name = _disc_name(disc)
             for feature in features:
                 feature_label = (
@@ -2328,11 +2386,12 @@ class ARHDLOptionsFlow(OptionsFlow):
                     )
                 if _panel_feature_configured(self.devices, disc, feature):
                     feature_label += "  \u2713 in config"
-                options.append(
-                    selector.SelectOptionDict(
-                        value=f"{disc.key}{_FEATURE_SEP}{feature}",
-                        label=feature_label,
-                    )
+                _add(
+                    SCAN_CAT_SENSORS
+                    if feature == PANEL_FEATURE_TEMPERATURE
+                    else SCAN_CAT_CLIMATE,
+                    f"{disc.key}{_FEATURE_SEP}{feature}",
+                    feature_label,
                 )
             for feature in colour_features:
                 feature_label = (
@@ -2341,15 +2400,23 @@ class ARHDLOptionsFlow(OptionsFlow):
                 )
                 if _panel_feature_configured(self.devices, disc, feature):
                     feature_label += "  \u2713 in config"
-                options.append(
-                    selector.SelectOptionDict(
-                        value=f"{disc.key}{_FEATURE_SEP}{feature}",
-                        label=feature_label,
-                    )
+                _add(
+                    SCAN_CAT_COLOUR,
+                    f"{disc.key}{_FEATURE_SEP}{feature}",
+                    feature_label,
                 )
 
         if user_input is not None:
             chosen_keys = set(user_input.get(CONF_DISCOVERED, []))
+            # One section per group: its ticked lines, or every line in it
+            # when that group's "select all" is on.
+            for cat, cat_keys in group_keys.items():
+                picked = user_input.get(cat)
+                if not isinstance(picked, dict):
+                    continue
+                chosen_keys.update(picked.get(CONF_DISCOVERED, []))
+                if picked.get(CONF_SELECT_ALL):
+                    chosen_keys.update(cat_keys)
             split = bool(user_input.get(CONF_SPLIT_CHANNELS, True))
             # Dimmer codes: whatever the user typed wins for this import and is
             # persisted for every future scan/import.
@@ -2512,19 +2579,35 @@ class ARHDLOptionsFlow(OptionsFlow):
             for disc in results
             if (disc.subnet_id, disc.device_id) not in existing_addrs
         )
+        schema: dict[Any, Any] = {}
+        for cat in SCAN_CATEGORIES:
+            cat_options = grouped[cat]
+            if not cat_options:
+                continue  # empty groups are not shown
+            schema[vol.Required(cat)] = section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_SELECT_ALL, default=False
+                        ): selector.BooleanSelector(),
+                        vol.Optional(
+                            CONF_DISCOVERED, default=[]
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=cat_options,
+                                mode=selector.SelectSelectorMode.LIST,
+                                multiple=True,
+                            )
+                        ),
+                    }
+                ),
+                {"collapsed": cat in SCAN_CATEGORIES_COLLAPSED},
+            )
         return self.async_show_form(
             step_id="scan_results",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_DISCOVERED, default=[]
-                    ): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=options,
-                            mode=selector.SelectSelectorMode.LIST,
-                            multiple=True,
-                        )
-                    ),
+                    **schema,
                     vol.Optional(
                         CONF_SPLIT_CHANNELS, default=True
                     ): selector.BooleanSelector(),
