@@ -20,6 +20,7 @@ from .const import (
     CLIMATE_KIND_AC_PANEL,
     CLIMATE_KIND_DLP,
     CLIMATE_KIND_DLP_AC,
+    CLIMATE_KIND_FH_MODULE,
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
@@ -64,6 +65,7 @@ _CLIMATE_KIND_LABELS: dict[str, str] = {
     CLIMATE_KIND_AC_IR: "Climate – AC via IR Module",
     CLIMATE_KIND_AC_PANEL: "Climate – AC via Touch Panel",
     CLIMATE_KIND_DLP_AC: "Climate – AC via DLP Panel",
+    CLIMATE_KIND_FH_MODULE: "Climate – Floor Heating Module",
 }
 
 
