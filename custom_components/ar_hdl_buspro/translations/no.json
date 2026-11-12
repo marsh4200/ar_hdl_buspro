@@ -72,11 +72,76 @@
       },
       "scan_results": {
         "title": "Oppdagede enheter",
-        "description": "Fant {found} enhet(er) på bussen ({new} nye). Kryss av de du vil importere. Etiketten viser antatt type, rå HDL-typekode og antall kanaler. Med «del opp kanaler» på importeres en flerkanalsenhet som én enhet per kanal; slå det av for å importere én enhet du konfigurerer manuelt. Alt får fornuftige standardverdier som du kan justere via Rediger enhet.",
+        "description": "Fant {found} enhet(er) på bussen ({new} nye). Enhetene er gruppert etter type. Åpne en gruppe og kryss av de du vil importere. Etiketten viser antatt type, rå HDL-typekode og antall kanaler. Med «del opp kanaler» på importeres en flerkanalsenhet som én enhet per kanal; slå det av for å importere én enhet du konfigurerer manuelt. Alt får fornuftige standardverdier som du kan justere via Rediger enhet.",
         "data": {
           "discovered": "Enheter som skal importeres",
           "split_channels": "Del flerkanalsenheter opp i én enhet per kanal",
           "dimmer_type_codes": "Dimmer type codes (comma-separated, e.g. 0x0602, 0x026D)"
+        },
+        "sections": {
+          "cat_dimmers": {
+            "name": "Dimmere",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_colour": {
+            "name": "Fargelys",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_relays": {
+            "name": "Releer",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_curtains": {
+            "name": "Gardiner",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_climate": {
+            "name": "Klima",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_sensors": {
+            "name": "Sensorer",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_inputs": {
+            "name": "Potensialfrie innganger",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_keypads": {
+            "name": "Brytere og paneler",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          },
+          "cat_gateways": {
+            "name": "Gatewayer og logikk",
+            "data": {
+              "select_all": "Velg alt i denne gruppen",
+              "discovered": "Enheter som skal importeres"
+            }
+          }
         }
       },
       "scan_climate_limits": {

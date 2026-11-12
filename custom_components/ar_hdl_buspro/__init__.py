@@ -131,6 +131,10 @@ SERVICE_UNIVERSAL_SWITCH_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the AR HDL BUSPRO integration (no-op; UI configuration only)."""
     hass.data.setdefault(DOMAIN, {})
+    # The AR HDL Manager sidebar page (keypad LED colours) and its API.
+    from .manager import async_setup_manager
+
+    await async_setup_manager(hass, _integration_version())
     return True
 
 
@@ -356,6 +360,11 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     from .gateway import modules_store
 
     await modules_store(hass, entry.entry_id).async_remove()
+    # ...and the AR HDL Manager's saved keypad list for this hub.
+    from .manager import HubManager, async_forget_hub
+
+    hub = async_forget_hub(hass, entry.entry_id) or HubManager(hass, entry.entry_id)
+    await hub.async_remove_store()
     _LOGGER.debug("AR HDL BUSPRO entry %s removed", entry.entry_id)
 
 

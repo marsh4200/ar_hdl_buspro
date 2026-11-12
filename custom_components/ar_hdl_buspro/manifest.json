@@ -1,12 +1,18 @@
 {
   "domain": "ar_hdl_buspro",
   "name": "AR HDL BUSPRO",
+  "after_dependencies": [
+    "frontend",
+    "panel_custom"
+  ],
   "codeowners": [
     "@marsh4200"
   ],
   "config_flow": true,
   "dependencies": [
-    "network"
+    "http",
+    "network",
+    "websocket_api"
   ],
   "documentation": "https://github.com/marsh4200/ar_hdl_buspro",
   "integration_type": "hub",
