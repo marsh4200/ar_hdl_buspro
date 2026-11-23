@@ -35,6 +35,22 @@ from .device import Device, startup_retry_delay
 # polling -- a sensor that works costs one extra frame at most.
 _SENSOR_STATUS_RETRY_SECONDS = 20
 
+# HDL human-presence sensors (24 GHz mmWave, HDL-MSMW24BP family). HDL Studio
+# V1.9.65 lists these as HDL7in1DeviceTypeHumanSensor: to HDL they are a
+# 7-in-1 variant, read with ReadSensorsInOneStatus (0x1604 -> 0x1605) with
+# presence in payload[7] -- the byte already decoded as motion here. Only
+# the meaning changes (someone there, not "moved"). Keep in sync with
+# HDL_PRESENCE_TYPE_CODES in const.py.
+PRESENCE_TYPE_CODES = frozenset({0x0187, 0x018F, 0x05E4})
+
+# How many 0x1604 probes an entity still on the generic profile sends while
+# its device has never answered anything. Entities created before a model was
+# known poll 0x1645, which a 7-in-1 / presence sensor never answers, so the
+# 0x1605 reply that would teach them the right profile never comes. A few
+# probes fix that by themselves; a device that answers neither costs at most
+# this many extra 13-byte frames.
+_SENSORS_IN_ONE_PROBES = 5
+
 # HDL ReadAnalogValue request and the humidity sub-type it takes.
 _READ_ANALOG_VALUE = b"\xe4\x40"
 _ANALOG_HUMIDITY = 0x45
@@ -81,6 +97,11 @@ class Sensor(Device):
         # Which byte of the 0x1630 broadcast carries motion. Configurable
         # because it is an inference, not a capture: see the 0x1630 branch.
         self._motion_byte_index = motion_byte_index
+
+        # Raw type code from the last frame this device sent, and how many
+        # sensors-in-one probes are left (see _SENSORS_IN_ONE_PROBES).
+        self.source_type_code = None
+        self._sio_probes_left = _SENSORS_IN_ONE_PROBES
 
         # Every distinct value seen at each index of the 0x1630 broadcast.
         # Bytes that never change are constants, padding or unrelated state;
@@ -146,6 +167,11 @@ class Sensor(Device):
             and self._switch_number is None
         ):
             self._device = "sensors_in_one"
+
+    @property
+    def is_presence_sensor(self) -> bool:
+        """True once this device has identified itself as a presence sensor."""
+        return self.source_type_code in PRESENCE_TYPE_CODES
 
     def _apply_motion_uv_switch(self, switch_number, status) -> bool:
         """Handle a universal-switch frame that actually carries motion.
@@ -234,6 +260,14 @@ class Sensor(Device):
             self.last_telegram_payload = list(payload)
         except Exception:  # noqa: BLE001 - diagnostics must never break decode
             pass
+
+        # Every frame carries the sender's type code. A presence sensor is a
+        # sensors-in-one device whatever profile the entity was created with.
+        code = getattr(telegram, "source_device_type_code", None)
+        if code is not None:
+            self.source_type_code = code
+            if code in PRESENCE_TYPE_CODES:
+                self._learn_sensors_in_one()
 
         if op == OperateCode.ReadSensorStatusResponse:
             if len(payload) < 8:
@@ -545,6 +579,21 @@ class Sensor(Device):
             req = _ReadSensorStatus(self._buspro)
             req.subnet_id, req.device_id = self._device_address
             await req.send()
+            # Still generic and never heard from: it may be a 7-in-1 or
+            # presence sensor created before its model was known. Its 0x1605
+            # reply switches this entity over (_learn_sensors_in_one).
+            if (
+                self._device in (None, "generic")
+                and getattr(self, "last_telegram_op", None) is None
+                and self._sio_probes_left > 0
+                and self._universal_switch_number is None
+                and self._channel_number is None
+                and self._switch_number is None
+            ):
+                self._sio_probes_left -= 1
+                probe = _ReadSensorsInOneStatus(self._buspro)
+                probe.subnet_id, probe.device_id = self._device_address
+                await probe.send()
 
         # A multisensor that pushes motion on a universal switch also answers
         # a read of it, so ask once per poll for a baseline rather than

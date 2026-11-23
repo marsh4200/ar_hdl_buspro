@@ -97,6 +97,7 @@ CONF_MOTION_UV_SWITCH: Final = "motion_uv_switch"
 # The motion entity's `broadcast_byte_variance` attribute names the byte that
 # actually changes when someone walks past, which settles it in one look.
 CONF_MOTION_BYTE_INDEX: Final = "motion_byte_index"
+CONF_PRESENCE: Final = "presence"  # motion entity is a presence (occupancy) sensor
 CONF_DEVICE_HW_KIND: Final = "device_hw_kind"  # e.g. "dlp", "12in1", "sensors_in_one"
 CONF_PRESET_MODES: Final = "preset_modes"
 CONF_COVER_MODE: Final = "cover_mode"          # "curtain_module" or "relay_pair"
@@ -422,7 +423,7 @@ DEFAULT_SCAN_INTERVAL: Final = 0
 # address, so this one poll keeps the whole sensor current -- the same
 # "one poller per physical sensor" arrangement the reference buspro
 # integration uses. Editable per entity (edit device -> scan interval).
-DEFAULT_MOTION_SCAN_INTERVAL: Final = 3
+DEFAULT_MOTION_SCAN_INTERVAL: Final = 2
 # Scan interval the bus-scan import used to give every multisensor entity
 # (motion included). Only entries still at exactly this value are upgraded
 # to DEFAULT_MOTION_SCAN_INTERVAL on startup; anything hand-edited is left.
@@ -541,7 +542,9 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x0148": DEVICE_TYPE_SENSOR,             # HDL-MSP07M.4C sensors-in-one
-    "0x0187": DEVICE_TYPE_SENSOR,             # sensor
+    "0x0187": DEVICE_TYPE_SENSOR,             # HDL presence sensor (MSMW24BP family)
+    "0x018F": DEVICE_TYPE_SENSOR,             # HDL presence sensor (MSMW24BP family)
+    "0x05E4": DEVICE_TYPE_SENSOR,             # HDL presence sensor (MSMW24BP family)
     # Buspro WIRELESS wall panels with relays built in behind the buttons
     # (reported by @marsh4200 from real hardware). Unlike the wired keypads in
     # HDL_KEYPAD_TYPE_CODES these DO have controllable channels, so they are
@@ -605,6 +608,15 @@ SENSOR_HAS_HUMIDITY: Final = {
     "0x0135": False,   # SB_CMS_8in1
 }
 
+# HDL human-presence sensors (24 GHz mmWave). HDL Studio V1.9.65 lists these
+# as HDL7in1DeviceTypeHumanSensor and reads them exactly like a 7-in-1:
+# ReadSensorsInOneStatus (0x1604 -> 0x1605), presence in payload[7]. They are
+# imported with the sensors_in_one profile and an occupancy-class binary
+# sensor. Keep in sync with PRESENCE_TYPE_CODES in pybuspro/devices/sensor.py.
+# (The MSMW01.4C, 0x0578/0x0579, is a different product that HDL Studio does
+# not configure; its status protocol is unknown, so it is not listed here.)
+HDL_PRESENCE_TYPE_CODES: Final = frozenset({"0x0187", "0x018F", "0x05E4"})
+
 # Zone count per dry-contact input module. On import, a module listed here
 # becomes one "dry_contact" binary sensor per zone (sub_number = zone), each
 # polled with ReadDryContactStatus (0x15CE) - instead of a single entity with
@@ -648,7 +660,9 @@ HDL_TYPE_NAMES: Final = {
     "0x027E": "Dimmer module",
     "0x0138": "Sensor module (temperature, illuminance, motion)",
     "0x0148": "Sensors-in-one (HDL-MSP07M.4C)",
-    "0x0187": "Sensor module",
+    "0x0187": "Presence sensor (HDL-MSMW24BP family)",
+    "0x018F": "Presence sensor (HDL-MSMW24BP family)",
+    "0x05E4": "Presence sensor (HDL-MSMW24BP family)",
     "0x1391": "Wireless relay panel (3 relays)",
     "0x13C3": "Wireless relay panel (3 relays)",
     "0x13C2": "Wireless relay panel (up to 3 relays)",
