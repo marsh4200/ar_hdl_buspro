@@ -24,6 +24,7 @@ from .const import (
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
+    CONF_CHANNEL_REMARK,
     CONF_DEVICE_TYPE,
     CONF_NAME,
     CONF_SUBNET_ID,
@@ -237,6 +238,17 @@ class ARHDLBaseEntity(Entity):
                 "Post-reconnect resync read failed for %s",
                 getattr(self._resync_device, "device_identifier", "?"),
             )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the Studio channel remark as a read-only hint.
+
+        Shown in brackets on the dashboard without ever being part of the
+        entity name or entity_id. Subclasses that need their own attributes
+        (e.g. keypad buttons) override this; load channels inherit it.
+        """
+        remark = self._device_cfg.get(CONF_CHANNEL_REMARK)
+        return {"channel_remark": remark} if remark else {}
 
     @property
     def available(self) -> bool:

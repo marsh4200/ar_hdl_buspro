@@ -66,6 +66,7 @@ from .const import (
     CONF_MIN_TEMP,
     CONF_BINARY_KIND,
     CONF_CHANNEL,
+    CONF_CHANNEL_REMARK,
     CONF_CLIMATE_KIND,
     CONF_CLOSE_CHANNEL,
     CONF_COVER_MODE,
@@ -2330,6 +2331,15 @@ class ARHDLOptionsFlow(OptionsFlow):
         colour = sum(1 for t in dali if t in DALI2_TYPE_TO_LIGHT_COLOR)
         if colour:
             parts.append(f"{colour} colour ch")
+        # Studio channel names, in brackets, so the scan shows what's what.
+        remarks = getattr(disc, "channel_remarks", None)
+        if remarks:
+            named = ", ".join(
+                f"ch{ch} ({remarks[ch]})" for ch in sorted(remarks)
+            )
+            if len(named) > 70:
+                named = named[:67] + "…"
+            parts.append(named)
         # Our own table first (field-confirmed names), then HDL's catalogue,
         # then the vendored enum name.
         friendly = (
@@ -3015,6 +3025,12 @@ class ARHDLOptionsFlow(OptionsFlow):
             CONF_SUBNET_ID: disc.subnet_id,
             CONF_DEVICE_ID: disc.device_id,
         }
+        # Studio channel remark, if the scan read one for this channel. Stored
+        # as its own field so it can be shown in brackets without ever being
+        # part of the name or entity_id.
+        remark = getattr(disc, "channel_remarks", {}).get(channel) if channel else None
+        if remark:
+            base[CONF_CHANNEL_REMARK] = remark
         if dtype == DEVICE_TYPE_LIGHT:
             base.update(
                 {

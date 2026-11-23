@@ -98,6 +98,9 @@ CONF_MOTION_UV_SWITCH: Final = "motion_uv_switch"
 # actually changes when someone walks past, which settles it in one look.
 CONF_MOTION_BYTE_INDEX: Final = "motion_byte_index"
 CONF_PRESENCE: Final = "presence"  # motion entity is a presence (occupancy) sensor
+# Studio channel remark, shown in brackets as a read-only hint. Never part of
+# the entity name or entity_id.
+CONF_CHANNEL_REMARK: Final = "channel_remark"
 CONF_DEVICE_HW_KIND: Final = "device_hw_kind"  # e.g. "dlp", "12in1", "sensors_in_one"
 CONF_PRESET_MODES: Final = "preset_modes"
 CONF_COVER_MODE: Final = "cover_mode"          # "curtain_module" or "relay_pair"

@@ -172,6 +172,18 @@ _IDENTITY_PROBES: tuple[tuple[object, list[int]], ...] = (
 # Remark reply operate code (not in the OperateCode enum, so it arrives raw).
 _REMARK_REPLY_OP = "0x000F"
 
+# Per-channel remark (the name set against each load channel in HDL Studio).
+# HDL Studio V1.9.65 reads these with 0xF00E (Relay.ReadRelayChannelRemark ->
+# LightDeviceBasic.ReadChannelRemark), channel number in the payload, device
+# replies 0xF00F. Distinct from the device remark above (0x000E/0x000F). The
+# request opcode and channel placement are confirmed from HDL Studio; the
+# text offset in the reply is parsed defensively (see _parse_channel_remark)
+# so an unexpected layout yields no name rather than garbage.
+_CHANNEL_REMARK_READ_OP = b"\xf0\x0e"
+_CHANNEL_REMARK_REPLY_OP = "0xF00F"
+# Don't probe beyond a sane channel count even if a reply over-reports.
+_CHANNEL_REMARK_MAX = 24
+
 # "Read device module" (0xE548) -> reply 0xE549. This is the request the HDL
 # Setup Tool's own device search broadcasts: newer HDL hardware answers with
 # its remark AND its own function list as (big, small, count) triples - e.g.
@@ -235,6 +247,10 @@ class DiscoveredDevice:
     payloads: dict[str, list[int]] = field(default_factory=dict)
     # Device remark: the name the installer gave it in the HDL setup tool.
     remark: str | None = None
+    # Per-channel remarks read with 0xF00E: {channel number (1-based): name}.
+    # Shown in brackets beside the entity in the scan picker and as a
+    # read-only attribute; never changes the entity name or entity_id.
+    channel_remarks: dict[int, str] = field(default_factory=dict)
     # Highest dry-contact zone that answered a directed zone read.
     dry_contact_zones: int | None = None
     # The device's own function list from its 0xE549 reply, flat
@@ -371,6 +387,15 @@ class BusScanner:
                     getattr(telegram, "payload", None) or []
                 )
 
+            if op_name == _CHANNEL_REMARK_REPLY_OP:
+                parsed = self._parse_channel_remark(
+                    list(getattr(telegram, "payload", None) or []),
+                    dev.channel_count,
+                )
+                if parsed is not None:
+                    channel, name = parsed
+                    dev.channel_remarks[channel] = name
+
             if op_name == _BUTTON_TARGET_REPLY_OP:
                 payload = list(getattr(telegram, "payload", None) or [])
                 if len(payload) >= 7:
@@ -489,6 +514,75 @@ class BusScanner:
             return None
         return text[:40]
 
+    @classmethod
+    def _parse_channel_remark(cls, payload, channel_count):
+        """Decode a 0xF00F per-channel remark reply to (channel, name).
+
+        Returns None if the reply carries no usable name. The channel sits in
+        the leading byte(s) before the text: HDL Studio sends the channel as
+        two bytes (high, low), and replies echo it, but a one-byte channel is
+        also accepted. The text is validated the same way as a device remark,
+        so an unexpected layout simply yields no name rather than garbage --
+        the feature fails safe.
+        """
+        try:
+            raw = [int(b) & 0xFF for b in payload]
+        except (TypeError, ValueError):
+            return None
+        if len(raw) < 2:
+            return None
+        cap = min(channel_count or _CHANNEL_REMARK_MAX, _CHANNEL_REMARK_MAX)
+        # Channel field: one byte (1..cap) or two big-endian bytes (0, 1..cap).
+        if 1 <= raw[0] <= cap:
+            channel, offset = raw[0], 1
+        elif raw[0] == 0 and 1 <= raw[1] <= cap:
+            channel, offset = raw[1], 2
+        else:
+            return None
+        name = cls._decode_remark(raw[offset:])
+        if not name:
+            return None
+        return channel, name
+
+    async def _read_channel_remarks(self) -> None:
+        """Ask each load module for the Studio name of each of its channels.
+
+        One 0xF00E per channel, addressed to the device, once channel counts
+        are known. Load modules only (channel_count set); keypads and sensors
+        are skipped. Scan-time only -- nothing is polled afterwards.
+        """
+        if self._buspro.network_interface is None or not self._found:
+            return
+        targets = [
+            d for d in self._found.values()
+            if d.channel_count and not d.looks_like_keypad
+        ]
+        if not targets:
+            return
+        deadline = time.monotonic() + _DIRECTED_MAX_SECONDS
+        for _round in range(_DIRECTED_ROUNDS):
+            pending = [
+                d for d in targets
+                if len(d.channel_remarks) < min(d.channel_count, _CHANNEL_REMARK_MAX)
+            ]
+            if not pending or time.monotonic() >= deadline:
+                break
+            for dev in pending:
+                if time.monotonic() >= deadline:
+                    break
+                count = min(dev.channel_count, _CHANNEL_REMARK_MAX)
+                for channel in range(1, count + 1):
+                    if channel in dev.channel_remarks:
+                        continue
+                    await self._send_directed(
+                        (dev.subnet_id, dev.device_id),
+                        _CHANNEL_REMARK_READ_OP,
+                        [channel // 256, channel % 256],
+                    )
+            await asyncio.sleep(
+                min(_DIRECTED_LISTEN, max(deadline - time.monotonic(), 0.0))
+            )
+
     @staticmethod
     def _extract_type(telegram) -> tuple[str, str]:
         """Pull the raw type code and a friendly name from a telegram."""
@@ -544,6 +638,9 @@ class BusScanner:
             await self._read_keypad_buttons()
             # Phase 5 - DALI-2 controllers: which channels are colour lights.
             await self._read_dali_channel_types()
+            # Phase 6 - per-channel remarks (the Studio channel names), shown
+            # in brackets beside each channel. Needs channel counts, so last.
+            await self._read_channel_remarks()
         finally:
             # Restore the previous catch-all so normal operation is untouched.
             buspro.callback_all_messages = previous_cb
