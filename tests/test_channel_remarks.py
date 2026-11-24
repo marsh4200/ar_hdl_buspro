@@ -104,6 +104,22 @@ def test_entity_no_attribute_when_no_remark():
     assert ent.extra_state_attributes == {}
 
 
+def test_display_name_adds_bracket_but_keeps_base():
+    ent = entity.ARHDLBaseEntity.__new__(entity.ARHDLBaseEntity)
+    ent._device_cfg = {const.CONF_CHANNEL_REMARK: "Entrance light"}
+    display = ent._name_with_remark("2.2 Channel 2")
+    assert display == "2.2 Channel 2 (Entrance light)"
+    # The base name (used for a clean entity_id) is kept without the bracket.
+    assert ent._remark_base_name == "2.2 Channel 2"
+
+
+def test_display_name_plain_when_no_remark():
+    ent = entity.ARHDLBaseEntity.__new__(entity.ARHDLBaseEntity)
+    ent._device_cfg = {}
+    assert ent._name_with_remark("2.2 Channel 2") == "2.2 Channel 2"
+    assert ent._remark_base_name == "2.2 Channel 2"
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

@@ -355,7 +355,7 @@ Multi-sensors import as a **bundle** under one device.
 | 7-in-1 / MSP07M sensors-in-one | Temperature, lux, motion, humidity (when reported) |
 | HDL presence sensor (MSMW24BP family) | Temperature, lux, presence (occupancy) |
 
-Channel remarks: the per-channel names set in HDL Studio are read during a scan (0xF00E) and shown in brackets in the device picker and as a read-only `channel_remark` attribute on each switch/light. The entity name and `entity_id` are never changed.
+Channel remarks: the per-channel names set in HDL Studio are read during a scan (0xF00E, 1-byte channel) and shown in brackets in the device picker, in each switch/light friendly name (e.g. `2.2 Channel 2 (Entrance light)`), and as a read-only `channel_remark` attribute. The `entity_id` is pinned to the base name, so it stays e.g. `switch.2_2_channel_2` and never carries the remark.
 | Granite Display / 4" touch panels | Temperature and **humidity** |
 | HDL-MTS04 temperature sensor | Temperature |
 
