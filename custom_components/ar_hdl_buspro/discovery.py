@@ -174,11 +174,13 @@ _REMARK_REPLY_OP = "0x000F"
 
 # Per-channel remark (the name set against each load channel in HDL Studio).
 # HDL Studio V1.9.65 reads these with 0xF00E (Relay.ReadRelayChannelRemark ->
-# LightDeviceBasic.ReadChannelRemark), channel number in the payload, device
-# replies 0xF00F. Distinct from the device remark above (0x000E/0x000F). The
-# request opcode and channel placement are confirmed from HDL Studio; the
-# text offset in the reply is parsed defensively (see _parse_channel_remark)
-# so an unexpected layout yields no name rather than garbage.
+# LightDeviceBasic.ReadChannelRemark), device replies 0xF00F. Distinct from
+# the device remark above (0x000E/0x000F). For a standard relay/dimmer the
+# request payload is a single byte: the channel (LoopID). The reply echoes
+# the channel in payload[0] and carries the 20-byte name from payload[1]
+# (raw frame offset 26, content offset 25 -> content[1]). Decoded in the enum
+# order HDL uses -- ASCII for most modules. Parsed defensively so an
+# unexpected layout yields no name rather than garbage.
 _CHANNEL_REMARK_READ_OP = b"\xf0\x0e"
 _CHANNEL_REMARK_REPLY_OP = "0xF00F"
 # Don't probe beyond a sane channel count even if a reply over-reports.
@@ -395,6 +397,12 @@ class BusScanner:
                 if parsed is not None:
                     channel, name = parsed
                     dev.channel_remarks[channel] = name
+                else:
+                    _LOGGER.debug(
+                        "Channel remark reply from %s.%s not parsed; raw payload=%s",
+                        subnet, device,
+                        list(getattr(telegram, "payload", None) or []),
+                    )
 
             if op_name == _BUTTON_TARGET_REPLY_OP:
                 payload = list(getattr(telegram, "payload", None) or [])
@@ -577,7 +585,7 @@ class BusScanner:
                     await self._send_directed(
                         (dev.subnet_id, dev.device_id),
                         _CHANNEL_REMARK_READ_OP,
-                        [channel // 256, channel % 256],
+                        [channel],
                     )
             await asyncio.sleep(
                 min(_DIRECTED_LISTEN, max(deadline - time.monotonic(), 0.0))
