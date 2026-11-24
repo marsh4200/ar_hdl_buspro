@@ -64,6 +64,9 @@ async def async_setup_entry(
         elif dtype == DEVICE_TYPE_KEYPAD_BUTTON:
             entities.append(ARHDLKeypadButton(entry, data.gateway, device_cfg))
 
+    for ent in entities:
+        ent.assign_clean_entity_id(hass, "switch.{}")
+
     if entities:
         async_add_entities(entities)
 
@@ -98,7 +101,9 @@ class ARHDLSwitch(ARHDLBaseEntity, SwitchEntity):
         # See light.py: several channels can share one HA device, so each one
         # needs its own visible name rather than deferring to the device name.
         self._attr_has_entity_name = False
-        self._attr_name = device_cfg.get(CONF_NAME) or f"HDL {subnet}.{device} ch{channel}"
+        self._attr_name = self._name_with_remark(
+            device_cfg.get(CONF_NAME) or f"HDL {subnet}.{device} ch{channel}"
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register update callback."""

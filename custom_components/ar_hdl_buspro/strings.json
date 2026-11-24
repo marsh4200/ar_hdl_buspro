@@ -540,6 +540,9 @@
       },
       "dry_contact": {
         "name": "Dry contact"
+      },
+      "presence": {
+        "name": "Presence"
       }
     }
   },

@@ -94,6 +94,9 @@ async def async_setup_entry(
             # Ordinary dimmer / relay channel: unchanged.
             entities.append(ARHDLLight(entry, data.gateway, device_cfg))
 
+    for ent in entities:
+        ent.assign_clean_entity_id(hass, "light.{}")
+
     if entities:
         async_add_entities(entities)
 
@@ -142,7 +145,9 @@ class ARHDLLight(ARHDLBaseEntity, LightEntity):
         # each channel gets its own name instead (its configured name, falling
         # back to "HDL <addr> ch<N>" if it was never set).
         self._attr_has_entity_name = False
-        self._attr_name = device_cfg.get(CONF_NAME) or f"HDL {subnet}.{device} ch{channel}"
+        self._attr_name = self._name_with_remark(
+            device_cfg.get(CONF_NAME) or f"HDL {subnet}.{device} ch{channel}"
+        )
 
         if self._dimmable:
             self._attr_color_mode = ColorMode.BRIGHTNESS

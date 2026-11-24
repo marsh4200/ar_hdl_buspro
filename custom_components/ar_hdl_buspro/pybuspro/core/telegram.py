@@ -15,6 +15,10 @@ class Telegram:
         self.payload = None
         self.operate_code = None
         self.source_device_type = DeviceType.PyBusPro
+        # Raw 16-bit type code of the sender, kept even when it isn't in the
+        # DeviceType enum (source_device_type is None then). Lets a device
+        # recognise hardware the enum doesn't list, e.g. presence sensors.
+        self.source_device_type_code = None
         self.udp_data = None
         self.source_address = None
         self.target_address = None

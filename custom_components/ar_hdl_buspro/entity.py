@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity import Entity
 
 from .const import (
@@ -24,6 +25,7 @@ from .const import (
     CONF_CHANNEL,
     CONF_CLIMATE_KIND,
     CONF_DEVICE_ID,
+    CONF_CHANNEL_REMARK,
     CONF_DEVICE_TYPE,
     CONF_NAME,
     CONF_SUBNET_ID,
@@ -159,6 +161,10 @@ class ARHDLBaseEntity(Entity):
     # no reliable status read at all (curtain/cover modules).
     _resync_device: Any = None
 
+    # Base name (no remark) used to keep a clean entity_id even when the
+    # displayed name carries the Studio channel remark in brackets.
+    _remark_base_name: str | None = None
+
     def __init__(
         self,
         entry: ConfigEntry,
@@ -237,6 +243,44 @@ class ARHDLBaseEntity(Entity):
                 "Post-reconnect resync read failed for %s",
                 getattr(self._resync_device, "device_identifier", "?"),
             )
+
+    def _name_with_remark(self, base_name: str) -> str:
+        """Return the display name with the Studio channel remark in brackets.
+
+        The remark is a visible hint only. The base name is remembered so the
+        entity_id can be generated from it (see assign_clean_entity_id), which
+        keeps the id as e.g. switch.2_2_channel_2 even though the friendly
+        name shows "2.2 Channel 2 (Entrance light)".
+        """
+        self._remark_base_name = base_name
+        remark = self._device_cfg.get(CONF_CHANNEL_REMARK)
+        return f"{base_name} ({remark})" if remark else base_name
+
+    @callback
+    def assign_clean_entity_id(self, hass, id_format: str) -> None:
+        """Pin the entity_id to the base name, ignoring the remark suffix.
+
+        Called from platform setup (where hass is available) before the
+        entity is added. Only acts when a remark is present, so entities
+        without one are untouched. Existing entities keep their registered
+        id via unique_id regardless; this only shapes a fresh id.
+        """
+        if self._remark_base_name and self._device_cfg.get(CONF_CHANNEL_REMARK):
+            self.entity_id = async_generate_entity_id(
+                id_format, self._remark_base_name, hass=hass
+            )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the Studio channel remark as a read-only attribute too.
+
+        Shown in brackets in the friendly name (see _name_with_remark); also
+        here so it is machine-readable for templates and dashboards. Never
+        part of the entity_id. Subclasses that need their own attributes
+        (e.g. keypad buttons) override this; load channels inherit it.
+        """
+        remark = self._device_cfg.get(CONF_CHANNEL_REMARK)
+        return {"channel_remark": remark} if remark else {}
 
     @property
     def available(self) -> bool:
