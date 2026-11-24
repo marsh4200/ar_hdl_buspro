@@ -75,7 +75,7 @@ Sorry to anyone who had devices come in as the wrong type on earlier versions. S
 | **Switch** | Relay modules (MR0410, MR0816, MR1210, MR1616, …), MRCU relays, Buspro wireless panels with built-in relays | One entity per relay channel, keypad LED sync |
 | **Cover** | Curtain modules (MW02 / MWM / MVSM families) **and** relay-pair curtains | Open / close / stop plus position: real on HDL curtain motors, estimated elsewhere |
 | **Climate** | Floor heating (DLP panels), AC via an IR module, a touch panel or a DLP panel | See [Air conditioning](#air-conditioning) |
-| **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M, temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
+| **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M, HDL presence sensors (MSMW24BP), temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
 | **Binary sensor** | Motion, dry-contact zones, universal switches, channel status | One entity per dry-contact zone |
 | **Universal switch** | IR modules (HDL-MIRC04.40) and any universal-switch number | Virtual on/off flags for scenes and logic |
 | **Keypad button** | Any spare keypad button sending a universal switch to Home Assistant | On/off switch + press event |
@@ -353,6 +353,9 @@ Multi-sensors import as a **bundle** under one device.
 | 12-in-1 (HDL-MS12.2C) | Temperature, lux, motion |
 | 8-in-1 (HDL-MS08M.2C) | Temperature, lux, motion |
 | 7-in-1 / MSP07M sensors-in-one | Temperature, lux, motion, humidity (when reported) |
+| HDL presence sensor (MSMW24BP family) | Temperature, lux, presence (occupancy) |
+
+Channel remarks: the per-channel names set in HDL Studio are read during a scan (0xF00E) and shown in brackets in the device picker and as a read-only `channel_remark` attribute on each switch/light. The entity name and `entity_id` are never changed.
 | Granite Display / 4" touch panels | Temperature and **humidity** |
 | HDL-MTS04 temperature sensor | Temperature |
 
@@ -433,6 +436,7 @@ These codes are confirmed from real installations and always take priority. Anyt
 | `0x0073` / `0x0077` / `0x0166` | Binary sensor | 4-zone and 24-zone dry-contact modules |
 | `0x0134` / `0x0141` / `0x0135` | Sensor bundle | 12-in-1 (HDL-MS12.2C) / 8-in-1 |
 | `0x0138` / `0x0148` / `0x0150` | Sensor bundle | 7-in-1 / MSP07M sensors-in-one |
+| `0x0187` / `0x018F` / `0x05E4` | Sensor bundle | HDL presence sensor, occupancy entity |
 | `0x0516` / `0x0517` | Universal switch | HDL-MIRC04.40 IR emitter/receiver module |
 | `0x012B`, `0x00AF`, `0x08DB`, `0x080D`, `0x084D`, `0x239C`, `0x238C`, `0x08CA` | Keypad | Wall keypads, DLP panels and Granite Display keypads (labelled, not imported) |
 | `0x02F5` / `0x1209` / `0x120B` / `0x0455` / `0x0457` | Gateway / Logic | Mesh gateway, HDL-MBUS01IP.431 IP gateways, logic modules (labelled, not imported) |

@@ -103,6 +103,12 @@ class TelegramHelper:
             telegram.source_device_type = generics.get_enum_value(
                 DeviceType, source_device_type_hex
             )
+            try:
+                telegram.source_device_type_code = (
+                    int(source_device_type_hex[0]) << 8
+                ) | int(source_device_type_hex[1])
+            except (TypeError, ValueError, IndexError):
+                telegram.source_device_type_code = None
             telegram.udp_data = data
             telegram.source_address = (source_subnet_id, source_device_id)
             telegram.operate_code = generics.get_enum_value(

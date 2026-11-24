@@ -36,6 +36,7 @@ from .const import (
     CONF_NAME,
     CONF_MOTION_BYTE_INDEX,
     CONF_MOTION_UV_SWITCH,
+    CONF_PRESENCE,
     CONF_SCAN_INTERVAL,
     CONF_SUBNET_ID,
     CONF_SUB_NUMBER,
@@ -169,12 +170,25 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
         self._attr_device_info = build_device_info(entry, device_cfg, gateway.device_id)
         self._attr_translation_key = self._kind
         self._attr_device_class = DEVICE_CLASS_BY_KIND.get(self._kind)
+        # Presence sensors report through the motion byte, but it means
+        # "someone is here", so HA should treat it as occupancy. Set from the
+        # scan when the type code was known; otherwise picked up at runtime
+        # from the type code the device puts in every frame it sends.
+        self._presence = False
+        if self._kind == BINARY_KIND_MOTION and device_cfg.get(CONF_PRESENCE):
+            self._set_presence()
 
     async def async_added_to_hass(self) -> None:
         """Register update callback and optional polling timer."""
         await super().async_added_to_hass()
 
         async def _after_update(_device) -> None:
+            if (
+                self._kind == BINARY_KIND_MOTION
+                and not self._presence
+                and getattr(self._sensor, "is_presence_sensor", False)
+            ):
+                self._set_presence()
             self.async_write_ha_state()
 
         self._sensor.register_device_updated_cb(_after_update)
@@ -189,6 +203,12 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
                     self.hass, _poll, timedelta(seconds=self._scan_interval)
                 )
             )
+
+    def _set_presence(self) -> None:
+        """Present this motion entity as an occupancy (presence) sensor."""
+        self._presence = True
+        self._attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+        self._attr_translation_key = "presence"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -206,6 +226,9 @@ class ARHDLBinarySensor(ARHDLBaseEntity, BinarySensorEntity):
             "raw_payload": getattr(self._sensor, "last_telegram_payload", None),
         }
         if self._kind == BINARY_KIND_MOTION:
+            attrs["presence_sensor"] = self._presence
+            code = getattr(self._sensor, "source_type_code", None)
+            attrs["device_type_code"] = f"0x{code:04X}" if code is not None else None
             attrs["motion_uv_switch"] = getattr(
                 self._sensor, "_motion_uv_switch", None
             )

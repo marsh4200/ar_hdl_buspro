@@ -66,11 +66,13 @@ from .const import (
     CONF_MIN_TEMP,
     CONF_BINARY_KIND,
     CONF_CHANNEL,
+    CONF_CHANNEL_REMARK,
     CONF_CLIMATE_KIND,
     CONF_CLOSE_CHANNEL,
     CONF_COVER_MODE,
     CONF_CURTAIN_NUMBER,
     CONF_DEVICE_HW_KIND,
+    CONF_PRESENCE,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
@@ -150,6 +152,7 @@ from .const import (
     HDL_NO_ENTITY_ROLES,
     HDL_TYPE_CHANNEL_COUNT,
     HDL_TYPE_NAMES,
+    HDL_PRESENCE_TYPE_CODES,
     HDL_TYPE_TO_DEVICE_TYPE,
     MAX_SCAN_DURATION,
     WIRELESS_RELAY_PANEL_CODES,
@@ -2203,7 +2206,26 @@ class ARHDLOptionsFlow(OptionsFlow):
         family = catalog_family(disc.type_code)
         own_role = role_from_functions(getattr(disc, "self_functions", None))
         cat_role = FAMILY_ROLE.get(family)
-        for role in (own_role, cat_role):
+        # Many relay codes carry an empty family in the catalogue but still
+        # record HDL's function list (e.g. 0x0208 HDL-MR1210A.433 ->
+        # (1, 1, 12) = 12 relays). When the device also didn't self-report
+        # (own_role None) and the family is blank (cat_role None), that list
+        # is the only thing left that says "relay", so honour it before the
+        # dimmer-evidence guess, which calls any channel device a light the
+        # moment it sees a mid-level reading.
+        #
+        # But only to assert a relay/switch, never a dimmer: HDL's own table
+        # mislabels some relays as dimmers (0x01C8 HDL-MR0810.332 records
+        # (1, 0, 6) yet is a relay -- see test_rgb_dali / test_keypad_colours).
+        # A catalogue "light" is therefore dropped and left to the evidence,
+        # pins and self-report below, which is where genuine dimmers are
+        # identified. Calling a relay a dimmer is also the worse error (a
+        # dimmed relay channel buzzes), so the conservative default wins.
+        cat_entry = catalog_entry(disc.type_code)
+        cat_func_role = role_from_functions(cat_entry[3] if cat_entry else None)
+        if cat_func_role == "light":
+            cat_func_role = None
+        for role in (own_role, cat_role, cat_func_role):
             if role is None:
                 continue
             if role == ROLE_KEYPAD:
@@ -2309,6 +2331,15 @@ class ARHDLOptionsFlow(OptionsFlow):
         colour = sum(1 for t in dali if t in DALI2_TYPE_TO_LIGHT_COLOR)
         if colour:
             parts.append(f"{colour} colour ch")
+        # Studio channel names, in brackets, so the scan shows what's what.
+        remarks = getattr(disc, "channel_remarks", None)
+        if remarks:
+            named = ", ".join(
+                f"ch{ch} ({remarks[ch]})" for ch in sorted(remarks)
+            )
+            if len(named) > 70:
+                named = named[:67] + "…"
+            parts.append(named)
         # Our own table first (field-confirmed names), then HDL's catalogue,
         # then the vendored enum name.
         friendly = (
@@ -2835,6 +2866,9 @@ class ARHDLOptionsFlow(OptionsFlow):
             "0x0138": DEVICE_HW_SENSORS_IN_ONE,
             "0x0890": DEVICE_HW_PANEL,        # HDL-MPTL4C.48 Granite Display
             "0x0141": DEVICE_HW_12IN1,        # HDL-MS12.2C 12-in-1 (was mis-mapped as a relay)
+            # HDL presence sensors: a 7-in-1 variant to HDL (HDL Studio reads
+            # them with 0x1604). See HDL_PRESENCE_TYPE_CODES.
+            **{code: DEVICE_HW_SENSORS_IN_ONE for code in HDL_PRESENCE_TYPE_CODES},
         }.get(disc.type_code)
         if hw_override:
             hw_kind = hw_override
@@ -2924,6 +2958,9 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # entity's 60 s poll happened to come back.
                     CONF_DEVICE_HW_KIND: hw_kind,
                     CONF_SCAN_INTERVAL: DEFAULT_MOTION_SCAN_INTERVAL,
+                    # Presence (occupancy) rather than motion: same byte,
+                    # but it means "someone is in the room".
+                    CONF_PRESENCE: disc.type_code in HDL_PRESENCE_TYPE_CODES,
                 }
             )
             added += 1
@@ -2988,6 +3025,12 @@ class ARHDLOptionsFlow(OptionsFlow):
             CONF_SUBNET_ID: disc.subnet_id,
             CONF_DEVICE_ID: disc.device_id,
         }
+        # Studio channel remark, if the scan read one for this channel. Stored
+        # as its own field so it can be shown in brackets without ever being
+        # part of the name or entity_id.
+        remark = getattr(disc, "channel_remarks", {}).get(channel) if channel else None
+        if remark:
+            base[CONF_CHANNEL_REMARK] = remark
         if dtype == DEVICE_TYPE_LIGHT:
             base.update(
                 {

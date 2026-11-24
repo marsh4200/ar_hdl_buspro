@@ -490,6 +490,9 @@
       },
       "dry_contact": {
         "name": "Tørrkontakt"
+      },
+      "presence": {
+        "name": "Tilstedeværelse"
       }
     }
   },
