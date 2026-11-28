@@ -154,7 +154,7 @@ async def async_setup_entry(
 class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
     """Representation of an HDL Buspro floor-heating climate device."""
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
 
@@ -223,12 +223,12 @@ class ARHDLDlpClimate(ARHDLBaseEntity, ClimateEntity):
 
     # ----- state ----------------------------------------------------------
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return current measured temperature."""
         return self._climate.temperature
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return setpoint."""
         return self._climate.target_temperature
 
@@ -366,7 +366,7 @@ class ARHDLFloorHeatingModuleClimate(ARHDLBaseEntity, ClimateEntity):
 
     # ----- state ----------------------------------------------------------
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         return (
             UnitOfTemperature.FAHRENHEIT if self._fh.fahrenheit else UnitOfTemperature.CELSIUS
         )
@@ -406,11 +406,11 @@ class ARHDLFloorHeatingModuleClimate(ARHDLBaseEntity, ClimateEntity):
         return HVACAction.COOLING if self._fh.work_type == "cool" else HVACAction.HEATING
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._fh.current_temperature
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._fh.target_temperature
 
     @property
@@ -472,7 +472,7 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
     for the full writeup and provenance.
     """
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1
     # Fallback covering every mode this class knows about; __init__
     # narrows this to CONF_AC_HVAC_MODES when a device is configured with
@@ -545,12 +545,12 @@ class ARHDLAcClimate(ARHDLBaseEntity, ClimateEntity):
         return super().available and self._ac.available
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the module's own room-temperature reading, if available."""
         return self._ac.current_temperature
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return setpoint."""
         return self._ac.target_temperature
 
@@ -626,7 +626,7 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
     Subnet/Device are the panel's address, HVAC No. is the panel's AC slot.
     """
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1
     # Panel limits are not mapped yet; a normal split-unit range.
     _attr_min_temp = 16
@@ -737,11 +737,11 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
         return super().available and self._ac.available
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._ac.current_temperature
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._ac.target_temperature
 
     @property
@@ -801,3 +801,29 @@ class ARHDLPanelAcClimate(ARHDLBaseEntity, ClimateEntity):
         if temperature is None:
             return
         await self._ac.set_target_temperature(int(temperature))
+
+
+# ----- Home Assistant before 2026.11 -----------------------------------------
+# 2026.11 renamed the climate temperature properties with a native_ prefix
+# (developers.home-assistant.io/blog/2026/10/08/climate-native-temperature);
+# the old names stop working in 2027.11. The entities above use the new
+# names. Older Home Assistant only reads the old ones, so there - and only
+# there, which keeps the deprecation warning away on current versions -
+# map the old names onto the new.
+if not hasattr(ClimateEntity, "native_current_temperature"):
+
+    def _legacy_unit(self):
+        prop = getattr(type(self), "native_temperature_unit", None)
+        if isinstance(prop, property):
+            return prop.fget(self)
+        return self._attr_native_temperature_unit
+
+    for _cls in (
+        ARHDLDlpClimate,
+        ARHDLFloorHeatingModuleClimate,
+        ARHDLAcClimate,
+        ARHDLPanelAcClimate,
+    ):
+        _cls.current_temperature = property(lambda self: self.native_current_temperature)
+        _cls.target_temperature = property(lambda self: self.native_target_temperature)
+        _cls.temperature_unit = property(_legacy_unit)
