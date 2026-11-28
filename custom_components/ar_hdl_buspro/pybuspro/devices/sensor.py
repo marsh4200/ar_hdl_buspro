@@ -631,8 +631,9 @@ class Sensor(Device):
     def humidity(self) -> int:
         """Return the current relative humidity percentage.
 
-        Only ever populated from ReadSensorsInOneStatusResponse (the
-        "sensors_in_one" hw kind) -- see SENSOR_KIND_HUMIDITY in const.py.
+        Populated from ReadSensorsInOneStatusResponse (the "sensors_in_one"
+        hw kind) or, for touch panels, the 0xE441 analog-value reply to a
+        0xE440 sub-type 0x45 read -- see SENSOR_KIND_HUMIDITY in const.py.
         """
         if self._current_humidity is None:
             return 0

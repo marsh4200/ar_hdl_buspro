@@ -77,7 +77,7 @@ Sorry to anyone who had devices come in as the wrong type on earlier versions. S
 | **Climate** | Floor heating (DLP panels), AC via an IR module, a touch panel or a DLP panel | See [Air conditioning](#air-conditioning) |
 | **Sensor** | 12-in-1, 8-in-1, 7-in-1 / MSP07M, HDL presence sensors (MSMW24BP), temperature sensors, touch-panel temperature and humidity | Broadcast plus optional polling |
 | **Binary sensor** | Motion, dry-contact zones, universal switches, channel status | One entity per dry-contact zone |
-| **Universal switch** | IR modules (HDL-MIRC04.40) and any universal-switch number | Virtual on/off flags for scenes and logic |
+| **Universal switch** | IR modules (HDL-MIRC04.40) and any universal-switch number | On/off switch, or a press-once button - see [IR modules](#ir-modules-tv-projector-and-other-ir-devices) |
 | **Keypad button** | Any spare keypad button sending a universal switch to Home Assistant | On/off switch + press event |
 
 ---
@@ -397,6 +397,21 @@ The scan doesn't find the others; add them under **Configure → Add a device �
 | **Notes** | Narrow **AC HVAC modes to offer** for cooling-only units | Room temperature from the panel (temperature channel `1`, or `0` for none). Setpoint 16–30 °C. Screen changes show up straight away |
 
 The IR mapping comes from real bus captures ([issue #17](https://github.com/marsh4200/ar_hdl_buspro/issues/17)) cross-checked against HDL's AC spec. Swing and the panel's own setpoint limits aren't supported yet. If something misbehaves, please open an issue with a [debug log](#debug-logging).
+
+### IR modules: TV, projector and other IR devices
+
+An HDL IR module (HDL-MIRC04.40 family) fires a stored IR code when one of its universal switches is sent. It keeps no state, so these import as **buttons**: press one and the code fires once.
+
+The scan reads the module the way HDL Studio does - its 24 stored devices with the names you gave them, and what each universal switch does on **ON** and on **OFF** (the module stores the two separately). Every configured action becomes its own button, named after the device and the key:
+
+| Button | Sends | Attribute `ir_action` |
+|---|---|---|
+| *Lounge IR Lounge TV Power* | universal switch 1 ON | Lounge TV Power (universal switch 1 ON) |
+| *Lounge IR Cinema ON* / *Lounge IR Cinema OFF* | universal switch 3 ON / OFF | ... |
+
+Key names come from HDL's own IR library (TV, projector, set-top box, DVD, fan, AC). If a module doesn't answer these reads you get one button for switch 1 and add the rest by hand.
+
+Any universal switch can be either kind: *Edit a device* → **Show as** *Switch* or *Button*, and for a button **Button sends** *ON* or *OFF*. Existing universal switches stay switches until you change them.
 
 ### Adding and editing devices by hand
 

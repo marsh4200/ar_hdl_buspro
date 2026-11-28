@@ -239,7 +239,9 @@
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
           "replace_channels": "Replace lights/switches already set up on these channels",
-          "use_travel_timer": "Use travel timer (off = HDL system decides)"
+          "use_travel_timer": "Use travel timer (off = HDL system decides)",
+          "show_as": "Show as",
+          "button_status": "Button sends (button only)"
         }
       },
       "edit_device": {
@@ -291,7 +293,9 @@
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
           "replace_channels": "Replace lights/switches already set up on these channels",
-          "use_travel_timer": "Use travel timer (off = HDL system decides)"
+          "use_travel_timer": "Use travel timer (off = HDL system decides)",
+          "show_as": "Show as",
+          "button_status": "Button sends (button only)"
         }
       },
       "remove_device": {
@@ -455,6 +459,18 @@
       "options": {
         "rgb": "RGB (3 channels)",
         "rgbw": "RGBW (4 channels)"
+      }
+    },
+    "show_as": {
+      "options": {
+        "switch": "Switch (on/off)",
+        "button": "Button (press to send once)"
+      }
+    },
+    "button_status": {
+      "options": {
+        "on": "ON",
+        "off": "OFF"
       }
     }
   },
