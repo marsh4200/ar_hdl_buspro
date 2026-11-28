@@ -279,6 +279,7 @@ A new **AR HDL Manager** page in the Home Assistant sidebar (admins only) sets t
 - **Scan bus for keypads** finds the keypads that have adjustable colours. Tick the ones you want and add them to the manager; they stay there after a restart. This scan is separate from the hub's own device scan and adds no entities.
 - Each keypad is drawn with its buttons. Pick a button, choose its on and off colour, and press **Save to keypad**. Nothing is written until you save, and **Read from keypad** shows what the keypad holds now.
 - **Show on / off, on the keypad** lights that button's LED in either state so you can check the colour on the wall. It switches nothing.
+- **Brightness** sets the keypad's **status LEDs** and **backlight** (0-100 %), with the preview dimming as you drag. It uses the same setting HDL Studio does and writes back the panel's other settings (such as the button lock) unchanged. Panels with no backlight show only the status-LED slider; a panel that doesn't report a brightness setting shows none.
 - Keypads without a colour setting are listed by the scan but can't be added.
 
 ### Keypad LED sync
@@ -287,6 +288,7 @@ An HDL keypad's button LED shows the button's own state, not the relay's. Switch
 
 - **The bus scan reads each keypad's button programming** (wired keypads and wireless panels) and links every button that switches a **single** relay or dimmer channel to that entity.
 - **Whenever the channel changes**, from anywhere, the linked LEDs are set to match.
+- **All on / all off stays in step.** Every LED update on a hub goes through one paced queue, one frame at a time, after the relay commands. Each button gets its latest state, so a burst of 20 lights can no longer overrun the gateway and leave LEDs lit over dark lights. A button linked to two lights stays lit while either is on.
 - Buttons that drive **several** channels (an "all lights" button) are left unlinked. A wireless panel whose buttons can't be read falls back to button N = relay N.
 
 <p align="center"><img src="https://raw.githubusercontent.com/marsh4200/ar_hdl_buspro/main/images/keypad-led-buttons.png" width="520" alt="Edit a device with the Keypad LED buttons field"></p>
