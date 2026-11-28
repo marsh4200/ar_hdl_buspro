@@ -54,6 +54,11 @@ input[type=text]{font:inherit;font-size:14px;padding:7px 8px;border-radius:6px;b
 .pages{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;justify-content:center}
 .pages button.on{border-color:var(--primary-color);color:var(--primary-color)}
 .empty{padding:24px 8px;text-align:center;color:var(--secondary-text-color);font-size:14px}
+.bright{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.slide{display:flex;align-items:center;gap:10px;margin:10px 0}
+.slide label{width:110px;font-size:14px;color:var(--secondary-text-color)}
+.slide input[type=range]{flex:1;accent-color:var(--primary-color)}
+.slide b{font-weight:500;min-width:42px;text-align:right;font-size:14px}
 `;
 
 class ArHdlManagerPanel extends HTMLElement {
@@ -61,7 +66,7 @@ class ArHdlManagerPanel extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.s = { hubs: [], entry: null, keypads: [], sel: null, btn: 1, page: 1, view: "main", scan: null, picks: new Set(),
-      colors: {}, orig: {}, lit: {}, busy: "", msg: "", msgKind: "", loaded: false };
+      colors: {}, orig: {}, lit: {}, bright: {}, brightOrig: {}, busy: "", msg: "", msgKind: "", loaded: false };
   }
 
   set hass(h) {
@@ -104,6 +109,8 @@ class ArHdlManagerPanel extends HTMLElement {
       r.colors.forEach((c) => (map[c.button] = c));
       this.s.colors[kp.key] = map;
       this.s.orig[kp.key] = JSON.parse(JSON.stringify(map));
+      this.s.bright[kp.key] = r.brightness ? { ...r.brightness } : null;
+      this.s.brightOrig[kp.key] = r.brightness ? { ...r.brightness } : null;
       const first = r.colors.length ? r.colors[0].button : 1;
       if (!map[this.s.btn]) { this.s.btn = first; this.s.page = Math.floor((first - 1) / 8) + 1; }
       this.say(r.colors.length ? "" : "The keypad answered but reported no button colours.", r.colors.length ? "" : "err");
@@ -127,6 +134,37 @@ class ArHdlManagerPanel extends HTMLElement {
       this.say(`Saved ${r.written} button${r.written === 1 ? "" : "s"} to ${kp.name}.`, "good");
     } catch (e) { this.say(e.message || String(e), "err"); }
     this.s.busy = ""; this.draw();
+  }
+
+  brightChanged(key) {
+    const b = this.s.bright[key], o = this.s.brightOrig[key];
+    return !!(b && o && (b.backlight !== o.backlight || b.status !== o.status));
+  }
+
+  async saveBright() {
+    const kp = this.kp, b = kp && this.s.bright[kp.key]; if (!b) return;
+    this.s.busy = "bright"; this.say("Saving brightness to the keypad…"); this.draw();
+    try {
+      const data = { entry_id: this.s.entry, key: kp.key, status: b.status };
+      if (b.has_backlight) data.backlight = b.backlight;
+      await this.ws("brightness", data);
+      this.s.brightOrig[kp.key] = { ...b };
+      this.say(`Brightness saved to ${kp.name}.`, "good");
+    } catch (e) { this.say(e.message || String(e), "err"); }
+    this.s.busy = ""; this.draw();
+  }
+
+  brightHtml(kp) {
+    const b = this.s.bright[kp.key];
+    if (b === undefined) return "";
+    if (!b) return `<div class="bright"><h3>Brightness</h3><div class="sub">This keypad didn't report a brightness setting.</div></div>`;
+    const sl = (id, label, v) => `<div class="slide"><label for="${id}">${label}</label><input type="range" id="${id}" min="0" max="100" step="1" value="${v}"><b id="${id}v">${v}%</b></div>`;
+    const ch = this.brightChanged(kp.key);
+    return `<div class="bright"><h3>Brightness</h3><div class="sub">Applies to the whole keypad. The preview dims as you drag.</div>
+      ${sl("bstatus", "Status LEDs", b.status)}
+      ${b.has_backlight ? sl("bback", "Backlight", b.backlight) : ""}
+      <div class="btns"><button class="pri" id="savebright" ${this.s.busy || !ch ? "disabled" : ""}>Save brightness</button>
+        <button id="undobright" ${ch ? "" : "disabled"}>Undo</button></div></div>`;
   }
 
   async scan() {
@@ -204,7 +242,10 @@ class ArHdlManagerPanel extends HTMLElement {
     const cur = colors[s.btn];
     const dirty = (b) => orig[b] && (orig[b].on !== colors[b].on || orig[b].off !== colors[b].off);
     const nChanged = this.changed(kp.key).length;
-    const plate = n ? `<div class="plate" style="grid-template-columns:repeat(${cols},1fr)">${shown.map((b) => `<div class="key ${b === s.btn ? "act" : ""} ${dirty(b) ? "dirty" : ""}" data-b="${b}"><span class="tag">${b}</span>${esc(this.btnName(kp, b))}<span class="led" style="background:${esc(s.lit[kp.key + "/" + b] ? colors[b].on : colors[b].off)}"></span></div>`).join("")}</div>`
+    const br = s.bright[kp.key];
+    const ledF = br ? `filter:brightness(${(0.12 + 0.88 * br.status / 100).toFixed(2)});` : "";
+    const keyO = br && br.has_backlight ? `opacity:${(0.25 + 0.75 * br.backlight / 100).toFixed(2)};` : "";
+    const plate = n ? `<div class="plate" style="grid-template-columns:repeat(${cols},1fr)">${shown.map((b) => `<div class="key ${b === s.btn ? "act" : ""} ${dirty(b) ? "dirty" : ""}" data-b="${b}"><span class="tag">${b}</span><span class="kl" style="${keyO}">${esc(this.btnName(kp, b))}</span><span class="led" style="${ledF}background:${esc(s.lit[kp.key + "/" + b] ? colors[b].on : colors[b].off)}"></span></div>`).join("")}</div>`
       : `<div class="plate" style="align-items:center;justify-items:center;color:#8d9099;font-size:13px;text-align:center">${s.busy === "read" ? "Reading…" : "No colours read yet"}</div>`;
     const sw = (w) => `<div class="sw">${SWATCHES.map((c) => `<span style="background:${c}" data-sw="${w}" data-c="${c}"></span>`).join("")}</div>`;
     const editor = cur ? `<h3>Button ${s.btn}</h3>
@@ -219,7 +260,7 @@ class ArHdlManagerPanel extends HTMLElement {
       <div class="cols"><div><div class="stage">${plate}</div>
         ${pages.length > 1 ? `<div class="pages">${pages.map((p) => `<button data-page="${p}" class="${p === s.page ? "on" : ""}">Page ${p}</button>`).join("")}</div>` : ""}
         <div class="btns" style="justify-content:center"><button id="allon">Preview all on</button><button id="alloff">Preview all off</button></div></div>
-        <div>${editor}</div></div>
+        <div>${editor}${this.brightHtml(kp)}</div></div>
       <div class="btns" style="border-top:1px solid var(--line);padding-top:12px;margin-top:16px">
         <button class="pri" id="save" ${s.busy || !nChanged ? "disabled" : ""}>Save to keypad${nChanged ? ` (${nChanged})` : ""}</button>
         <button id="read" ${s.busy ? "disabled" : ""}>Read from keypad</button>
@@ -275,6 +316,20 @@ class ArHdlManagerPanel extends HTMLElement {
     on("allon", "click", () => allLit(true));
     on("alloff", "click", () => allLit(false));
     on("save", "click", () => this.save());
+    [["bstatus", "status"], ["bback", "backlight"]].forEach(([id, field]) => {
+      on(id, "input", (e) => {
+        const b = s.bright[kp.key]; if (!b) return;
+        b[field] = Number(e.target.value);
+        const out = $(id + "v"); if (out) out.textContent = b[field] + "%";
+        const f = (0.12 + 0.88 * b.status / 100).toFixed(2), o = (0.25 + 0.75 * b.backlight / 100).toFixed(2);
+        root.querySelectorAll(".led").forEach((el) => (el.style.filter = `brightness(${f})`));
+        if (b.has_backlight) root.querySelectorAll(".kl").forEach((el) => (el.style.opacity = o));
+        const sb = $("savebright"), ub = $("undobright"), ch = this.brightChanged(kp.key);
+        if (sb) sb.disabled = !!s.busy || !ch; if (ub) ub.disabled = !ch;
+      });
+    });
+    on("savebright", "click", () => this.saveBright());
+    on("undobright", "click", () => { s.bright[kp.key] = { ...s.brightOrig[kp.key] }; this.say(""); this.draw(); });
     on("read", "click", () => this.readColors());
     on("undo", "click", () => { s.colors[kp.key] = JSON.parse(JSON.stringify(s.orig[kp.key] || {})); this.say("Changes undone."); this.draw(); });
     on("bname", "change", async (e) => {

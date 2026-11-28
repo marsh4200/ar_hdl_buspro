@@ -24,6 +24,7 @@ PLATFORMS: Final = [
     "light",
     "sensor",
     "switch",
+    "button",
 ]
 
 # Configuration keys (gateway / entry data)
@@ -76,6 +77,25 @@ CONF_DIMMABLE: Final = "dimmable"
 CONF_SENSOR_KIND: Final = "sensor_kind"
 CONF_BINARY_KIND: Final = "binary_kind"
 CONF_SUB_NUMBER: Final = "sub_number"          # universal switch / single-channel / dry-contact number
+
+# How a universal switch appears in Home Assistant. "switch" is the original
+# on/off entity. "button" is a one-shot press that sends the universal switch
+# once - the right fit for IR modules (HDL-MIRC04.40), which fire a stored IR
+# code per universal-switch number and keep no state the switch could show.
+# HDL Studio V1.9.65 configures a SEPARATE action for a universal switch's ON
+# and its OFF on these modules (FourChannelIRSender.ReadUVInfo reads both), so
+# a button also records which of the two it sends.
+CONF_UV_SHOW_AS: Final = "show_as"
+UV_SHOW_AS_SWITCH: Final = "switch"
+UV_SHOW_AS_BUTTON: Final = "button"
+UV_SHOW_AS_OPTIONS: Final = [UV_SHOW_AS_SWITCH, UV_SHOW_AS_BUTTON]
+CONF_UV_BUTTON_STATUS: Final = "button_status"
+UV_BUTTON_ON: Final = "on"
+UV_BUTTON_OFF: Final = "off"
+UV_BUTTON_STATUSES: Final = [UV_BUTTON_ON, UV_BUTTON_OFF]
+# What the IR module does on this universal switch, as read during the scan
+# (e.g. "TV: Power on channel 2"). Informational only; shown as an attribute.
+CONF_IR_ACTION: Final = "ir_action"
 CONF_TEMP_OFFSET: Final = "temperature_offset"
 # The sensor hardware reports Fahrenheit on the bus; convert to Celsius.
 CONF_TEMP_FAHRENHEIT: Final = "temperature_fahrenheit"
@@ -334,14 +354,13 @@ SENSOR_KIND_ILLUMINANCE: Final = "illuminance"
 # the "sensors_in_one" hw kind, which is the only one that actively sends
 # ReadSensorsInOneStatus (0x1604).
 #
-# Panel-style touch devices (MPTL/MP2B/MP4B/MPL8, e.g. the Granite Display
-# below) are notably NOT claimed to support humidity in either upstream
-# project either -- Frequencies' own supported-model list groups them
-# under "temperature, illuminance, motion" only, same as this repo's
-# findings on issue #13's HDL-MPTL4C. That's independent evidence this
-# panel family's onboard humidity (if wired at all) isn't exposed over
-# Buspro through any telegram either project has reverse-engineered, not
-# just a gap in this integration.
+# Panel-style touch devices (Granite Display / 4" touch panels, the type
+# codes in hdl_catalog.HUMIDITY_PANEL_CODES) are the exception: they never
+# put humidity on any of the telegrams above, but answer HDL's generic
+# ReadAnalogValue (0xE440, sub-type 0x45) on 0xE441 as [0x45, x, %RH] -- the
+# same read the HDL Setup Tool uses for them. A "panel" hw-kind humidity
+# entity polls that instead of the temperature read (issue #25); see
+# pybuspro/devices/sensor.py.
 SENSOR_KIND_HUMIDITY: Final = "humidity"
 
 SENSOR_KINDS: Final = [
@@ -531,16 +550,10 @@ HDL_TYPE_TO_DEVICE_TYPE: Final = {
                                                # [0,26,0,1,25,25,25,25,1,0,1,1] -> 26), which the old inverted
                                                # -20 bias in Sensor.temperature then turned into 6 degC.
                                                #
-                                               # HUMIDITY: still unconfirmed, deliberately not guessed at. All
-                                               # eight 0xE3E8 channels carry temperature, so humidity does not
-                                               # ride that request family on this panel. Indices 8-11 of its
-                                               # ReadFloorHeatingStatusResponse remain unparsed but are all 0/1,
-                                               # so none of them is a %RH reading. Frequencies/home_assistant_
-                                               # buspro likewise claims only temperature/illuminance/motion for
-                                               # this MPTL/panel family. Confirming it needs a capture taken while
-                                               # the panel's on-screen humidity visibly changes - the sensor
-                                               # entity's last_telegram/raw_payload attributes expose exactly
-                                               # that without needing a bus monitor.
+                                               # HUMIDITY (issue #25): not carried by 0xE3E8 or the
+                                               # floor-heating reply. Read with ReadAnalogValue 0xE440
+                                               # sub-type 0x45 instead (reply 0xE441 [0x45, x, %RH]), as
+                                               # HDL's own setup tool does - see SENSOR_KIND_HUMIDITY above.
     "0x164B": DEVICE_TYPE_LIGHT,              # dimmer module
     "0x158A": DEVICE_TYPE_SWITCH,             # relay module
     "0x027E": DEVICE_TYPE_LIGHT,              # dimmer module

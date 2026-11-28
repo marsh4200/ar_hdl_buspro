@@ -30,6 +30,8 @@ from .const import (
     DEVICE_TYPE_KEYPAD_BUTTON,
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_UNIVERSAL_SWITCH,
+    CONF_UV_SHOW_AS,
+    UV_SHOW_AS_BUTTON,
     DOMAIN,
 )
 from .entity import ARHDLBaseEntity, build_device_info, build_unique_id
@@ -60,6 +62,9 @@ async def async_setup_entry(
         if dtype == DEVICE_TYPE_SWITCH:
             entities.append(ARHDLSwitch(entry, data.gateway, device_cfg))
         elif dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+            # Shown as a button instead: see button.py.
+            if device_cfg.get(CONF_UV_SHOW_AS) == UV_SHOW_AS_BUTTON:
+                continue
             entities.append(ARHDLUniversalSwitch(entry, data.gateway, device_cfg))
         elif dtype == DEVICE_TYPE_KEYPAD_BUTTON:
             entities.append(ARHDLKeypadButton(entry, data.gateway, device_cfg))

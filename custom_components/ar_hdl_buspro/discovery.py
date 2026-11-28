@@ -50,6 +50,7 @@ from .classify import (
     parse_module_reply,
     triples,
 )
+from . import ir_library
 from .pybuspro.buspro import Buspro
 from .pybuspro.core.telegram import Telegram
 from .pybuspro.helpers.enums import OperateCode
@@ -140,11 +141,18 @@ _DALI_CURRENT_TYPE = 0x0B
 _DALI_LISTEN = 1.5
 _DALI_ROUNDS = 2
 DALI_PHASE_MAX_SECONDS = 6.0
+# IR modules (HDL-MIRC04.40 family): read the 24 stored IR devices and the ON
+# and OFF action of every universal switch 1-99, the way HDL Studio does (see
+# ir_library.py), so their universal switches import with real names. Only
+# IR modules are asked; one that ignores the device read is skipped at once.
+IR_PHASE_MAX_SECONDS = 30.0
+_IR_LISTEN = 1.5
 SCAN_TIMEOUT_MARGIN = (
     DIRECTED_PHASE_MAX_SECONDS
     + IDENTIFY_PHASE_MAX_SECONDS
     + KEYPAD_PHASE_MAX_SECONDS
     + DALI_PHASE_MAX_SECONDS
+    + IR_PHASE_MAX_SECONDS
     + 5.0
 )
 
@@ -267,6 +275,11 @@ class DiscoveredDevice:
     # (index 0 = channel 1). 0 on/off, 1 dimming, 2 CCT, 3 RGB, 4 RGBW,
     # 5 RGBCW, 6 RGBWAF, 7 XY. None if never read / never answered.
     dali_channel_types: list[int] | None = None
+    # IR modules only (ir_library.py): stored IR devices from 0x137D,
+    # {device_no: (library_type, name)}, and universal-switch actions from
+    # 0xDB97, {(switch_no, status): config bytes}. Empty if never answered.
+    ir_devices: dict[int, tuple[int, str | None]] = field(default_factory=dict)
+    ir_actions: dict[tuple[int, int], list[int]] = field(default_factory=dict)
 
     @property
     def address(self) -> str:
@@ -403,6 +416,22 @@ class BusScanner:
                         subnet, device,
                         list(getattr(telegram, "payload", None) or []),
                     )
+
+            if op_name == ir_library.READ_IR_DEVICE_REPLY:
+                parsed = ir_library.parse_device_reply(
+                    getattr(telegram, "payload", None) or []
+                )
+                if parsed is not None:
+                    number, lib_type, name = parsed
+                    dev.ir_devices[number] = (lib_type, name)
+
+            if op_name == ir_library.READ_UV_ACTION_REPLY:
+                parsed = ir_library.parse_uv_reply(
+                    getattr(telegram, "payload", None) or []
+                )
+                if parsed is not None:
+                    number, status, cfg = parsed
+                    dev.ir_actions[(number, status)] = cfg
 
             if op_name == _BUTTON_TARGET_REPLY_OP:
                 payload = list(getattr(telegram, "payload", None) or [])
@@ -649,6 +678,9 @@ class BusScanner:
             # Phase 6 - per-channel remarks (the Studio channel names), shown
             # in brackets beside each channel. Needs channel counts, so last.
             await self._read_channel_remarks()
+            # Phase 7 - IR modules: stored devices and universal-switch
+            # actions, so their switches import as named buttons.
+            await self._read_ir_modules()
         finally:
             # Restore the previous catch-all so normal operation is untouched.
             buspro.callback_all_messages = previous_cb
@@ -909,6 +941,58 @@ class BusScanner:
             await asyncio.sleep(
                 min(_DALI_LISTEN, max(deadline - time.monotonic(), 0.0))
             )
+
+    async def _read_ir_modules(self) -> None:
+        """Read each IR module's stored devices and universal-switch actions.
+
+        Same reads and order as HDL Studio (ir_library.py). A module that
+        answers none of the device reads is left alone - it imports exactly
+        as before - so this costs one short burst per unresponsive module.
+        """
+        if self._buspro.network_interface is None:
+            return
+        targets = [
+            d for d in self._found.values()
+            if code_int(d.type_code) in ir_library.IR_MODULE_TYPE_CODES
+        ]
+        if not targets:
+            return
+        deadline = time.monotonic() + IR_PHASE_MAX_SECONDS
+
+        def left() -> float:
+            return max(deadline - time.monotonic(), 0.0)
+
+        for dev in targets:
+            address = (dev.subnet_id, dev.device_id)
+            for number in range(1, ir_library.IR_STORED_DEVICES + 1):
+                if not left():
+                    return
+                await self._send_directed(
+                    address, ir_library.READ_IR_DEVICE_OP, [number, 0, 0]
+                )
+            await asyncio.sleep(min(_IR_LISTEN, left()))
+            if not dev.ir_devices:
+                _LOGGER.debug(
+                    "IR module %s.%s did not answer 0x137C; importing its "
+                    "universal switches without names", *address,
+                )
+                continue
+            for _round in range(2):
+                wanted = [
+                    (number, status)
+                    for number in range(1, ir_library.IR_UV_MAX + 1)
+                    for status in (1, 0)
+                    if (number, status) not in dev.ir_actions
+                ]
+                if not wanted or not left():
+                    break
+                for number, status in wanted:
+                    if not left():
+                        break
+                    await self._send_directed(
+                        address, ir_library.READ_UV_ACTION_OP, [number, status]
+                    )
+                await asyncio.sleep(min(_IR_LISTEN, left()))
 
     def _log_summary(self, found: list[DiscoveredDevice], duration: float) -> None:
         """Log a human-readable summary of the scan at INFO level."""

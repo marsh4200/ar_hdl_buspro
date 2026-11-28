@@ -144,6 +144,52 @@ WIRELESS_TYPES = frozenset({
 })
 
 
+
+# ----- panel brightness (backlight / status LEDs) ---------------------------
+# From HDL Studio V1.9.65 (DeviceCommon.dll, PanelBasic.ReadPanelBrightness /
+# SavePanelBrightness). Read 0xE010 -> 0xE011, write 0xE012 -> 0xE013; both
+# values are 0-100 %. The block also carries the panel's button lock (and on
+# some panels its manual-lock key, jade light and auto-lock time), so a write
+# sends back every byte exactly as read and changes only the two levels.
+OP_BRIGHTNESS_READ = 0xE010
+OP_BRIGHTNESS_WRITE = 0xE012
+# Most panels: [backlight, status LEDs, lock, ...]. These have no backlight
+# and lead with the status LEDs instead (NormalPanelDeviceTypeList.
+# minPanelwithoutBacklightDeviceType).
+BRIGHTNESS_STATUS_FIRST = frozenset({
+    2033, 2034, 2035, 2036, 2037, 2038, 2039, 2085, 2086, 2087, 2088, 2089,
+    2090, 2091, 2092, 2093, 2104, 2105, 2106, 2107, 2124, 2125, 2126, 2127,
+    2128, 2129, 2130, 2131, 2132, 2133, 2267, 2268, 2269, 2282, 5030, 5031,
+    5032, 5033, 5034, 5035, 5036, 5037, 5038, 5039, 5040, 5041, 5042, 5043,
+    5044, 5045, 5046, 5047, 5048, 5049, 5050, 5051, 5052, 5053, 5054, 5055,
+    5056, 5057, 5058, 5059, 5060, 5061, 5062, 5063, 5065, 5066, 5067, 5068,
+    5069, 5070, 5073, 5074, 5075, 5076, 5077, 5078, 5079, 7000, 7001, 7005,
+    7006, 12128, 12130, 12131, 12132, 12133,
+})
+# Read at offsets 1/2 but written at 0/1 - not supported until confirmed on
+# real hardware (minPanelBacklightinParam2DeviceType).
+BRIGHTNESS_UNSUPPORTED = frozenset({
+    242, 243, 244,
+})
+# Studio writes 4 bytes to these (adds the manual-lock key) ...
+BRIGHTNESS_MANUAL_LOCK = frozenset({
+    2351, 2352, 2353, 2354, 2355, 2356, 2366, 2367, 2368, 2369, 2370, 2371,
+    2372, 2373, 2374, 2375, 2376, 2377, 2378, 2384, 2385, 2386, 2387, 2388,
+})
+# ... and 6 to these (FangYue 2.1: + jade light, auto-lock time).
+BRIGHTNESS_FANGYUE21 = frozenset({
+    2366, 2367, 2368, 2369, 2370, 2371, 2372, 2373, 2374, 2375, 2376, 2377,
+    2378, 2384, 2385, 2386, 2387, 2388,
+})
+# DLPs get a fixed 11-byte block: [backlight, status, lock (0/1), 0, 1, 0...].
+BRIGHTNESS_DLP = frozenset({
+    84, 86, 87, 149, 154, 155, 156, 157, 158, 160, 162, 165, 167, 168, 170,
+    172, 175, 176, 180, 186, 188, 195, 196, 198, 2158, 2168, 2176, 2181,
+    2191, 2238, 2241, 2242, 2243, 2244, 2245, 2271, 5000, 5001, 5002, 5004,
+    5006, 5007, 5008, 5009, 9100, 9101, 9105, 9110, 9111, 9121, 9131, 9146,
+    9150, 9151, 10186, 19100, 19121,
+})
+
 def code_to_int(type_code) -> int | None:
     """'0x13C3' / 5059 -> 5059; None if it can't be read."""
     if isinstance(type_code, int):
@@ -198,6 +244,50 @@ def dlp_led_pages(type_code) -> tuple[int, int]:
     return 7, 8
 
 
+def brightness_supported(type_code) -> bool:
+    code = code_to_int(type_code)
+    return code is not None and code not in BRIGHTNESS_UNSUPPORTED
+
+
+def brightness_offsets(type_code) -> tuple[int, int]:
+    """(backlight index, status-LED index) in the 0xE010/0xE012 block."""
+    if code_to_int(type_code) in BRIGHTNESS_STATUS_FIRST:
+        return 1, 0
+    return 0, 1
+
+
+def brightness_has_backlight(type_code) -> bool:
+    return code_to_int(type_code) not in BRIGHTNESS_STATUS_FIRST
+
+
+def brightness_payload(type_code, read: list[int], backlight: int | None,
+                       status: int | None) -> list[int] | None:
+    """The 0xE012 payload Studio would send, built from the 0xE011 reply.
+
+    Only the two levels change; every other byte is the panel's own.
+    None if the reply is too short to rebuild it safely.
+    """
+    code = code_to_int(type_code)
+    data = [int(x) & 0xFF for x in read]
+    back_i, status_i = brightness_offsets(type_code)
+    if code in BRIGHTNESS_FANGYUE21:
+        length = 6
+    elif code in BRIGHTNESS_MANUAL_LOCK:
+        length = 4
+    else:
+        length = 3
+    if len(data) < length:
+        return None
+    out = data[:length]
+    if backlight is not None:
+        out[back_i] = max(0, min(100, int(backlight)))
+    if status is not None:
+        out[status_i] = max(0, min(100, int(status)))
+    if code in BRIGHTNESS_DLP:
+        return [out[0], out[1], min(out[2], 1), 0, 1, 0, 0, 0, 0, 0, 0]
+    return out
+
+
 def is_wireless(type_code) -> bool:
     return code_to_int(type_code) in WIRELESS_TYPES
 
@@ -247,6 +337,8 @@ class KeypadColours:
         self._lock = asyncio.Lock()
         # Raw DLP pages as last read: {(subnet, device): {page: bytes}}.
         self._dlp_raw: dict[tuple[int, int], dict[int, bytes]] = {}
+        # Brightness blocks (0xE011 payloads) as last read, per panel.
+        self._bright_raw: dict[tuple[int, int], list[int]] = {}
 
     async def _request(
         self,
@@ -369,6 +461,51 @@ class KeypadColours:
                                 "off": rgb_to_hex(page_data[o + 3 : o + 6]),
                             })
         return {"scheme": scheme, "colors": colours}
+
+    async def read_brightness(self, address, type_code) -> dict | None:
+        """{backlight, status, has_backlight} in %, or None if not available."""
+        if not brightness_supported(type_code):
+            return None
+        address = (int(address[0]), int(address[1]))
+        async with self._lock:
+            data = await self._request(
+                address, OP_BRIGHTNESS_READ, [], **self._timing(type_code)
+            )
+        if not data or len(data) < 3:
+            return None
+        self._bright_raw[address] = data
+        back_i, status_i = brightness_offsets(type_code)
+        return {
+            "backlight": min(100, data[back_i]),
+            "status": min(100, data[status_i]),
+            "has_backlight": brightness_has_backlight(type_code),
+        }
+
+    async def save_brightness(self, address, type_code, backlight, status) -> None:
+        """Write new levels, keeping every other byte of the block as read."""
+        address = (int(address[0]), int(address[1]))
+        raw = self._bright_raw.get(address)
+        if not brightness_supported(type_code) or raw is None:
+            raise ColourError("Read the brightness from the panel first.")
+        payload = brightness_payload(type_code, raw, backlight, status)
+        if payload is None:
+            raise ColourError(
+                "This panel's brightness block is not one this version can "
+                "write safely, so nothing was sent."
+            )
+        async with self._lock:
+            reply = await self._request(
+                address, OP_BRIGHTNESS_WRITE, payload, **self._timing(type_code)
+            )
+        if reply is None:
+            raise ColourError("The panel did not confirm the new brightness.")
+        back_i, status_i = brightness_offsets(type_code)
+        new = list(raw)
+        if backlight is not None:
+            new[back_i] = max(0, min(100, int(backlight)))
+        if status is not None:
+            new[status_i] = max(0, min(100, int(status)))
+        self._bright_raw[address] = new
 
     async def save(self, address, type_code, colours: list[dict]) -> int:
         """Write the given buttons' colours; returns how many were written."""

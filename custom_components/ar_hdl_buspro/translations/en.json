@@ -243,7 +243,9 @@
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
           "replace_channels": "Replace lights/switches already set up on these channels",
-          "use_travel_timer": "Use travel timer (off = HDL system decides)"
+          "use_travel_timer": "Use travel timer (off = HDL system decides)",
+          "show_as": "Show as",
+          "button_status": "Button sends (button only)"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan.",
@@ -302,7 +304,9 @@
           "blue_channel": "Blue channel",
           "white_channel": "White channel (RGBW only, 0 = none)",
           "replace_channels": "Replace lights/switches already set up on these channels",
-          "use_travel_timer": "Use travel timer (off = HDL system decides)"
+          "use_travel_timer": "Use travel timer (off = HDL system decides)",
+          "show_as": "Show as",
+          "button_status": "Button sends (button only)"
         },
         "data_description": {
           "keypad_leds": "Keypad buttons whose LED follows this channel, as subnet.device:button (e.g. 2.1:2, 1.50:4). Filled in by a bus scan.",
@@ -475,6 +479,18 @@
       "options": {
         "rgb": "RGB (3 channels)",
         "rgbw": "RGBW (4 channels)"
+      }
+    },
+    "show_as": {
+      "options": {
+        "switch": "Switch (on/off)",
+        "button": "Button (press to send once)"
+      }
+    },
+    "button_status": {
+      "options": {
+        "on": "ON",
+        "off": "OFF"
       }
     }
   },

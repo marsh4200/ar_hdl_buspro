@@ -160,6 +160,15 @@ from .const import (
     PRESET_NONE,
     ROLE_KEYPAD,
     SENSOR_HAS_HUMIDITY,
+    CONF_IR_ACTION,
+    CONF_UV_BUTTON_STATUS,
+    CONF_UV_SHOW_AS,
+    UV_BUTTON_ON,
+    UV_BUTTON_OFF,
+    UV_BUTTON_STATUSES,
+    UV_SHOW_AS_BUTTON,
+    UV_SHOW_AS_OPTIONS,
+    UV_SHOW_AS_SWITCH,
     SENSOR_KIND_HUMIDITY,
     SENSOR_KIND_ILLUMINANCE,
     SENSOR_KIND_TEMPERATURE,
@@ -177,6 +186,7 @@ from .classify import (
     catalog_family,
     catalog_name,
     channel_plan_from_functions,
+    code_int,
     dlp_ac_protocol,
     dry_contact_zones,
     function_summary,
@@ -186,6 +196,7 @@ from .classify import (
     rcu_plan,
     role_from_functions,
 )
+from . import ir_library
 from .keypad_led import (
     TARGET_TYPE_SINGLE_CHANNEL,
     format_keypad_leds,
@@ -356,6 +367,30 @@ def _universal_switch_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=255, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            # Switch (on/off) or button (one press, no state). Existing
+            # entries have no value stored and stay switches.
+            vol.Optional(
+                CONF_UV_SHOW_AS,
+                default=defaults.get(CONF_UV_SHOW_AS, UV_SHOW_AS_SWITCH),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=UV_SHOW_AS_OPTIONS,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_UV_SHOW_AS,
+                )
+            ),
+            # Button only: send the switch ON or OFF. IR modules run a
+            # separate stored action for each.
+            vol.Optional(
+                CONF_UV_BUTTON_STATUS,
+                default=defaults.get(CONF_UV_BUTTON_STATUS, UV_BUTTON_ON),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=UV_BUTTON_STATUSES,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_UV_BUTTON_STATUS,
                 )
             ),
         }
@@ -921,6 +956,13 @@ def _device_summary(device: dict[str, Any]) -> str:
         ch = device.get(CONF_HVAC_NUMBER)
     if ch is None and dtype == DEVICE_TYPE_RGB_LIGHT:
         ch = "/".join(str(c) for c in _rgb_group_channels(device)) or None
+    if dtype == DEVICE_TYPE_UNIVERSAL_SWITCH and (
+        device.get(CONF_UV_SHOW_AS) == UV_SHOW_AS_BUTTON
+    ):
+        # ON and OFF buttons can share one switch number; tell them apart.
+        dtype = "universal_switch button"
+        if ch is not None:
+            ch = f"{ch} {device.get(CONF_UV_BUTTON_STATUS, UV_BUTTON_ON).upper()}"
     addr = f"{sub}.{dev}" + (f".{ch}" if ch is not None else "")
     return f"{name} [{dtype} @ {addr}]"
 
@@ -2524,6 +2566,12 @@ class ARHDLOptionsFlow(OptionsFlow):
                     # Floor heating module: one climate entity per channel.
                     added += self._import_fh_module(disc, devices)
                     continue
+                if dtype == DEVICE_TYPE_UNIVERSAL_SWITCH and (
+                    code_int(disc.type_code) in ir_library.IR_MODULE_TYPE_CODES
+                ):
+                    # IR module: one named button per configured action.
+                    added += self._import_ir_module(disc, devices)
+                    continue
                 if dtype == DEVICE_TYPE_BINARY_SENSOR and _disc_zones(disc):
                     # Dry-contact input module: one entity per zone.
                     added += self._import_dry_contact_zones(disc, devices)
@@ -3005,6 +3053,72 @@ class ARHDLOptionsFlow(OptionsFlow):
         return added
 
     @staticmethod
+    def _import_ir_module(disc, devices: list[dict[str, Any]]) -> int:
+        """Append the universal switches of an IR module as buttons.
+
+        When the scan read the module's actions (ir_library.py), every
+        configured ON and OFF action becomes its own button, named after what
+        it does ("Lounge IR TV Power"). Otherwise one button for universal
+        switch 1, as before - the user adds the rest by switch number. Entries
+        already configured for the same switch and status are left alone.
+        """
+        base = _disc_name(disc)
+        subnet, device = disc.subnet_id, disc.device_id
+
+        def have(number: int, status: str) -> bool:
+            return any(
+                d.get(CONF_SUBNET_ID) == subnet
+                and d.get(CONF_DEVICE_ID) == device
+                and d.get(CONF_DEVICE_TYPE) == DEVICE_TYPE_UNIVERSAL_SWITCH
+                and int(d.get(CONF_SUB_NUMBER, 0) or 0) == number
+                and d.get(CONF_UV_BUTTON_STATUS, UV_BUTTON_ON) == status
+                for d in devices
+            )
+
+        actions = getattr(disc, "ir_actions", None) or {}
+        ir_devices = getattr(disc, "ir_devices", None) or {}
+        plan: list[tuple[int, str, str | None]] = []
+        # Switch order, ON before OFF.
+        for (number, status), cfg in sorted(
+            actions.items(), key=lambda kv: (kv[0][0], -kv[0][1])
+        ):
+            desc = ir_library.describe_action(cfg, ir_devices)
+            if desc:
+                plan.append((number, UV_BUTTON_ON if status else UV_BUTTON_OFF, desc))
+        if not plan:
+            plan = [(1, UV_BUTTON_ON, None)]
+        on_desc = {n: d for n, st, d in plan if st == UV_BUTTON_ON}
+
+        added = 0
+        for number, status, desc in plan:
+            if have(number, status):
+                continue
+            if desc is None:
+                name = f"{base} switch {number}"
+            elif status == UV_BUTTON_OFF and on_desc.get(number) in (None, desc):
+                # OFF does the same as ON, or ON does nothing: say which one.
+                name = f"{base} {desc} (off)"
+            else:
+                name = f"{base} {desc}"
+            entry = {
+                "id": uuid.uuid4().hex,
+                CONF_DEVICE_TYPE: DEVICE_TYPE_UNIVERSAL_SWITCH,
+                CONF_NAME: name,
+                CONF_SUBNET_ID: subnet,
+                CONF_DEVICE_ID: device,
+                CONF_SUB_NUMBER: number,
+                CONF_UV_SHOW_AS: UV_SHOW_AS_BUTTON,
+                CONF_UV_BUTTON_STATUS: status,
+            }
+            if desc:
+                entry[CONF_IR_ACTION] = (
+                    f"{desc} (universal switch {number} {status.upper()})"
+                )
+            devices.append(entry)
+            added += 1
+        return added
+
+    @staticmethod
     def _build_imported_device(
         disc, dtype: str, channel: int | None = None
     ) -> dict[str, Any]:
@@ -3017,7 +3131,15 @@ class ARHDLOptionsFlow(OptionsFlow):
         """
         name = _disc_name(disc)
         if channel is not None:
-            name = f"{name} ch{channel}"
+            # A universal-switch entity addresses a universal-switch NUMBER,
+            # not a channel (IR modules like the HDL-MIRC04.40 trigger their
+            # stored IR codes by switch number), so name it that way - issue
+            # #17. Only the name changes: the unique_id and the stored
+            # sub_number are as before, so existing entities are untouched.
+            if dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+                name = f"{name} switch {channel}"
+            else:
+                name = f"{name} ch{channel}"
         base: dict[str, Any] = {
             "id": uuid.uuid4().hex,
             CONF_DEVICE_TYPE: dtype,
@@ -3236,6 +3358,17 @@ class ARHDLOptionsFlow(OptionsFlow):
         if user_input is not None:
             updated = _normalize_device_input(dtype, user_input)
             updated["id"] = target["id"]
+            if dtype == DEVICE_TYPE_UNIVERSAL_SWITCH:
+                # Scan-read description isn't on the form; keep it.
+                if CONF_IR_ACTION in target and CONF_IR_ACTION not in updated:
+                    updated[CONF_IR_ACTION] = target[CONF_IR_ACTION]
+                # Switching between switch and button changes the entity's
+                # platform; drop the old registry row so it isn't left
+                # behind as an unavailable duplicate.
+                if target.get(CONF_UV_SHOW_AS, UV_SHOW_AS_SWITCH) != updated.get(
+                    CONF_UV_SHOW_AS, UV_SHOW_AS_SWITCH
+                ):
+                    self._purge_registry_for_device(target)
             if dtype == DEVICE_TYPE_COVER:
                 # Timer settings live on their own screen; keep the stored
                 # values so they come back as defaults when it's shown.

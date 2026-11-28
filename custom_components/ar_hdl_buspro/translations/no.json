@@ -198,7 +198,9 @@
           "blue_channel": "Blå kanal",
           "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
           "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene",
-          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)"
+          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)",
+          "show_as": "Vis som",
+          "button_status": "Knappen sender (kun knapp)"
         },
         "data_description": {
           "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk.",
@@ -251,7 +253,9 @@
           "blue_channel": "Blå kanal",
           "white_channel": "Hvit kanal (kun RGBW, 0 = ingen)",
           "replace_channels": "Erstatt lys/brytere som allerede er satt opp på disse kanalene",
-          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)"
+          "use_travel_timer": "Bruk gangtid-timer (av = HDL-systemet bestemmer)",
+          "show_as": "Vis som",
+          "button_status": "Knappen sender (kun knapp)"
         },
         "data_description": {
           "keypad_leds": "Tastaturknapper der LED-en følger denne kanalen, som subnett.enhet:knapp (f.eks. 2.1:2, 1.50:4). Fylles ut av et bussøk.",
@@ -405,6 +409,18 @@
       "options": {
         "rgb": "RGB (3 kanaler)",
         "rgbw": "RGBW (4 kanaler)"
+      }
+    },
+    "show_as": {
+      "options": {
+        "switch": "Bryter (på/av)",
+        "button": "Knapp (trykk for å sende én gang)"
+      }
+    },
+    "button_status": {
+      "options": {
+        "on": "PÅ",
+        "off": "AV"
       }
     }
   },

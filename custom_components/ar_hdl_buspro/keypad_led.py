@@ -81,6 +81,13 @@ LED_ACK_TIMEOUT = 0.6
 LED_ATTEMPTS = 2
 LED_REPEAT_SECONDS = 1.0
 
+# Every LED write on one bus goes through one paced queue (_LedWriter), at
+# most one frame per LED_FRAME_GAP. An "all off" from Home Assistant used to
+# fire every entity's LED writes - and later all their repeats - in the same
+# instant, on top of the relay commands themselves; the gateway feeds a
+# 9600-baud bus and dropped some, which left LEDs lit over dark lights.
+LED_FRAME_GAP = 0.05
+
 # When a relay/light changes on the BUS (a keypad press, another keypad,
 # logic, a timer), the linked LEDs are set this long after the LAST change,
 # once per delay, each time with the load's live state. Writing at the same
@@ -140,6 +147,135 @@ def _router(hdl) -> _LedAckRouter:
     return router
 
 
+class _LedWriter:
+    """One per bus client: the only place keypad LED frames are sent from.
+
+    * Paced: frames go out one at a time, LED_FRAME_GAP apart, so a burst of
+      LED updates can't swamp the gateway.
+    * Latest state wins: each button is queued once, and what is sent is its
+      desired state at the moment it goes out - never a stale earlier one.
+    * Shared buttons: when several loads are linked to one button, its LED is
+      on while ANY of them is on.
+    * Verified: a button on a keypad that never confirms is sent once more,
+      LED_REPEAT_SECONDS after the queue last went quiet, with its state then.
+      One repeat per burst, however many loads asked.
+    """
+
+    def __init__(self, hdl, router: _LedAckRouter) -> None:
+        self._hdl = hdl
+        self._router = router
+        self.desired: dict[tuple[int, int, int], dict[int, bool]] = {}
+        self._queue: dict[tuple[int, int, int], None] = {}
+        self._waiters: dict[tuple[int, int, int], list[asyncio.Future]] = {}
+        self._verify: dict[tuple[int, int, int], None] = {}
+        self._verify_timer: asyncio.TimerHandle | None = None
+        self._task: asyncio.Task | None = None
+
+    def state(self, link) -> bool:
+        return any(self.desired.get(link, {}).values())
+
+    async def write(self, links, owner: int, on: bool, verify: bool) -> None:
+        """Set `owner`'s view of these buttons and wait until they are sent."""
+        loop = asyncio.get_running_loop()
+        futs = []
+        for link in links:
+            self.desired.setdefault(link, {})[owner] = on
+            self._queue[link] = None
+            fut = loop.create_future()
+            self._waiters.setdefault(link, []).append(fut)
+            futs.append(fut)
+            if verify and link[:2] not in self._router.confirmers:
+                self._verify[link] = None
+        self._kick()
+        if futs:
+            await asyncio.gather(*futs, return_exceptions=True)
+
+    def _kick(self) -> None:
+        if self._task is None or self._task.done():
+            self._task = asyncio.get_running_loop().create_task(self._drain())
+
+    async def _drain(self) -> None:
+        if self._verify_timer is not None:
+            self._verify_timer.cancel()
+            self._verify_timer = None
+        first = True
+        while self._queue:
+            if not first:
+                await asyncio.sleep(LED_FRAME_GAP)
+            first = False
+            link = next(iter(self._queue))
+            del self._queue[link]
+            try:
+                await self._send(link, self.state(link))
+            finally:
+                for fut in self._waiters.pop(link, []):
+                    if not fut.done():
+                        fut.set_result(None)
+        if self._verify:
+            loop = asyncio.get_running_loop()
+            self._verify_timer = loop.call_later(LED_REPEAT_SECONDS, self._repeat)
+
+    def _repeat(self) -> None:
+        self._verify_timer = None
+        links, self._verify = list(self._verify), {}
+        for link in links:
+            self._queue[link] = None
+        if links:
+            self._kick()
+
+    async def _send(self, link, on: bool) -> None:
+        """One button's LED; wait for confirmation only if its keypad gives one."""
+        subnet, device, button = link
+        if (subnet, device) not in self._router.confirmers:
+            await self._frame(link, on)
+            return
+        loop = asyncio.get_running_loop()
+        for attempt in range(1, LED_ATTEMPTS + 1):
+            fut = loop.create_future()
+            self._router.waiting[link] = (on, fut)
+            try:
+                if not await self._frame(link, on):
+                    return
+                await asyncio.wait_for(fut, LED_ACK_TIMEOUT)
+                return
+            except asyncio.TimeoutError:
+                _LOGGER.debug(
+                    "Keypad %s.%s button %s did not confirm LED %s (attempt %s/%s)",
+                    subnet, device, button, "on" if on else "off",
+                    attempt, LED_ATTEMPTS,
+                )
+                if link in self._queue:
+                    return  # a newer state is queued; send that instead
+            finally:
+                entry = self._router.waiting.get(link)
+                if entry is not None and entry[1] is fut:
+                    del self._router.waiting[link]
+
+    async def _frame(self, link, on: bool) -> bool:
+        subnet, device, button = link
+        ctrl = _GenericControl(self._hdl)
+        ctrl.subnet_id, ctrl.device_id = subnet, device
+        ctrl.operate_code = OP_PANEL_CONTROL
+        ctrl.payload = [PANEL_CONTROL_BUTTON_STATUS, button, 1 if on else 0]
+        try:
+            await ctrl.send()
+            return True
+        except Exception as err:  # noqa: BLE001 - LED sync must never break control
+            _LOGGER.debug(
+                "Keypad LED sync to %s.%s button %s failed: %s",
+                subnet, device, button, err,
+            )
+            return False
+
+
+def _writer(hdl) -> _LedWriter:
+    writer = getattr(hdl, "_led_writer", None)
+    if writer is None:
+        writer = _LedWriter(hdl, _router(hdl))
+        hdl._led_writer = writer  # noqa: SLF001
+    return writer
+
+
 class KeypadLedSync:
     """Send 'Control button status' to every keypad button linked to a load."""
 
@@ -152,9 +288,6 @@ class KeypadLedSync:
         # the LEDs after a change on the bus (see follow()).
         self._load: bool | None = None
         self._follow: list[asyncio.TimerHandle] = []
-        # Bumped on every push; an older push still retrying stops as soon
-        # as a newer one starts, so a stale state can never be re-sent.
-        self._gen = 0
         if self._links:
             _router(hdl)
 
@@ -180,81 +313,10 @@ class KeypadLedSync:
         self._last = on
         if getattr(self._hdl, "network_interface", None) is None:
             return
-        self._gen += 1
-        gen = self._gen
-        router = _router(self._hdl)
-        unconfirmed = [
-            link for link in self._links if link[:2] not in router.confirmers
-        ]
-        await asyncio.gather(
-            *(self._write(link, on, gen) for link in self._links),
-            return_exceptions=True,
+        # All LED frames on this bus share one paced queue; see _LedWriter.
+        await _writer(self._hdl).write(
+            self._links, id(self), on, verify=force and repeat
         )
-        if force and repeat and unconfirmed:
-            # No way to know these arrived, so say it once more after the
-            # bus has settled -- unless a newer state has been sent since.
-            loop = asyncio.get_running_loop()
-            loop.call_later(
-                LED_REPEAT_SECONDS,
-                lambda: loop.create_task(self._repeat(unconfirmed, on, gen)),
-            )
-
-    async def _repeat(self, links, on: bool, gen: int) -> None:
-        if gen != self._gen:
-            return
-        for subnet, device, button in links:
-            await self._send_one(subnet, device, button, on)
-
-    async def _send_one(self, subnet, device, button, on: bool) -> None:
-        ctrl = _GenericControl(self._hdl)
-        ctrl.subnet_id, ctrl.device_id = subnet, device
-        ctrl.operate_code = OP_PANEL_CONTROL
-        ctrl.payload = [PANEL_CONTROL_BUTTON_STATUS, button, 1 if on else 0]
-        try:
-            await ctrl.send()
-        except Exception as err:  # noqa: BLE001 - LED sync must never break control
-            _LOGGER.debug(
-                "Keypad LED sync to %s.%s button %s failed: %s",
-                subnet, device, button, err,
-            )
-
-    async def _write(self, link, on: bool, gen: int) -> None:
-        """Write one button's LED; wait for confirmation only if it gives one."""
-        subnet, device, button = link
-        router = _router(self._hdl)
-        if (subnet, device) not in router.confirmers:
-            await self._send_one(subnet, device, button, on)
-            return
-        loop = asyncio.get_running_loop()
-        for attempt in range(1, LED_ATTEMPTS + 1):
-            if gen != self._gen:
-                return  # superseded by a newer state
-            fut = loop.create_future()
-            router.waiting[link] = (on, fut)
-            ctrl = _GenericControl(self._hdl)
-            ctrl.subnet_id, ctrl.device_id = subnet, device
-            ctrl.operate_code = OP_PANEL_CONTROL
-            ctrl.payload = [PANEL_CONTROL_BUTTON_STATUS, button, 1 if on else 0]
-            try:
-                await ctrl.send()
-                await asyncio.wait_for(fut, LED_ACK_TIMEOUT)
-                return
-            except asyncio.TimeoutError:
-                _LOGGER.debug(
-                    "Keypad %s.%s button %s did not confirm LED %s (attempt %s/%s)",
-                    subnet, device, button, "on" if on else "off",
-                    attempt, LED_ATTEMPTS,
-                )
-            except Exception as err:  # noqa: BLE001 - LED sync must never break control
-                _LOGGER.debug(
-                    "Keypad LED sync to %s.%s button %s failed: %s",
-                    subnet, device, button, err,
-                )
-                return
-            finally:
-                entry = router.waiting.get(link)
-                if entry is not None and entry[1] is fut:
-                    del router.waiting[link]
 
     def push_soon(self, state) -> None:
         """Force the LEDs once clicking has settled (debounced).

@@ -405,7 +405,17 @@ async def ws_read(hass, connection, msg) -> None:
         # The keypad has the last word on how many buttons it has.
         keypad["buttons"] = answered
         await hub.async_save()
-    connection.send_result(msg["id"], {**result, "keypad": keypad})
+    # Backlight / status-LED levels. A panel that doesn't answer simply gets
+    # no brightness controls; the colours above still stand.
+    try:
+        brightness = await colours.read_brightness(
+            (keypad["subnet"], keypad["device"]), keypad["type_code"]
+        )
+    except ColourError:
+        brightness = None
+    connection.send_result(
+        msg["id"], {**result, "brightness": brightness, "keypad": keypad}
+    )
 
 
 @websocket_api.websocket_command({
@@ -453,6 +463,42 @@ async def ws_save(hass, connection, msg) -> None:
 
 
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/manager/brightness",
+    vol.Required("entry_id"): str,
+    vol.Required("key"): str,
+    vol.Optional("backlight"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+    vol.Optional("status"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_brightness(hass, connection, msg) -> None:
+    """Write the panel's backlight and status-LED brightness (0-100 %)."""
+    hub = await _resolve(hass, connection, msg)
+    if hub is None:
+        return
+    keypad = _keypad(hub, connection, msg)
+    if keypad is None:
+        return
+    reason = hub.blocked()
+    if reason:
+        connection.send_error(msg["id"], "offline", reason)
+        return
+    try:
+        await hub.colours().save_brightness(
+            (keypad["subnet"], keypad["device"]), keypad["type_code"],
+            msg.get("backlight"), msg.get("status"),
+        )
+    except ColourError as err:
+        connection.send_error(msg["id"], "no_answer", str(err))
+        return
+    _LOGGER.info(
+        "AR HDL Manager: brightness of keypad %s set to backlight %s%%, status LEDs %s%%",
+        keypad["address"], msg.get("backlight"), msg.get("status"),
+    )
+    connection.send_result(msg["id"], {})
+
+
+@websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/manager/led",
     vol.Required("entry_id"): str,
     vol.Required("key"): str,
@@ -492,7 +538,7 @@ async def async_setup_manager(hass: HomeAssistant, version: str = "") -> None:
     hass.data[DATA_MANAGER_SETUP] = True
     for command in (
         ws_hubs, ws_keypads, ws_scan, ws_add, ws_remove, ws_rename,
-        ws_read, ws_save, ws_led,
+        ws_read, ws_save, ws_led, ws_brightness,
     ):
         websocket_api.async_register_command(hass, command)
     try:
